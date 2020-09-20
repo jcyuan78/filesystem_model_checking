@@ -1,5 +1,6 @@
 ﻿#include "pch.h"
 #include "..\include\yaffs_driver.h"
+#include <boost\cast.hpp>
 
 LOCAL_LOGGER_ENABLE(L"nand_driver", LOGGER_LEVEL_DEBUGINFO);
 
@@ -156,7 +157,7 @@ bool CNandDriverFile::WriteChunk(int nand_chunk, const BYTE * data, size_t data_
 	// add internal log, for power test
 	PushLog(CNandLog::LOG_WRITE_CHUNK, nand_chunk);
 
-	size_t offset = nand_chunk * m_page_size;
+	UINT32 offset = nand_chunk * m_page_size;
 	DWORD written = 0;
 	EnterCriticalSection(&m_file_lock);
 	memcpy_s(m_block_buf, m_data_size, data, data_len);
@@ -205,7 +206,7 @@ bool CNandDriverFile::ReadChunk(int nand_chunk, BYTE * data, size_t data_len,
 	BYTE * oob, size_t oob_len, ECC_RESULT & ecc_result)
 {
 	JCASSERT(m_file && (data_len +oob_len)<=(int)m_page_size && m_block_buf);
-	size_t offset = nand_chunk * m_page_size;
+	UINT32 offset = nand_chunk * m_page_size;
 	DWORD read = 0;
 	EnterCriticalSection(&m_file_lock);
 	SetFilePointer(m_file, offset, NULL, FILE_BEGIN);

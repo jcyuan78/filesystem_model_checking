@@ -374,7 +374,7 @@ bool CFsTesterApp::FullTest(void)
 		// show stack
 		TEST_LOG(L"\n\n=== result ===\n");
 		TEST_LOG(L"  Test failed\n [err] test failed with error: %s\n", err.WhatT());
-		TEST_LOG(L"\n=== statck ===\n", err.WhatT());
+		TEST_LOG(L"\n=== statck ===\n");
 		for (int dd = 0; dd <= depth; ++dd)
 		{
 			fwprintf_s(m_log_file, L"stacks[%d]:\n", dd);
@@ -435,11 +435,11 @@ bool CFsTesterApp::FsOperate(IFileSystem * fs, CReferenceFs & ref, const FS_OP *
 	case DELETE_DIR:	break;
 	case MOVE:			break;
 	case OVER_WRITE:	
-		swscanf_s(op->param1.c_str(), L"%d", &len);
+		swscanf_s(op->param1.c_str(), L"%zd", &len);
 		res = TestWrite(fs, ref, true, op->path, len);
 		break;
 	case APPEND_FILE:
-		swscanf_s(op->param1.c_str(), L"%d", &len);
+		swscanf_s(op->param1.c_str(), L"%zd", &len);
 		res = TestWrite(fs, ref, false, op->path, len);
 		break;
 	case DEMOUNT_MOUNT:
@@ -471,7 +471,7 @@ bool CFsTesterApp::TestMount(IFileSystem * fs, CReferenceFs & ref)
 bool CFsTesterApp::TestWrite(IFileSystem * fs, CReferenceFs & ref, bool overwrite, const std::wstring & path, size_t len)
 {
 	len &= ~3;		// DWORD对齐
-	TEST_LOG(L"[OP](%d) %s, path=%s, size=%d", m_op_id++,
+	TEST_LOG(L"[OP](%d) %s, path=%s, size=%zd", m_op_id++,
 		overwrite ? L"OVER WRITE" : L"APPEND", path.c_str(), len);
 
 	jcvos::auto_interface<IFileInfo> file;
@@ -503,11 +503,11 @@ bool CFsTesterApp::TestWrite(IFileSystem * fs, CReferenceFs & ref, bool overwrit
 	DWORD written = 0;
 	size_t new_size = offset + len;
 	file->SetEndOfFile(new_size);
-	file->DokanWriteFile(buf, len, written, offset);
+	file->DokanWriteFile(buf, boost::numeric_cast<DWORD>(len), written, offset);
 	DWORD checksum = AppendChecksum(cur_checksum, buf, len);
 	ref.UpdateFile(path, checksum, new_size);
 	file->CloseFile();
-	TEST_LOG(L"\t current size=%d, new size=%d", info.nFileSizeLow, new_size);
+	TEST_LOG(L"\t current size=%d, new size=%zd", info.nFileSizeLow, new_size);
 	TEST_CLOSE_LOG;
 	return true;
 }
@@ -522,7 +522,7 @@ bool CFsTesterApp::TestPower(IFileSystem * fs, CReferenceFs & ref)
 	INandDriver * nand = dynamic_cast<INandDriver*>(m_dev);
 	if (!nand) THROW_ERROR(ERR_APP, L"the drive does not support NAND");
 #if 1
-	int log_num = nand->GetLogNumber();
+	size_t log_num = nand->GetLogNumber();
 	if (log_num == 0)
 	{
 		TEST_LOG(L"[OP](%d) POWER, backlog 0,", m_op_id++);
@@ -531,7 +531,7 @@ bool CFsTesterApp::TestPower(IFileSystem * fs, CReferenceFs & ref)
 	{
 		int roll_back = rand() % log_num;
 		nand->BackLog(roll_back);
-		TEST_LOG(L"[OP](%d) POWER, backlog %d / %d,", m_op_id++, roll_back, log_num);
+		TEST_LOG(L"[OP](%d) POWER, backlog %d / %zd,", m_op_id++, roll_back, log_num);
 		LOG_NOTICE(L"roll back log %d", roll_back);
 	}
 #endif
@@ -592,7 +592,7 @@ bool CFsTesterApp::Rollback(IFileSystem * fs, CReferenceFs & ref, const FS_OP * 
 		if (!br || !file) THROW_ERROR(ERR_USER, L"failed on opening file, fn=%s", op->path.c_str());
 		BY_HANDLE_FILE_INFORMATION info;
 		file->GetFileInformation(&info);
-		TEST_LOG(L"\t cur_size=%d, org_size=%d", info.nFileSizeLow, cur_len);
+		TEST_LOG(L"\t cur_size=%d, org_size=%zd", info.nFileSizeLow, cur_len);
 
 		file->SetEndOfFile(0);
 		file->CloseFile();
@@ -613,7 +613,7 @@ bool CFsTesterApp::Rollback(IFileSystem * fs, CReferenceFs & ref, const FS_OP * 
 		if (!br || !file) THROW_ERROR(ERR_USER, L"failed on opening file, fn=%s", op->path.c_str());
 		BY_HANDLE_FILE_INFORMATION info;
 		file->GetFileInformation(&info);
-		TEST_LOG(L"\t cur_size=%d, org_size=%d", info.nFileSizeLow, cur_len);
+		TEST_LOG(L"\t cur_size=%d, org_size=%zd", info.nFileSizeLow, cur_len);
 
 		file->SetEndOfFile(cur_len);
 		file->CloseFile();
@@ -654,7 +654,7 @@ bool CFsTesterApp::Verify(const CReferenceFs & ref, IFileSystem * fs)
 			ref.GetFileInfo(ref_file, ref_checksum, ref_len);
 			BY_HANDLE_FILE_INFORMATION info;
 			file->GetFileInformation(&info);
-			TEST_LOG(L" ref size=%d, file size=%d, checksum=0x%08X", ref_len, info.nFileSizeLow, ref_checksum);
+			TEST_LOG(L" ref size=%zd, file size=%d, checksum=0x%08X", ref_len, info.nFileSizeLow, ref_checksum);
 			if (info.nFileSizeLow == 0)
 			{	// 有可能是over write的roll back造成的，忽略比较
 				TEST_LOG(L" ignor comparing");
@@ -665,7 +665,7 @@ bool CFsTesterApp::Verify(const CReferenceFs & ref, IFileSystem * fs)
 				if (ref_len != info.nFileSizeLow) THROW_ERROR(ERR_USER, L"file length does not match ref=%d, file=%d", ref_len, info.nFileSizeLow);
 				jcvos::auto_array<char> buf(ref_len);
 				DWORD read = 0;
-				file->DokanReadFile(buf, ref_len, read, 0);
+				file->DokanReadFile(buf, boost::numeric_cast<DWORD>(ref_len), read, 0);
 
 				DWORD checksum = 0;
 				checksum = AppendChecksum(0, buf, ref_len);
@@ -716,7 +716,7 @@ bool CTestState::EnumerateOp(void)
 
 		if (isdir)
 		{	// 目录
-			int child_num = ~len;
+			size_t child_num = ~len;
 			if (child_num >= MAX_CHILD_NUM) continue;
 
 			wchar_t fn[3];	//文件名，随机产生2字符
@@ -736,19 +736,19 @@ bool CTestState::EnumerateOp(void)
 			if (len == 0)
 			{	// 空文件
 				size_t len = rand() * MAX_FILE_SIZE / RAND_MAX;
-				swprintf_s(str_len, L"%d", len);
+				swprintf_s(str_len, L"%zd", len);
 				FS_OP op1(APPEND_FILE, path, str_len);
 				m_ops.push_back(op1);
 			}
 			else
 			{
 				size_t len = rand() * MAX_FILE_SIZE / RAND_MAX;
-				swprintf_s(str_len, L"%d", len);
+				swprintf_s(str_len, L"%zd", len);
 				FS_OP op1(APPEND_FILE, path, str_len);
 				m_ops.push_back(op1);
 
 				len = rand() * MAX_FILE_SIZE / RAND_MAX;
-				swprintf_s(str_len, L"%d", len);
+				swprintf_s(str_len, L"%zd", len);
 				FS_OP op2(OVER_WRITE, path, str_len);
 				m_ops.push_back(op2);
 			}
@@ -780,7 +780,7 @@ void CTestState::OutputState(FILE * log_file)
 		m_ref_fs.GetFileInfo(ref_file, ref_checksum, ref_len);
 		fwprintf_s(log_file, L"<%s> %s : ", dir ? L"dir " : L"file", path.c_str());
 		if (dir)	fwprintf_s(log_file, L"children=%d\n", ref_checksum);
-		else		fwprintf_s(log_file, L"size=%d, checksum=0x%08X\n", ref_len, ref_checksum);
+		else		fwprintf_s(log_file, L"size=%zd, checksum=0x%08X\n", ref_len, ref_checksum);
 
 	}
 	// output op

@@ -12,7 +12,7 @@ void CReferenceFs::Initialize(void)
 	m_ref.insert(std::make_pair(L"\\", 0));
 	//	m_ref.insert(std::make_pair(L"\\", -1));
 
-	for (size_t ii = 1; ii < MAX_FILE_NUM; ++ii)
+	for (UINT32 ii = 1; ii < MAX_FILE_NUM; ++ii)
 	{
 		m_files[ii].m_checksum = ii + 1;
 	}
@@ -45,7 +45,7 @@ bool CReferenceFs::AddPath(const std::wstring & path, bool dir)
 	wcscpy_s(obj->m_fn, path.c_str());
 
 
-	LOG_DEBUG(L"this = 0x%08X", (UINT32)(this));
+	LOG_DEBUG(L"this = 0x%08p", this);
 	if (dir)
 	{
 		//m_ref.insert(std::make_pair(path, -1));
@@ -123,7 +123,7 @@ CReferenceFs::CRefFile * CReferenceFs::FindFile(const std::wstring & path)
 
 void CReferenceFs::RemoveFile(const std::wstring & path)
 {
-	LOG_DEBUG(L"this = 0x%08X", (UINT32)(this));
+	LOG_DEBUG(L"this = 0x%08p", this);
 	LOG_DEBUG(L"remove dir/file %s", path.c_str());
 	UINT obj_id = FindFileIndex(path);
 	if (obj_id != (UINT)(-1))
