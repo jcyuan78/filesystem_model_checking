@@ -1,0 +1,1 @@
+cp *.lib "vld.package"

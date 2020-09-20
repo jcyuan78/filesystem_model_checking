@@ -1,0 +1,239 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="DEBUG_DYNAMIC|Win32">
+      <Configuration>DEBUG_DYNAMIC</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="RELEASE_DYNAMIC|Win32">
+      <Configuration>RELEASE_DYNAMIC</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="DEBUG_DYNAMIC|x64">
+      <Configuration>DEBUG_DYNAMIC</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="RELEASE_DYNAMIC|x64">
+      <Configuration>RELEASE_DYNAMIC</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="source\dllmain.cpp" />
+    <ClCompile Include="source\os_adaptor.c" />
+    <ClCompile Include="source\pch.cpp" />
+    <ClCompile Include="source\yaffs_direct.cpp" />
+    <ClCompile Include="source\yaffs_factory.cpp" />
+    <ClCompile Include="source\yaffs_object.cpp" />
+    <ClCompile Include="yaffs-guts\yaffsfs.c" />
+    <ClCompile Include="yaffs-guts\yaffs_allocator.c" />
+    <ClCompile Include="yaffs-guts\yaffs_attribs.c" />
+    <ClCompile Include="yaffs-guts\yaffs_bitmap.c" />
+    <ClCompile Include="yaffs-guts\yaffs_checkptrw.c" />
+    <ClCompile Include="yaffs-guts\yaffs_ecc.c" />
+    <ClCompile Include="yaffs-guts\yaffs_endian.c" />
+    <ClCompile Include="yaffs-guts\yaffs_guts.c" />
+    <ClCompile Include="yaffs-guts\yaffs_hweight.c" />
+    <ClCompile Include="yaffs-guts\yaffs_nameval.c" />
+    <ClCompile Include="yaffs-guts\yaffs_nand.c" />
+    <ClCompile Include="yaffs-guts\yaffs_packedtags2.c" />
+    <ClCompile Include="yaffs-guts\yaffs_summary.c" />
+    <ClCompile Include="yaffs-guts\yaffs_tagsmarshall.c" />
+    <ClCompile Include="yaffs-guts\yaffs_verify.c" />
+    <ClCompile Include="yaffs-guts\yaffs_yaffs1.c" />
+    <ClCompile Include="yaffs-guts\yaffs_yaffs2.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="source\framework.h" />
+    <ClInclude Include="source\pch.h" />
+    <ClInclude Include="source\yaffs_direct.h" />
+    <ClInclude Include="source\yaffs_factory.h" />
+    <ClInclude Include="source\yaffs_object.h" />
+    <ClInclude Include="yaffs-guts\yaffscfg.h" />
+    <ClInclude Include="yaffs-guts\yaffsfs.h" />
+    <ClInclude Include="yaffs-guts\yaffs_allocator.h" />
+    <ClInclude Include="yaffs-guts\yaffs_attribs.h" />
+    <ClInclude Include="yaffs-guts\yaffs_bitmap.h" />
+    <ClInclude Include="yaffs-guts\yaffs_checkptrw.h" />
+    <ClInclude Include="yaffs-guts\yaffs_ecc.h" />
+    <ClInclude Include="yaffs-guts\yaffs_endian.h" />
+    <ClInclude Include="yaffs-guts\yaffs_getblockinfo.h" />
+    <ClInclude Include="yaffs-guts\yaffs_guts.h" />
+    <ClInclude Include="yaffs-guts\yaffs_hweight.h" />
+    <ClInclude Include="yaffs-guts\yaffs_list.h" />
+    <ClInclude Include="yaffs-guts\yaffs_nameval.h" />
+    <ClInclude Include="yaffs-guts\yaffs_nand.h" />
+    <ClInclude Include="yaffs-guts\yaffs_osglue.h" />
+    <ClInclude Include="yaffs-guts\yaffs_packedtags2.h" />
+    <ClInclude Include="yaffs-guts\yaffs_summary.h" />
+    <ClInclude Include="yaffs-guts\yaffs_tagscompat.h" />
+    <ClInclude Include="yaffs-guts\yaffs_tagsmarshall.h" />
+    <ClInclude Include="yaffs-guts\yaffs_trace.h" />
+    <ClInclude Include="yaffs-guts\yaffs_verify.h" />
+    <ClInclude Include="yaffs-guts\yaffs_yaffs1.h" />
+    <ClInclude Include="yaffs-guts\yaffs_yaffs2.h" />
+    <ClInclude Include="yaffs-guts\ydirectenv.h" />
+    <ClInclude Include="yaffs-guts\yportenv.h" />
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>15.0</VCProjectVersion>
+    <ProjectGuid>{553CDDCA-DDDE-4C92-AFDA-37F56B99CC7A}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>yaffs2direct</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0.17763.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v141</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v141</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v141</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v141</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="..\..\..\build\external_libs.props" />
+    <Import Project="..\..\..\jcvos2\support_jcvos.props" />
+    <Import Project="..\..\..\extlib\boost\support_boost.props" />
+    <Import Project="..\..\filesystem\dokanfs-lib\support_dokanfs.props" />
+    <Import Project="..\..\build_app.props" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="..\..\..\build\external_libs.props" />
+    <Import Project="..\..\..\jcvos2\support_jcvos.props" />
+    <Import Project="..\..\..\extlib\boost\support_boost.props" />
+    <Import Project="..\..\filesystem\dokanfs-lib\support_dokanfs.props" />
+    <Import Project="..\..\build_app.props" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="..\..\..\build\external_libs.props" />
+    <Import Project="..\..\..\jcvos2\support_jcvos.props" />
+    <Import Project="..\..\..\extlib\boost\support_boost.props" />
+    <Import Project="..\..\filesystem\dokanfs-lib\support_dokanfs.props" />
+    <Import Project="..\..\build_app.props" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="..\..\..\build\external_libs.props" />
+    <Import Project="..\..\..\jcvos2\support_jcvos.props" />
+    <Import Project="..\..\..\extlib\boost\support_boost.props" />
+    <Import Project="..\..\filesystem\dokanfs-lib\support_dokanfs.props" />
+    <Import Project="..\..\build_app.props" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|Win32'">
+    <LinkIncremental>true</LinkIncremental>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">
+    <LinkIncremental>true</LinkIncremental>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|Win32'">
+    <LinkIncremental>false</LinkIncremental>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'">
+    <LinkIncremental>false</LinkIncremental>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|Win32'">
+    <ClCompile>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>CONFIG_YAFFS_DEFINES_TYPES;CONFIG_YAFFS_PROVIDE_DEFS;CONFIG_YAFFS_DIRECT;NO_inline;WIN32;_DEBUG;YAFFS2DIRECT_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <AdditionalIncludeDirectories>..\nand-driver;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableUAC>false</EnableUAC>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">
+    <ClCompile>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>CONFIG_YAFFS_DEFINES_TYPES;CONFIG_YAFFS_PROVIDE_DEFS;CONFIG_YAFFS_DIRECT;NO_inline;WIN64;_DEBUG;YAFFS2DIRECT_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>false</ConformanceMode>
+      <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <AdditionalIncludeDirectories>..\nand-driver;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableUAC>false</EnableUAC>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|Win32'">
+    <ClCompile>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>WIN32;NDEBUG;YAFFS2DIRECT_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableUAC>false</EnableUAC>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'">
+    <ClCompile>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>NDEBUG;YAFFS2DIRECT_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableUAC>false</EnableUAC>
+    </Link>
+  </ItemDefinitionGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
