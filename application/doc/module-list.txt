@@ -1,0 +1,41 @@
+[app] filesystem/dokan-app
+提供虚拟文件系统的实现。实现基于dokan库。文件系统基于IFileSystem接口。
+
+[lib] filesystem/dokanfs-lib
+基于IFileSystem接口的基础类库
+
+[app] filesystem/dokanfs-tester
+一个非模型检查的文件系统测试工具。
+在同一个文件系统的实体上，进行往复操作的测试工具。
+被测文件系统基于IFileSystem接口，不需要dokan支持
+
+[app] filesystem_model_check/fat_io_dokan
+
+
+[lib] filesystem_model_check/fat_io_lib
+FatIO的VC移植版本
+
+filesystem_model_check/fat-dokan
+
+
+[app] filesystem_model_check/fs-searching
+实验程序，用于
+
+[app] filesystem_model_check/fs-tester
+基于模型检查的文件系统测试工具。模拟Promela模型验证中的tester driver module。用于计算不同算法下的状态数量。
+通过深度优先算法枚举所有可能的操作。
+
+filesystem_model_check/journal_device
+filesystem_model_check/jpf-check
+[app] filesystem_model_check/mini-fat
+基于IFileSystem接口的，缩小版的fat文件系统。缩小包括了sector的大小。
+fat代码部分移植于FatIO库，mini-fat本身不依赖于FatIO库
+
+filesystem_model_check/promela
+
+
+flash-filesystem/yaffs2-lib
+[dll] 从yaffs2移植过来的版本。基于dokan-if的dll封装，可用于测试。
+
+flash-filesystem/yaffs2-direct
+[dll] 原生yaffs2文件系统，加上dokan-if的dll封装，可用于测试。
