@@ -1,0 +1,6 @@
+LIBRARY	"fat_io_dokan"
+
+EXPORTS
+	GetFactory	PRIVATE
+;	SECTIONS
+;	Shared READ WRITE SHARED
