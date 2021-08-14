@@ -8,7 +8,7 @@
 #include <vector>
 
 //#include "../disk_wrapper_ioctl.h"
-#include <crashmonkey_drive.h>
+#include <crashmonkey_comm.h>
 
 // 内部处理，忽略所有大小端
 inline uint64_t htobe64(uint64_t a)
@@ -35,6 +35,8 @@ namespace fs_testing {
 
 		class disk_write
 		{
+		public:
+			friend class CWrapperDisk;
 		public:
 			disk_write();
 			disk_write(const struct disk_write_op_meta& m, const BYTE* d);
@@ -72,7 +74,13 @@ namespace fs_testing {
 			std::shared_ptr<BYTE> get_data();
 			void clear_data();
 
-		private:
+			void set_data(std::shared_ptr<BYTE>& ptr) { data = ptr; }
+			const wchar_t * get_message(void)
+			{
+				if (metadata.size > 0)				return reinterpret_cast<wchar_t*>(data.get());
+				else return L"";
+			}
+		protected:
 			std::shared_ptr<BYTE> data;
 		};
 
@@ -99,15 +107,13 @@ namespace fs_testing {
 				unsigned int data_offset);
 
 			void* GetData();
-			// Denotes whether or not this represents the entire epoch_op and not just one
-			// sector in it.
+			// Denotes whether or not this represents the entire epoch_op and not just one sector in it.
 			bool full_bio;
 			unsigned int bio_index;
-			// If this is a single sector in the epoch_op, which sector in that epoch_op
-			// is it?
+			// If this is a single sector in the epoch_op, which sector in that epoch_op is it?
 			unsigned int bio_sector_index;
-			unsigned int disk_offset;
-			unsigned int size;
+			unsigned int disk_offset;	// byte 单位
+			unsigned int size;	// byte 单位
 
 		private:
 			// Pointer to the start of the data region for this data. There could still be

@@ -1,33 +1,18 @@
 #include "pch.h"
-//#include <endian.h>
-//#include <errno.h>
-//#include <fcntl.h>
-//#include <string.h>
-//#include <sys/mount.h>
-//#include <sys/stat.h>
-//#include <sys/types.h>
-//#include <unistd.h>
-//
-//#include <cassert>
-//#include <cerrno>
-//#include <cstdio>
-//#include <cstdlib>
-//
-//#include <algorithm>
+
+
 #include <chrono>
 //#include <fstream>
 #include <iomanip>
-//#include <iostream>
-//#include <memory>
-//#include <string>
-//#include <utility>
 
 #include "FsSpecific.h"
 #include "Tester.h"
 //#include "../disk_wrapper_ioctl.h"
-#include <crashmonkey_drive.h>
+#include <crashmonkey_comm.h>
 
 #include "DiskContents.h"
+
+#include <boost/cast.hpp>
 
 LOCAL_LOGGER_ENABLE(L"crashmonke.tester", LOGGER_LEVEL_DEBUGINFO);
 
@@ -106,21 +91,29 @@ using fs_testing::utils::disk_write;
 using fs_testing::utils::DiskMod;
 using fs_testing::utils::DiskWriteData;
 
-Tester::Tester(const size_t dev_size, const unsigned int sector_size, const bool verbosity)
-	: device_size(dev_size), sector_size_(sector_size), verbose(verbosity)
+Tester::Tester(const size_t dev_size, const unsigned int sector_size, const bool verbosity, std::wostream& log)
+	: m_device_size(dev_size), sector_size_(sector_size), verbose(verbosity), m_log_stream(log)
 {
-	snapshot_path_ = L"/dev/cow_ram_snapshot1_0";
+	m_snapshot_path_ = L"/dev/cow_ram_snapshot1_0";
 	m_cow_brd = nullptr;
 	m_ioctl_dev = nullptr;
 	m_ram_drive = nullptr;
+	m_device_raw = nullptr;
+	m_fs = nullptr;
 }
 
 Tester::~Tester()
 {
+	cleanup_harness();
 	//if (fs_specific_ops_ != NULL) { delete fs_specific_ops_; }
 	RELEASE(m_cow_brd);
 	RELEASE(m_ioctl_dev);
 	RELEASE(m_ram_drive);
+
+	RELEASE(m_device_raw);
+	RELEASE(m_snapshot_dev);
+
+	RELEASE(m_fs);
 }
 
 void Tester::set_fs_type(const std::wstring type)
@@ -130,10 +123,26 @@ void Tester::set_fs_type(const std::wstring type)
 	assert(fs_specific_ops_ != NULL);
 }
 
-void Tester::set_device(const std::wstring device_path)
+void Tester::set_device(const std::wstring device_path, IVirtualDisk * dev)
 {
+	// m_cow_brd应该已经在insert_cow_brd()中被设置
+	if (m_cow_brd == NULL)  THROW_ERROR(ERR_APP, L"raw device cannot be null");
+	//m_cow_brd = dev;
+	//m_cow_brd->AddRef();
+
+	// 从CCrashMonkeyCtrl获取raw device
+	m_cow_brd->IoCtrl(0, COW_BRD_GET_SNAPSHOT, &m_device_raw);
+	if (!m_device_raw) THROW_ERROR(ERR_APP, L"failed on getting raw device from crash monkey ctrl");
+	//m_device_raw = dev;
+	//m_device_raw->AddRef();
+
+	// 获取 snapshot device
+
+	m_cow_brd->IoCtrl(0, COW_BRD_GET_SNAPSHOT+1, &m_snapshot_dev);
+	if (!m_snapshot_dev) THROW_ERROR(ERR_APP, L"failed on getting snapshot[1] from crash monkey ctrl");
+
 	device_raw = device_path;
-	device_mount = device_raw;
+	device_mount = device_path;
 }
 
 void Tester::set_flag_device(const std::wstring device_path)
@@ -160,9 +169,9 @@ unsigned int Tester::GetPostRunDelay()
 int Tester::clone_device()
 {
 	JCASSERT(m_cow_brd);
-	std::wcout << L"cloning device " << device_raw << std::endl;
+	LOG_NOTICE(L"Clone raw device: %s", device_raw.c_str());
 	// <YUAN> COW_BRD_SNAPSHOT：只是清除writable标志。
-//        if (ioctl(cow_brd_fd, COW_BRD_SNAPSHOT) < 0)
+	//<YUAN> 此时m_cow_drd不能是snapshot, m_cow_brd为CCrashMonkeyCtrl，IoCtrl都会pass给他的raw device
 	if (m_cow_brd->IoCtrl(0, COW_BRD_SNAPSHOT, nullptr) < 0) { return DRIVE_CLONE_ERR; }
 	return SUCCESS;
 }
@@ -174,10 +183,7 @@ int Tester::clone_device_restore(IVirtualDisk* snapshot, bool reread)
 {
 	JCASSERT(snapshot);
 	//        if (ioctl(snapshot_fd, COW_BRD_RESTORE_SNAPSHOT) < 0) {
-	if (snapshot->IoCtrl(0, COW_BRD_RESTORE_SNAPSHOT, nullptr) < 0)
-	{
-		return DRIVE_CLONE_RESTORE_ERR;
-	}
+	if (snapshot->IoCtrl(0, COW_BRD_RESTORE_SNAPSHOT, nullptr) < 0)	{	return DRIVE_CLONE_RESTORE_ERR;	}
 	int res;
 	if (reread)
 	{   // TODO(ashmrtn): Fixme by moving me to a better place.
@@ -197,30 +203,36 @@ int Tester::clone_device_restore(IVirtualDisk* snapshot, bool reread)
 
 int Tester::mount_device_raw(const wchar_t* opts)
 {
-	if (device_mount.empty())
-	{
-		return MNT_BAD_DEV_ERR;
-	}
-	return mount_device(device_mount.c_str(), opts);
+	if (device_mount.empty())	{	return MNT_BAD_DEV_ERR;	}
+	return mount_device(device_mount.c_str(), opts, m_device_raw);
 }
 
 int Tester::mount_wrapper_device(const wchar_t* opts)
 {
-	// TODO(ashmrtn): Make some sort of boolean that tracks if we should use the
-	// first parition or not?
+	// TODO(ashmrtn): Make some sort of boolean that tracks if we should use the first parition or not?
 	std::wstring dev(MNT_WRAPPER_DEV_PATH);
 	//dev += "1";
-	return mount_device(dev.c_str(), opts);
+	return mount_device(dev.c_str(), opts, m_ioctl_dev);
 }
 
-int Tester::mount_device(const wchar_t* dev, const wchar_t* opts)
+int Tester::mount_device(const wchar_t* dev_name, const wchar_t* opts, IVirtualDisk * dev)
 {
-	LOG_NOTICE(L"mount device %s to %s, opts=%s", dev, MNT_MNT_POINT, opts);
-	//if (mount(dev, MNT_MNT_POINT, fs_type.c_str(), 0, (void*)opts) < 0) 
-	//{
-	//    disk_mounted = false;
-	//    return MNT_MNT_ERR;
-	//}
+	LOG_NOTICE(L"mount device %s to %s, opts=%s", dev_name, MNT_MNT_POINT, opts);
+
+	JCASSERT(m_fs && dev);
+	bool br = m_fs->ConnectToDevice(dev);
+	if (!br)
+	{
+		LOG_ERROR(L"[err] failed on connecting device");
+		return MNT_MNT_ERR;
+	}
+	br = m_fs->Mount();
+	if (!br)
+	{
+		LOG_ERROR(L"[err] failed on moundting device");
+		return MNT_MNT_ERR;
+	}
+
 	disk_mounted = true;
 	return SUCCESS;
 }
@@ -234,14 +246,17 @@ int Tester::umount_device()
 	//        return MNT_UMNT_ERR;
 	//    }
 	//}
+	if (m_fs == NULL) return SUCCESS;
+	m_fs->Unmount();
+	m_fs->Disconnect();
 	disk_mounted = false;
 	return SUCCESS;
 }
 
 int Tester::mount_snapshot()
 {
-	LOG_NOTICE(L"mount snapshot %s to %s", snapshot_path_.c_str(), MNT_MNT_POINT);
-	//if (mount(snapshot_path_.c_str(), MNT_MNT_POINT, fs_type.c_str(), 0, NULL) < 0) {
+	LOG_NOTICE(L"mount snapshot %s to %s", m_snapshot_path_.c_str(), MNT_MNT_POINT);
+	//if (mount(m_snapshot_path_.c_str(), MNT_MNT_POINT, fs_type.c_str(), 0, NULL) < 0) {
 	//    return MNT_MNT_ERR;
 	//}
 	return SUCCESS;
@@ -258,26 +273,24 @@ int Tester::umount_snapshot()
 
 int Tester::mapCheckpointToSnapshot(int checkpoint)
 {
-	if (checkpointToSnapshot_.find(checkpoint) != checkpointToSnapshot_.end())
-	{
-		return -1;
-	}
-	checkpointToSnapshot_[checkpoint] = snapshot_path_;
-	std::wcout << L"Mapping " << snapshot_path_ << L" to checkpoint " << checkpoint << std::endl;
+	if (checkpointToSnapshot_.find(checkpoint) != checkpointToSnapshot_.end())	{	return -1;	}
+	checkpointToSnapshot_[checkpoint] = m_snapshot_path_;
+	std::wostream& logfile = m_log_stream;
+	MESSAGE(L"Mapping " << m_snapshot_path_ << L" to checkpoint " << checkpoint << std::endl);
 	return 0;
 }
 
 int Tester::getNewDiskClone(int checkpoint)
 {
 	std::wstring new_snapshot_path;
-	std::wstring path(snapshot_path_);
+	std::wstring path(m_snapshot_path_);
 	std::wstring device_number = path.substr(path.rfind('_'));
 	std::wstring snapshot_number = std::to_wstring(checkpoint + 2);
 	new_snapshot_path = L"/dev/cow_ram_snapshot";
 	new_snapshot_path += snapshot_number;
 	new_snapshot_path += device_number;
-	// Finally set snapshot_path_ to the new snapshot path
-	snapshot_path_ = new_snapshot_path;
+	// Finally set m_snapshot_path_ to the new snapshot path
+	m_snapshot_path_ = new_snapshot_path;
 	std::wstring command = fs_specific_ops_->GetNewUUIDCommand(new_snapshot_path);
 	LOG_NOTICE(L"invoke sys cmd: %s", command.c_str());
 	_wsystem(command.c_str());
@@ -286,19 +299,15 @@ int Tester::getNewDiskClone(int checkpoint)
 
 void Tester::getCompleteRunDiskClone()
 {
-	snapshot_path_ = checkpointToSnapshot_[0];
+	m_snapshot_path_ = checkpointToSnapshot_[0];
 }
 
 int Tester::insert_cow_brd(IVirtualDisk* cow_brd)
 {
-	JCASSERT(m_cow_brd == NULL);
-	//m_cow_brd = cow_brd;
-	//m_cow_brd->AddRef();
-
-	JCASSERT(0);	//<YUAN> _TO_BE_IMPLEMENTED_
-//	CCowRamDrive* drive = jcvos::CDynamicInstance<CCowRamDrive>::Create();
-	CCowRamDrive* drive =NULL;
-	drive->Initialize(NUM_DISKS, NUM_SNAPSHOTS, device_size);
+	LOG_STACK_TRACE()
+//	JCASSERT(0);	//<YUAN> _TO_BE_IMPLEMENTED_
+//	CCowRamDrive* drive =NULL;
+//	drive->Initialize(NUM_DISKS, NUM_SNAPSHOTS, m_device_size);
 
 	//if (cow_brd_fd < 0)
 	//{
@@ -309,9 +318,9 @@ int Tester::insert_cow_brd(IVirtualDisk* cow_brd)
 	//command += NUM_SNAPSHOTS;
 	command += std::to_wstring(NUM_SNAPSHOTS);
 	command += COW_BRD_INSMOD3;
-	command += std::to_wstring(device_size);
+	command += std::to_wstring(m_device_size);
 	if (!verbose) { command += SILENT; }
-	//<YUAN> cmd= insmod ../build/cow_brd.ko num_disks=1 num_snapshots=20 disk_size=<device_size>
+	//<YUAN> cmd= insmod ../build/cow_brd.ko num_disks=1 num_snapshots=20 disk_size=<m_device_size>
 	//if (_wsystem(command.c_str()) != 0)
 	//{
 	//    cow_brd_fd = -1;
@@ -319,9 +328,15 @@ int Tester::insert_cow_brd(IVirtualDisk* cow_brd)
 	//}
 	LOG_NOTICE(L"[linux] system call: %s", command.c_str());
 	//}
+
+	if (!cow_brd) THROW_ERROR(ERR_APP, L"cow_brd device cannot be null");
+	m_cow_brd = cow_brd;
+	m_cow_brd->AddRef();
+
 	cow_brd_inserted = true;
 	//cow_brd_fd = open("/dev/cow_ram0", O_RDONLY);
 	LOG_NOTICE(L"[linux] open device: /dev/cow_ram0, O_RDONLY");
+
 	//if (cow_brd_fd < 0)
 	//{
 	//    if (_wsystem(COW_BRD_RMMOD) != 0)
@@ -336,6 +351,7 @@ int Tester::insert_cow_brd(IVirtualDisk* cow_brd)
 
 int Tester::remove_cow_brd()
 {
+	LOG_STACK_TRACE();
 	// Sometimes the disk wrapper module takes time to unload.
 	// So retry cow-brd unload for upto a second.
 	//milliseconds elapsed;
@@ -374,9 +390,11 @@ int Tester::insert_wrapper(IVirtualDisk* wrapper)
 {
 	if (!wrapper_inserted)
 	{
-		//JCASSERT(m_ioctl_dev == NULL && wrapper);
+		JCASSERT(m_ioctl_dev == NULL && wrapper);
+		m_ioctl_dev = dynamic_cast<CWrapperDisk*>(wrapper);
+		if (m_ioctl_dev == NULL) THROW_ERROR(ERR_APP, L"wrapper is not CWrapperDisk");
 		//m_ioctl_dev = wrapper;
-		//m_ioctl_dev->AddRef();
+		m_ioctl_dev->AddRef();
 
 
 		std::wstring command(WRAPPER_INSMOD);
@@ -462,74 +480,87 @@ void Tester::end_wrapper_logging()
 int Tester::get_wrapper_log()
 {
 	if (!m_ioctl_dev) return SUCCESS;
-	//if (ioctl_fd != -1) 
-	//{
 	while (1)
 	{
-		disk_write_op_meta meta;
-		//                int result = ioctl(ioctl_fd, HWM_GET_LOG_META, &meta);
-		int result = m_ioctl_dev->IoCtrl(0, HWM_GET_LOG_META, &meta);
-		if (result == -1)
-		{
-			if (errno == ENODATA) { break; }
-			else if (errno == EFAULT)
-			{
-				cerr << "efault occurred\n";
-				log_data.clear();
-				return WRAPPER_DATA_ERR;
-			}
-		}
-//		BYTE* data = new BYTE[meta.size];
-		jcvos::auto_array<BYTE> data(meta.size);
-		//                result = ioctl(ioctl_fd, HWM_GET_LOG_DATA, data);
-		result = m_ioctl_dev->IoCtrl(0, HWM_GET_LOG_DATA, data.get_ptr());
-		if (result == -1)
-		{
-			if (errno == ENODATA)
-			{      // Should never reach here as loop will break when getting the size above.
-				break;
-			}
-			else if (errno == EFAULT)
-			{
-				cerr << "efault occurred\n";
-//				delete[] data;
-				log_data.clear();
-				return WRAPPER_MEM_ERR;
-			}
-		}
-		log_data.emplace_back(meta, data);
-//		delete[] data;
+		//<YUAN>Linux 调用时，result返回结果，-1为fail。然后通过error获取error code。
+		// virtual disk直接用result返回error code，0为no error，< 0 为error
+		//disk_write_op_meta meta;
+		//int result = m_ioctl_dev->IoCtrl(0, HWM_GET_LOG_META, &meta);
+		//if (result < 0)
+		//{
+		//	if (result == -ENODATA) { break; }
+		//	else if (result == -EFAULT)
+		//	{
+		//		cerr << "efault occurred\n";
+		//		m_log_data.clear();
+		//		return WRAPPER_DATA_ERR;
+		//	}
+		//}
+		//if (meta.size > 0)
+		//{
+		//	//<YUAN> <TODO>log的data从驱动到m_log_data需要复制两次，IoCtrl中复制一次，emplace_back中复制一次。
+		//	//	由于这里所有模块都运行于用户模式，可以减少复制次数。
+		//	size_t data_size = meta.size * SECTOR_SIZE;
+		//	jcvos::auto_array<BYTE> data(data_size);
+		//	//                result = ioctl(ioctl_fd, HWM_GET_LOG_DATA, data);
+		//	result = m_ioctl_dev->IoCtrl(0, HWM_GET_LOG_DATA, data.get_ptr());
+		//	if (result < 0)
+		//	{
+		//		// Should never reach here as loop will break when getting the size above.
+		//		if (result == -ENODATA)		break;
+		//		else if (errno == -EFAULT)
+		//		{
+		//			cerr << "efault occurred\n";
+		//			m_log_data.clear();
+		//			return WRAPPER_MEM_ERR;
+		//		}
+		//	}
+		//	m_log_data.emplace_back(meta, data);
+		//}
+		//else m_log_data.emplace_back(meta, nullptr);
 
-		//                result = ioctl(ioctl_fd, HWM_NEXT_ENT);
-		result = m_ioctl_dev->IoCtrl(0, HWM_NEXT_ENT, 0);
-		if (result == -1)
+		m_log_data.emplace_back();
+		fs_testing::utils::disk_write& log = m_log_data.back();
+		int result = m_ioctl_dev->GetWriteLog(log);
+		if (result < 0)
 		{
-			if (errno == ENODATA)
-			{     // Should never reach here as loop will break when getting the size above.
-				break;
-			}
-			else
+			if (result == -ENODATA)
 			{
-				cerr << "Error getting next log entry\n";
-				log_data.clear();
+				m_log_data.pop_back();
 				break;
 			}
+			else THROW_ERROR(ERR_APP, L"Error on getting next log entry");
 		}
+		result = m_ioctl_dev->IoCtrl(0, HWM_NEXT_ENT, 0);
+		//<YUAN> 对于遇到队尾的情况，之前GetWriteLog已经处理并推出了，因此这里不会遇到 ENODATA。余下的都是错误。
+		if (result < 0)  THROW_ERROR(ERR_APP, L"Error on getting next log entry");
+		//{	// Should never reach here as loop will break when getting the size above.
+		//	if (result == -ENODATA)	break;
+		//	else
+		//	//{
+		//	//	cerr << "Error getting next log entry\n";
+		//	//	m_log_data.clear();
+		//	//	break;
+		//	//}
+		//}
 	}
-	//}
-	std::wcout << L"fetched " << log_data.size() << L" log data entries" << std::endl;
+	std::wcout << L"fetched " << m_log_data.size() << L" log data entries" << std::endl;
+	LOG_NOTICE(L"fetched %zd log date entries", m_log_data.size());
 	return SUCCESS;
 }
 
 void Tester::clear_wrapper_log()
 {
+	JCASSERT(m_ioctl_dev);
 	//if (ioctl_fd != -1) {    ioctl(ioctl_fd, HWM_CLR_LOG);  }
 	if (m_ioctl_dev) m_ioctl_dev->IoCtrl(0, HWM_CLR_LOG, nullptr);
 }
 
 //int Tester::GetChangeData(const int fd)
 int Tester::GetChangeData(FILE * fd)
-{   // Need to read a 64-bit value, switch it to big endian to figure out how much
+{
+	//<YUAN> <TODO>优化：由于在同一个进程中测试，change data不必通过文件传递
+	// Need to read a 64-bit value, switch it to big endian to figure out how much
 	// we need to read, read that new data amount, and add it all to a buffer.
 	while (true)
 	{       // Get the next DiskMod size.
@@ -580,18 +611,18 @@ int Tester::GetChangeData(FILE * fd)
 	return SUCCESS;
 }
 
-int Tester::CreateCheckpoint()
+int Tester::CreateCheckpoint(const std::wstring & msg)
 {
-	//if (ioctl_fd == -1) { return WRAPPER_DATA_ERR; }
-	//if (ioctl(ioctl_fd, HWM_CHECKPOINT) == 0) { return SUCCESS; }
 	if (!m_ioctl_dev) return WRAPPER_DATA_ERR;
-	if (m_ioctl_dev->IoCtrl(0, HWM_CHECKPOINT, NULL) == 0) return SUCCESS;
+	void* mm = const_cast<std::wstring*>(&msg);
+	if (m_ioctl_dev->IoCtrl(0, HWM_CHECKPOINT, mm) == 0) return SUCCESS;
 	return WRAPPER_DATA_ERR;
 }
 
-int Tester::test_load_class(const wchar_t* path)
+int Tester::test_load_class(const wchar_t* path, const wchar_t* test_name)
 {
-	return test_loader.load_class<test_create_t*>(path, TEST_CLASS_FACTORY, TEST_CLASS_DEFACTORY);
+//	return test_loader.load_class<test_create_t*>(path, TEST_CLASS_FACTORY, TEST_CLASS_DEFACTORY);
+	return test_loader.load_class<test_create_t*>(path, test_name);
 }
 
 void Tester::test_unload_class()
@@ -599,10 +630,10 @@ void Tester::test_unload_class()
 	test_loader.unload_class<test_destroy_t*>();
 }
 
-int Tester::permuter_load_class(const wchar_t* path)
+int Tester::permuter_load_class(const wchar_t* path, const wchar_t * class_name)
 {
-	return permuter_loader.load_class<permuter_create_t*>(path,
-		PERMUTER_CLASS_FACTORY, PERMUTER_CLASS_DEFACTORY);
+	//return permuter_loader.load_class<permuter_create_t*>(path, PERMUTER_CLASS_FACTORY, PERMUTER_CLASS_DEFACTORY);
+	return permuter_loader.load_class<permuter_create_t*>(path, class_name);
 }
 
 void Tester::permuter_unload_class()
@@ -660,21 +691,25 @@ bool Tester::write_dirty_expire_time(const int fd, const wchar_t* time)
 
 int Tester::partition_drive()
 {
-	if (device_raw.empty()) { return PART_PART_ERR; }
-	std::wstring command(PART_PART_DRIVE + device_raw);
+	//if (device_raw.empty()) { return PART_PART_ERR; }
+	if (m_device_raw == NULL) return PART_PART_ERR;
+	std::wstring command(PART_PART_DRIVE);
+	command += L"device_raw";
 	if (!verbose) { command += SILENT; }
 	command += PART_PART_DRIVE_2;
 	//   if (system(command.c_str()) != 0) {   return PART_PART_ERR;  }
 	   // Since we added a parition on the drive we should use the first partition.
-	device_mount = device_raw + L"1";
+	device_mount = std::wstring(L"device_raw") + L"1";
 	LOG_NOTICE(L"[linux] system command: %s, device_mount=%s", command.c_str(), device_mount.c_str());
 	return SUCCESS;
 }
 
 int Tester::wipe_partitions()
 {
-	if (device_raw.empty()) { return PART_PART_ERR; }
-	std::wstring command(PART_DEL_PART_DRIVE + device_raw);
+	//if (device_raw.empty()) { return PART_PART_ERR; }
+	if (m_device_raw == NULL) return PART_PART_ERR;
+	std::wstring command(PART_DEL_PART_DRIVE);
+	command += L"device_raw";
 	if (!verbose) { command += SILENT; }
 	command += PART_DEL_PART_DRIVE_2;
 	//if (system(command.c_str()) != 0) {   return PART_PART_ERR;  }
@@ -682,13 +717,23 @@ int Tester::wipe_partitions()
 	return SUCCESS;
 }
 
-int Tester::format_drive()
+int Tester::format_drive(void)
 {
-	if (device_raw.empty()) { return PART_PART_ERR; }
+//	if (device_raw.empty()) { return PART_PART_ERR; }
+	if (m_device_raw == NULL) return PART_PART_ERR;
 	std::wstring command = fs_specific_ops_->GetMkfsCommand(device_mount);
 	if (!verbose) { command += SILENT; }
 	//if (system(command.c_str()) != 0) {    return FMT_FMT_ERR;  }
 	LOG_NOTICE(L"[linux] system command: %s", command.c_str());
+	JCASSERT(m_fs && m_device_raw);
+	m_fs->ConnectToDevice(m_device_raw);
+	bool br = m_fs->MakeFileSystem(boost::numeric_cast<UINT32>(m_device_size), L"TEST");
+	m_fs->Disconnect();
+	if (!br)
+	{
+		LOG_ERROR(L"[err] failed on format device");
+		return FMT_FMT_ERR;
+	}
 	return SUCCESS;
 }
 
@@ -699,6 +744,9 @@ int Tester::test_setup()
 
 int Tester::test_init_values(std::wstring mount_dir, size_t filesys_size, IFileSystem * fs)
 {
+	if (fs == nullptr) THROW_ERROR(ERR_APP, L"file system cannot be null");
+	m_fs = fs;
+	m_fs->AddRef();
 	return test_loader.get_instance()->init_values(mount_dir, filesys_size, fs);
 }
 
@@ -747,28 +795,23 @@ DWORD __stdcall Tester::_start_async_test_run(LPVOID param)
 /*
  * Tests a block device with fsck (or equivalent) and the user test case provided.
  *
- * This function assumes that the block device is *not* mounted when the
- * function is entered. The function will take care of mounting the device as
- * needed and will unmount the device before exiting.
+ * This function assumes that the block device is *not* mounted when the function is entered. The function will 
+	take care of mounting the device as needed and will unmount the device before exiting.
  *
- * On return, the amount of time it took for fsck (or equivalent), the user test
- * case, and the time it took to mount/unmount the file system  are returned in
- * the vector <fsck, user_test, mount/umount>. If one or both of fsck and the
- * user test is not run, then those values are returned as -1. Furthermore, the
- * SingleTestInfo object is modified to reflect the results of fsck and the user
- * test case.
+ * On return, the amount of time it took for fsck (or equivalent), the user test case, and the time it took to 
+	mount/unmount the file system are returned in the vector <fsck, user_test, mount/umount>. If one or both of
+	fsck and the user test is not run, then those values are returned as -1. Furthermore, the SingleTestInfo object 
+	is modified to reflect the results of fsck and the user test case.
  */
-vector<milliseconds> Tester::test_fsck_and_user_test(const std::wstring device_path,
+vector<milliseconds> Tester::test_fsck_and_user_test(IVirtualDisk * device,
 	const unsigned int last_checkpoint, SingleTestInfo& test_info, bool automate_check_test)
 {
-	JCASSERT(0);
-	return std::vector<milliseconds>();
-#ifdef _TO_BE_IMPLEMENTED_
+	static const wchar_t* device_path = L"snapshot";
 	vector<milliseconds> res(3, duration<int, std::milli>(-1));
 	// Try mounting the file system so that the kernel can clean up orphan lists
 	// and anything else it may need to so that fsck does a better job later if we run it.
 	time_point<steady_clock> mount_start_time = steady_clock::now();
-	if (mount_device(device_path.c_str(), fs_specific_ops_->GetPostReplayMntOpts().c_str()) != SUCCESS)
+	if (mount_device(device_path, fs_specific_ops_->GetPostReplayMntOpts().c_str(), device) != SUCCESS)
 	{
 		test_info.fs_test.SetError(FileSystemTestResult::kKernelMount);
 	}
@@ -783,9 +826,11 @@ vector<milliseconds> Tester::test_fsck_and_user_test(const std::wstring device_p
 		// Begin fsck timing.
 		time_point<steady_clock> fsck_start_time = steady_clock::now();
 
-		// Use popen so that we can throw all the output from fsck into the log that
-		// we are keeping. This information will go just before the summary of what
-		// went wrong in the test.
+		// Use popen so that we can throw all the output from fsck into the log that we are keeping. This information
+		//  will go just before the summary of what went wrong in the test.
+		LOG_DEBUG(L"[linux] sys call: %s", command.c_str());
+		IFileSystem::FsCheckResult ir = m_fs->FileSystemCheck(false);
+#if 0
 		FILE* pipe = popen(command.c_str(), "r");
 		wchar_t tmp[128];
 		if (!pipe)
@@ -806,7 +851,6 @@ vector<milliseconds> Tester::test_fsck_and_user_test(const std::wstring device_p
 		time_point<steady_clock> fsck_end_time = steady_clock::now();
 		res.at(0) = duration_cast<milliseconds>(fsck_end_time - fsck_start_time);
 		// End fsck timing.
-
 		if (!WIFEXITED(test_info.fs_test.fs_check_return))
 		{      // Processes exited abnormally (no exit(3) or _exit(2) call (from wait(2) manpage).
 			test_info.fs_test.SetError(FileSystemTestResult::kCheck);
@@ -815,15 +859,27 @@ vector<milliseconds> Tester::test_fsck_and_user_test(const std::wstring device_p
 				to_string(WEXITSTATUS(test_info.fs_test.fs_check_return));
 			return res;
 		}
+#endif
 
 		// Fsck (or equivalent) finished without anything major going wrong. Record
 		// this and remount the file system so that we're ready to run the user test case.
-		test_info.fs_test.SetError(fs_specific_ops_->GetFsckReturn(
-			WEXITSTATUS(test_info.fs_test.fs_check_return)));
+//		test_info.fs_test.SetError(fs_specific_ops_->GetFsckReturn(WEXITSTATUS(test_info.fs_test.fs_check_return)));
+
+		FileSystemTestResult::ErrorType err;
+		switch (ir)
+		{
+		case IFileSystem::CheckNoError: err = FileSystemTestResult::kClean; break;
+		case IFileSystem::CheckFixed:	err = FileSystemTestResult::kFixed; break;
+//		case IFileSystem::CheckError:	err = FileSystemTestResult::kCheck;	break;
+		case IFileSystem::CheckFailed:	err = FileSystemTestResult::kCheck; break;
+		case IFileSystem::CheckUnfixed:	err = FileSystemTestResult::kCheckUnfixed; break;
+		default: err = FileSystemTestResult::kOther; break;
+		}
+		test_info.fs_test.SetError(err);
 
 		// TODO(ashmrtn): Consider mounting with options specified for test profile?
 		mount_start_time = steady_clock::now();
-		if (mount_device(device_path.c_str(), NULL) != SUCCESS)
+		if (mount_device(device_path, NULL, device) != SUCCESS)
 		{
 			test_info.fs_test.SetError(FileSystemTestResult::kUnmountable);
 			return res;
@@ -836,16 +892,12 @@ vector<milliseconds> Tester::test_fsck_and_user_test(const std::wstring device_p
 	time_point<steady_clock> test_case_start_time = steady_clock::now();
 	if (automate_check_test)
 	{
-		bool retVal = check_disk_and_snapshot_contents(snapshot_path_, last_checkpoint);
-		if (!retVal)
-		{
-			test_info.data_test.SetError(fs_testing::tests::DataTestResult::kAutoCheckFailed);
-		}
+		bool retVal = check_disk_and_snapshot_contents(m_snapshot_path_, last_checkpoint);
+		if (!retVal)	test_info.data_test.SetError(fs_testing::tests::DataTestResult::kAutoCheckFailed);
 	}
 	else
 	{
-		const int test_check_res =
-			test_loader.get_instance()->check_test(last_checkpoint, &test_info.data_test);
+		const int test_check_res = test_loader.get_instance()->check_test(last_checkpoint, &test_info.data_test);
 	}
 	time_point<steady_clock> test_case_end_time = steady_clock::now();
 	res.at(1) = duration_cast<milliseconds>(test_case_end_time - test_case_start_time);
@@ -864,20 +916,18 @@ vector<milliseconds> Tester::test_fsck_and_user_test(const std::wstring device_p
 		if (umount_res < 0)
 		{
 			err = errno;
-			usleep(500);
+//			usleep(500);
+			Sleep(500);
 		}
 	} while (umount_res < 0 && err == EBUSY);
 	mount_end_time = steady_clock::now();
 	res.at(2) += duration_cast<milliseconds>(mount_end_time - mount_start_time);
 	return res;
-#endif
 }
 
 bool Tester::check_disk_and_snapshot_contents(std::wstring disk_path, int last_checkpoint)
 {
-	JCASSERT(0);
-	return false;
-#ifdef _TO_BE_IMPLEMENTED_
+#if 1 // _TO_BE_IMPLEMENTED_
 	if (checkpointToSnapshot_.find(last_checkpoint) == checkpointToSnapshot_.end())
 	{
 		std::wcout << L"ERROR: no saved snapshot at checkpoint " << last_checkpoint << endl;
@@ -887,9 +937,10 @@ bool Tester::check_disk_and_snapshot_contents(std::wstring disk_path, int last_c
 	std::wstring snapshot_path;
 	snapshot_path = checkpointToSnapshot_[last_checkpoint];
 	std::wofstream diff_file;
-	diff_file.open("diff-at-check" + to_string(last_checkpoint),
-		std::fstream::out | std::fstream::app);
+	diff_file.open("diff-at-check" + to_string(last_checkpoint), std::fstream::out | std::fstream::app);
+	LOG_NOTICE(L"open diff_file: diff-at-check %s", std::to_wstring(last_checkpoint).c_str());
 
+	LOG_NOTICE(L"disk_path=%s, snapshot_path=%s, fs_type=%s", disk_path.c_str(), snapshot_path.c_str(), fs_type);
 	DiskContents disk1(disk_path, fs_type), disk2(snapshot_path, fs_type);
 	disk1.set_mount_point(L"/mnt/snapshot");
 
@@ -901,6 +952,7 @@ bool Tester::check_disk_and_snapshot_contents(std::wstring disk_path, int last_c
 			std::wstring path(i.path);
 			path.erase(0, 13);
 			std::wcout << path << std::endl;
+			LOG_NOTICE(L"compare disk path %s to %s, path=%s", disk_path.c_str(), snapshot_path.c_str(), path.c_str());
 			bool ret = disk1.compare_entries_at_path(disk2, path, diff_file);
 			if (ret && (last_checkpoint == mods_.size() - 1))
 			{
@@ -934,7 +986,7 @@ bool Tester::check_disk_and_snapshot_contents(std::wstring disk_path, int last_c
 			{
 				if (disk1.sanity_checks(diff_file) == false)
 				{
-					std::cout << "Failed: Sanity checks on " << disk_path << endl;
+					std::wcout << L"Failed: Sanity checks on " << disk_path << endl;
 					return false;
 				}
 			}
@@ -943,26 +995,23 @@ bool Tester::check_disk_and_snapshot_contents(std::wstring disk_path, int last_c
 	}
 	std::cout << "ERROR: " << __func__ << std::endl;
 	return false;
+#else
+	JCASSERT(0);
+	return false;
 #endif
 }
 
-int Tester::test_check_random_permutations(bool full_bio_replay, const int num_rounds, std::wofstream& log)
+int Tester::test_check_random_permutations(bool full_bio_replay, const int num_rounds, std::wofstream& logfile)
 {
-	JCASSERT(0);
-	return false;
-#ifdef _TO_BE_IMPLEMENTED_
-	assert(current_test_suite_ != NULL);
+	JCASSERT(current_test_suite_ != NULL);
 	time_point<steady_clock> start_time = steady_clock::now();
 	Permuter* p = permuter_loader.get_instance();
-	p->InitDataVector(sector_size_, log_data);
+	p->InitDataVector(sector_size_, m_log_data);
 	vector<DiskWriteData> permutes;
 	for (int rounds = 0; rounds < num_rounds; ++rounds)
 	{
 		// Print status every 1024 iterations.
-		if (rounds & (~((1 << 10) - 1)) && !(rounds & ((1 << 10) - 1)))
-		{
-			cout << rounds << std::endl;
-		}
+		if (rounds & (~((1 << 10) - 1)) && !(rounds & ((1 << 10) - 1)))	{	cout << rounds << std::endl;}
 
 		/***************************************************************************
 		 * Generate and write out a crash state.
@@ -974,85 +1023,66 @@ int Tester::test_check_random_permutations(bool full_bio_replay, const int num_r
 		// Begin permute timing.
 		time_point<steady_clock> permute_start_time = steady_clock::now();
 		bool new_state = false;
-		if (full_bio_replay)
-		{
-			new_state = p->GenerateCrashState(permutes, test_info.permute_data);
-		}
-		else
-		{
-			new_state = p->GenerateSectorCrashState(permutes, test_info.permute_data);
-		}
+		if (full_bio_replay)	{	new_state = p->GenerateCrashState(permutes, test_info.permute_data);	}
+		else					{	new_state = p->GenerateSectorCrashState(permutes, test_info.permute_data);		}
 
 		time_point<steady_clock> permute_end_time = steady_clock::now();
-		timing_stats[PERMUTE_TIME] +=
-			duration_cast<milliseconds>(permute_end_time - permute_start_time);
+		timing_stats[PERMUTE_TIME] += duration_cast<milliseconds>(permute_end_time - permute_start_time);
 		// End permute timing.
 
-		if (!new_state)
-		{
-			break;
-		}
+		if (!new_state)		{			break;		}
 
 		// Restore disk clone.
-		int cow_brd_snapshot_fd = open(snapshot_path_.c_str(), O_WRONLY);
-		if (cow_brd_snapshot_fd < 0)
+//		int cow_brd_snapshot_fd = open(m_snapshot_path_.c_str(), O_WRONLY);
+//		if (cow_brd_snapshot_fd < 0)
+		if (m_snapshot_dev == NULL)
 		{
 			test_info.fs_test.SetError(FileSystemTestResult::kSnapshotRestore);
-			test_info.PrintResults(log);
+			test_info.PrintResults(logfile);
 			current_test_suite_->TallyReorderingResult(test_info);
 			continue;
 		}
 		// Begin snapshot timing.
 		time_point<steady_clock> snapshot_start_time = steady_clock::now();
-		if (clone_device_restore(cow_brd_snapshot_fd, false) != SUCCESS)
+		//if (clone_device_restore(cow_brd_snapshot_fd, false) != SUCCESS)
+		if (clone_device_restore(m_snapshot_dev, false) != SUCCESS)
 		{
 			test_info.fs_test.SetError(FileSystemTestResult::kSnapshotRestore);
-			test_info.PrintResults(log);
+			test_info.PrintResults(logfile);
 			current_test_suite_->TallyReorderingResult(test_info);
 			continue;
 		}
 		time_point<steady_clock> snapshot_end_time = steady_clock::now();
-		timing_stats[SNAPSHOT_TIME] +=
-			duration_cast<milliseconds>(snapshot_end_time - snapshot_start_time);
+		timing_stats[SNAPSHOT_TIME] +=	duration_cast<milliseconds>(snapshot_end_time - snapshot_start_time);
 		// End snapshot timing.
 
 		// Write recorded data out to block device in different orders so that we
 		// can if they are all valid or not.
 		time_point<steady_clock> bio_write_start_time = steady_clock::now();
-		const int write_data_res =
-			test_write_data(cow_brd_snapshot_fd, permutes.begin(), permutes.end());
+//		const int write_data_res =	test_write_data(cow_brd_snapshot_fd, permutes.begin(), permutes.end());
+		const int write_data_res =	test_write_data(m_snapshot_dev, permutes.begin(), permutes.end());
 		time_point<steady_clock> bio_write_end_time = steady_clock::now();
-		timing_stats[BIO_WRITE_TIME] +=
-			duration_cast<milliseconds>(bio_write_end_time - bio_write_start_time);
+		timing_stats[BIO_WRITE_TIME] += duration_cast<milliseconds>(bio_write_end_time - bio_write_start_time);
 		if (!write_data_res)
 		{
 			test_info.fs_test.SetError(FileSystemTestResult::kBioWrite);
-			close(cow_brd_snapshot_fd);
-			test_info.PrintResults(log);
+//			close(cow_brd_snapshot_fd);
+			test_info.PrintResults(logfile);
 			current_test_suite_->TallyReorderingResult(test_info);
 			continue;
 		}
-		close(cow_brd_snapshot_fd);
+//		close(cow_brd_snapshot_fd);
 
 		// Test the crash state that was just written out.
-		vector<milliseconds> check_res = test_fsck_and_user_test(snapshot_path_,
+		vector<milliseconds> check_res = test_fsck_and_user_test(/*m_snapshot_path_,*/m_snapshot_dev,
 			test_info.permute_data.last_checkpoint, test_info, false);
-		test_info.PrintResults(log);
+		test_info.PrintResults(logfile);
 		current_test_suite_->TallyReorderingResult(test_info);
 
 		// Accounting for time it took to run the test.
-		if (check_res.at(0).count() > -1)
-		{
-			timing_stats[FSCK_TIME] += check_res.at(0);
-		}
-		if (check_res.at(1).count() > -1)
-		{
-			timing_stats[TEST_CASE_TIME] += check_res.at(1);
-		}
-		if (check_res.at(2).count() > -1)
-		{
-			timing_stats[MOUNT_TIME] += check_res.at(2);
-		}
+		if (check_res.at(0).count() > -1)	{	timing_stats[FSCK_TIME] += check_res.at(0);		}
+		if (check_res.at(1).count() > -1)	{	timing_stats[TEST_CASE_TIME] += check_res.at(1);	}
+		if (check_res.at(2).count() > -1)	{	timing_stats[MOUNT_TIME] += check_res.at(2);		}
 	}
 
 	time_point<steady_clock> end_time = steady_clock::now();
@@ -1060,15 +1090,10 @@ int Tester::test_check_random_permutations(bool full_bio_replay, const int num_r
 
 	if (current_test_suite_->GetReorderingCompleted() < num_rounds)
 	{
-		cout << "=============== Unable to find new unique state, stopping at " <<
-			current_test_suite_->GetReorderingCompleted() <<
-			" tests ===============" << endl << endl;
-		log << "=============== Unable to find new unique state, stopping at " <<
-			current_test_suite_->GetReorderingCompleted() <<
-			" tests ===============" << endl << endl;
+		MESSAGE(L"=============== Unable to find new unique state, stopping at " <<
+			current_test_suite_->GetReorderingCompleted() << L" tests ===============" << endl << endl)
 	}
 	return SUCCESS;
-#endif
 }
 
 /*
@@ -1085,28 +1110,29 @@ int Tester::test_check_random_permutations(bool full_bio_replay, const int num_r
  */
 int Tester::test_check_log_replay(std::wofstream& log, bool automate_check_test)
 {
+	LOG_STACK_TRACE();
 	assert(current_test_suite_ != NULL);
 
 	// A single entry in the log data would just be the leading Checkpoint in the
 	// log. In this case, there are no tests to run, so just return.
-	if (log_data.size() == 1) { return SUCCESS; }
+	if (m_log_data.size() == 1) { return SUCCESS; }
 
 	// Skip the first disk write as it is just the Checkpoint at the start of the log.
-	auto log_iter = log_data.begin() + 1;
+	auto log_iter = m_log_data.begin() + 1;
 	unsigned int last_checkpoint = 0;
 	unsigned int test_num = 1;
 	unsigned int op_index = 1;
 	vector<DiskWriteData> crash_state;
 
-	while (log_iter != log_data.end())
+	while (log_iter != m_log_data.end())
 	{
 		// Keep going through the workload data log until we reach a Checkpoint.
 		// Also, skip the very first checkpoint which occurs at the very beginning of the log.
-		while (log_iter != log_data.end() && !log_iter->is_checkpoint())
+		while (log_iter != m_log_data.end() && !log_iter->is_checkpoint())
 		{
 			DiskWriteData wd = DiskWriteData(true, op_index, 0,
 				log_iter->metadata.write_sector * SECTOR_SIZE,
-				log_iter->metadata.size, log_iter->get_data(), 0);
+				log_iter->metadata.size*SECTOR_SIZE, log_iter->get_data(), 0);
 			crash_state.push_back(wd);
 			++log_iter;
 			++op_index;
@@ -1117,6 +1143,7 @@ int Tester::test_check_log_replay(std::wofstream& log, bool automate_check_test)
 		// 1. Restore the disk so that we start from a clean state
 		// 2. Write out the data in the log from the start until the checkpoint we found
 		// 3. Test the resulting disk state with fsck and the user test case
+		if (log_iter == m_log_data.end()) break;
 
 		// 0. Update checkpoint. It's not always the log_iter's value as log_iter may
 		// point to the end of the recorded workload, not a checkpoint.
@@ -1129,7 +1156,7 @@ int Tester::test_check_log_replay(std::wofstream& log, bool automate_check_test)
 		test_info.test_num = test_num++;
 
 		// 1. Restore disk clone.
-		//int cow_brd_snapshot_fd = open(snapshot_path_.c_str(), O_WRONLY);
+		//int cow_brd_snapshot_fd = open(m_snapshot_path_.c_str(), O_WRONLY);
 		//if (cow_brd_snapshot_fd == 0) 
 		if (m_snapshot_dev == NULL)
 		{
@@ -1152,7 +1179,7 @@ int Tester::test_check_log_replay(std::wofstream& log, bool automate_check_test)
 		// the end iterator is a sentinal value. The same logic applies for
 		// checkpoints (which we don't really want to replay).
 //		const int write_data_res = test_write_data(cow_brd_snapshot_fd, crash_state.begin(), crash_state.end());
-		const int write_data_res = test_write_data(m_cow_brd, crash_state.begin(), crash_state.end());
+		const int write_data_res = test_write_data(m_device_raw, crash_state.begin(), crash_state.end());
 		if (!write_data_res)
 		{
 			test_info.fs_test.SetError(FileSystemTestResult::kBioWrite);
@@ -1163,11 +1190,11 @@ int Tester::test_check_log_replay(std::wofstream& log, bool automate_check_test)
 		}
 		//        close(cow_brd_snapshot_fd);
 
-				// 3. Check the resulting disk image with fsck and the user test. For now,
-				// just ignore the timing data that we can get from this function.
+		// 3. Check the resulting disk image with fsck and the user test. For now,
+		// just ignore the timing data that we can get from this function.
 		if (log_iter->is_checkpoint())
 		{
-			test_fsck_and_user_test(snapshot_path_,
+			test_fsck_and_user_test(m_snapshot_dev, // m_snapshot_path_,
 				test_info.permute_data.last_checkpoint, test_info, automate_check_test);
 
 			test_info.PrintResults(log);
@@ -1175,7 +1202,7 @@ int Tester::test_check_log_replay(std::wofstream& log, bool automate_check_test)
 		}
 
 		// Exit loop after doing final test.
-		if (log_iter == log_data.end()) { break; }
+		if (log_iter == m_log_data.end()) { break; }
 
 		// Increment our end pointer iterater passed the Checkpoint we just stopped at.
 		++log_iter;
@@ -1241,29 +1268,22 @@ bool Tester::test_write_data_dw(const int disk_fd,
 bool Tester::test_write_data(IVirtualDisk* disk,
 	const vector<DiskWriteData>::iterator& start, const vector<DiskWriteData>::iterator& end)
 {
+	LOG_STACK_TRACE();
 	for (auto current = start; current != end; ++current)
 	{
 		if (current->size == 0)
-		{   // It's *possible* that zero length sectors could have an invalid
-			// disk_offset (I have not tested/confirmed).
+		{   // It's *possible* that zero length sectors could have an invalid disk_offset (I have not tested/confirmed).
 			continue;
 		}
-		//if (lseek(disk_fd, current->disk_offset, SEEK_SET) < 0)
-		//{
-		//	return false;
-		//}
 		JCASSERT((current->disk_offset % SECTOR_SIZE) == 0 && (current->size % SECTOR_SIZE) == 0);
 		unsigned int bytes_written = 0;
-		BYTE* data_base_addr = reinterpret_cast<BYTE*>(current->GetData());
-		disk->WriteSectors(data_base_addr + bytes_written, BYTE_TO_SECTOR(current->disk_offset), BYTE_TO_SECTOR(current->size));
+		UINT lba = BYTE_TO_SECTOR(current->disk_offset);
+		UINT secs = BYTE_TO_SECTOR(current->size);
+		LOG_DEBUG(L"restore data: lba=0x%X, secs=%d", lba, secs);
+		m_log_stream << L"restore data bio=" << current->bio_index << L", lba=" << lba << std::endl;
 
-		//while (bytes_written < current->size)
-		//{
-		//	int res = write(disk_fd, (void*)((unsigned long)data_base_addr + bytes_written),
-		//		current->size - bytes_written);
-		//	if (res < 0) { return false; }
-		//	bytes_written += res;
-		//}
+		BYTE* data_base_addr = reinterpret_cast<BYTE*>(current->GetData());
+		disk->WriteSectors(data_base_addr + bytes_written, lba, secs);
 	}
 	return true;
 }
@@ -1317,15 +1337,14 @@ void Tester::cleanup_harness()
 
 int Tester::clear_caches()
 {
-	JCASSERT(0); return 0;
-#ifdef _TO_BE_IMPLEMENTED_
+//<YUAN>/proc/sys/vm/drop_cache用于清理Linux系统缓存。
+//	3: 表示 free slab objects and pagecache;
+// 可以考虑以下方法代替：m_device_raw->Sync(); m_device_raw->FreeCache();
+
+#ifdef _LINUX_SPEC_
 	sync();
 	const int cache_fd = open(DROP_CACHES_PATH, O_WRONLY);
-	if (cache_fd < 0)
-	{
-		return CLEAR_CACHE_ERR;
-	}
-
+	if (cache_fd < 0)	{	return CLEAR_CACHE_ERR;	}
 	int res;
 	do
 	{
@@ -1337,8 +1356,8 @@ int Tester::clear_caches()
 		}
 	} while (res < 1);
 	close(cache_fd);
-	return SUCCESS;
 #endif
+	return SUCCESS;
 }
 
 int Tester::log_profile_save(std::wstring log_file)
@@ -1347,9 +1366,9 @@ int Tester::log_profile_save(std::wstring log_file)
 	// Open with append flags. We should remove the log file argument and use a
 	// class specific one that is set at class creation time. That way people
 	// don't break our logging system.
-	std::cout << "saving " << log_data.size() << " disk operations" << endl;
+	std::cout << "saving " << m_log_data.size() << " disk operations" << endl;
 	wofstream log(log_file, std::ofstream::trunc | ios::binary);
-	for (const disk_write& dw : log_data)
+	for (const disk_write& dw : m_log_data)
 	{
 		disk_write::serialize(log, dw);
 	}
@@ -1362,7 +1381,7 @@ int Tester::log_profile_load(std::wstring log_file)
 	ifstream log(log_file, ios::binary);
 	while (log.peek() != EOF)
 	{
-		log_data.push_back(disk_write::deserialize(log));
+		m_log_data.push_back(disk_write::deserialize(log));
 	}
 	bool err = log.fail();
 	int errnum = errno;
@@ -1373,7 +1392,7 @@ int Tester::log_profile_load(std::wstring log_file)
 		std::cout << "error code= " << errnum << std::endl;
 		return LOG_CLONE_ERR;
 	}
-	std::cout << "loaded " << log_data.size() << " disk operations" << endl;
+	std::cout << "loaded " << m_log_data.size() << " disk operations" << endl;
 	return SUCCESS;
 }
 
@@ -1381,9 +1400,9 @@ int Tester::log_snapshot_save(std::wstring log_file)
 {
 	// TODO(ashmrtn): What happens if this fails?
 	// TODO(ashmrtn): Change device_clone to be an mmap of the disk we need to get stuff on.
-	// device_size happens to be the number of 1k blocks on cow_brd (from original
+	// m_device_size happens to be the number of 1k blocks on cow_brd (from original
 	// brd behavior...), so convert it to a number of bytes.
-	unsigned int dev_bytes = device_size * 2 * 512;
+	size_t dev_bytes = m_device_size * 2 * 512;
 	unsigned int bytes_done = 0;
 	const unsigned int buf_size = 4096;
 	unsigned int buf[buf_size];
@@ -1407,12 +1426,10 @@ int Tester::log_snapshot_save(std::wstring log_file)
 	{
 		// Read a block of data from the base disk image.
 		size_t bytes = 0;
-		unsigned int new_amount = (dev_bytes < bytes_done + buf_size)
-			? dev_bytes - bytes_done
-			: buf_size;
+		size_t new_amount = (dev_bytes < bytes_done + buf_size) ? dev_bytes - bytes_done : buf_size;
 //		JCASSERT(new_amount % 512 == 0);
 		size_t secs = BYTE_TO_SECTOR(new_amount);
-		m_cow_brd->ReadSectors(buf, lba, secs);
+		m_device_raw->ReadSectors(buf, lba, secs);
 		lba += secs;
 		//do
 		//{
@@ -1458,9 +1475,9 @@ int Tester::log_snapshot_load(std::wstring log_file)
 		return LOG_CLONE_ERR;
 	}
 
-	// device_size happens to be the number of 1k blocks on cow_brd (from original
-	// brd behavior...), so convert it to a number of bytes.
-	unsigned int dev_bytes = device_size * 2 * 512;
+	// m_device_size happens to be the number of 1k blocks on cow_brd (from original brd behavior...), 
+	// so convert it to a number of bytes.
+	size_t dev_bytes = m_device_size * 2 * 512;
 	unsigned int bytes_done = 0;
 	const unsigned int buf_size = 4096;
 	unsigned int buf[buf_size];
@@ -1501,7 +1518,7 @@ int Tester::log_snapshot_load(std::wstring log_file)
 	{
 		// Read a block of data from the base disk image.
 		size_t bytes = 0;
-		unsigned int new_amount = (dev_bytes < bytes_done + buf_size)
+		size_t new_amount = (dev_bytes < bytes_done + buf_size)
 			? dev_bytes - bytes_done
 			: buf_size;
 		size_t secs = BYTE_TO_SECTOR(new_amount);
@@ -1548,16 +1565,44 @@ int Tester::log_snapshot_load(std::wstring log_file)
 
 void Tester::log_disk_write_data(std::wostream& log)
 {
-	int digits = log.precision();
+	size_t digits = log.precision();
 	std::ios_base::fmtflags fflags = log.flags();
 	log.precision(6);
-	log << std::left << std::setw(5) << L"bio #" << " " << std::setw(18) <<
-		L"time" << " " << std::setw(18) << L"sector" << " " << std::setw(18) <<
-		L"size" << std::endl;
-	for (unsigned int i = 0; i < log_data.size(); ++i)
+	log << std::left << std::setw(5) << L"bio #" << " " << std::setw(16) <<
+		L"time" << " " << std::setw(16) << L"sector" << " " << std::setw(16) <<
+		L"size" << std::setw(16) << L"op" << L"offset"<< std::endl;
+#ifdef _DEBUG
+	FILE* ff = NULL;
+	_wfopen_s(&ff, L"log_data.bin", L"w+b");
+	size_t offset = 0;
+#endif
+	for (unsigned int i = 0; i < m_log_data.size(); ++i)
 	{
-		log << std::setw(5) << i << ' ' << log_data.at(i);
+		disk_write& write = m_log_data.at(i);
+		log <<std::dec<< std::setw(5) << i << ' ' << write;
+
+
+		if (write.metadata.bi_rw & HWM_CHECKPOINT_FLAG)
+		{
+			log << L"  " << write.get_message();
+		}
+#ifdef _DEBUG
+		else if (write.metadata.bi_rw & HWM_WRITE_FLAG)
+		{	// 保存log data到文件
+			std::shared_ptr<BYTE> data = write.get_data();
+			if (data && write.metadata.size > 0)
+			{
+				fwrite(data.get(), SECTOR_SIZE, write.metadata.size, ff);
+				log << std::setw(16) << std::hex << std::showbase << offset << std::noshowbase;
+				offset += (SECTOR_SIZE * write.metadata.size);
+			}
+		}
+#endif
+		log << std::endl;
 	}
+#ifdef _DEBUG
+	fclose(ff);
+#endif
 	log.precision(digits);
 	log.flags(fflags);
 }

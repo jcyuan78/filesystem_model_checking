@@ -45,8 +45,7 @@ namespace fs_testing
         };
 
         /*
-         * Assumes that the starting sector of the epoch_op containing these sectors is
-         * aligned to max_sector_size.
+         * Assumes that the starting sector of the epoch_op containing these sectors is aligned to max_sector_size.
          */
         struct EpochOpSector 
         {
@@ -70,8 +69,19 @@ namespace fs_testing
           unsigned int size;
         };
 
+        class Permuter;
+
+        class IPermuterFactory : public fs_testing::utils::ITesterFactory
+        {
+        public:
+            virtual void CreateObject(Permuter*& obj) = 0;
+            virtual void DeleteObject(Permuter* obj) = 0;
+        };
+
         class Permuter 
         {
+        public:
+            typedef IPermuterFactory Factory;
         public:
             virtual ~Permuter() {};
             void InitDataVector(unsigned int sector_size,
@@ -105,12 +115,17 @@ namespace fs_testing
                 std::list<std::pair<unsigned int, unsigned int>> &ranges) const;
 
             std::vector<epoch> epochs_;
-            std::unordered_set<std::vector<unsigned int>, BioVectorHash, BioVectorEqual>
-            completed_permutations_;
+            std::unordered_set<std::vector<unsigned int>, BioVectorHash, BioVectorEqual> completed_permutations_;
         };
 
         typedef Permuter *permuter_create_t();
         typedef void permuter_destroy_t(Permuter *instance);
+
+
+//<YUAN> for debug
+        void DebugOutEpochOpSector(std::vector<EpochOpSector>& list);
+        void DebugOutDiskWriteData(std::vector<fs_testing::utils::DiskWriteData>& list);
+
 
     }  // namespace permuter
 }  // namespace fs_testing

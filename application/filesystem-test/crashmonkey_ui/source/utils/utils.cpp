@@ -44,12 +44,16 @@ namespace {
 	const unsigned int kSerializeBufSize = 4096;
 
 	static const wchar_t* const flag_names[] = {
-		L"write", L"fail fast dev", L"fail fast transport", L"fail fast driver", L"sync",
-		L"meta", L"prio", L"discard", L"secure", L"write same", L"no idle", L"fua",
-		L"flush", L"read ahead", L"throttled", L"sorted", L"soft barrier", L"no merge",
-		L"started", L"don't prep", L"queued", L"elv priv", L"failed", L"quiet", L"preempt",
-		L"alloced", L"copy user", L"flush seq", L"io stat", L"mixed merge", L"pm",
-		L"hashed", L"mq_inflight", L"no timeout", L"op write zeroes", L"nr bits"
+		L"write",		L"fail fast dev",	L"fail fast transport", L"fail fast driver", 
+		L"sync",		L"meta",			L"prio",				L"discard", 
+		L"secure",		L"write same",		L"no idle",				L"integrity", 
+		L"fua",			L"flush",			L"read ahead",			L"throttled", 
+		L"sorted",		L"soft barrier",	L"no merge",			L"started", 
+		L"don't prep",	L"queued",			L"elv priv",			L"failed", 
+		L"quiet",		L"preempt",			L"alloced",				L"copy user", 
+		L"flush seq",	L"io stat",			L"mixed merge",			L"pm",
+		L"hashed",		L"mq_inflight",		L"no timeout",			L"op write zeroes", 
+		L"nr bits"
 	};
 
 	static wchar_t const checkpoint_name[] = L"checkpoint";
@@ -102,8 +106,9 @@ disk_write::disk_write(const struct disk_write_op_meta& m, const BYTE* d)
 	metadata = m;
 	if (metadata.size > 0 && d != NULL)
 	{
-		data.reset(new BYTE[metadata.size], [](BYTE* c) {delete[] c; });
-		memcpy_s(data.get(), metadata.size, d, metadata.size);
+		size_t data_size = metadata.size * SECTOR_SIZE;
+		data.reset(new BYTE[data_size], [](BYTE* c) {delete[] c; });
+		memcpy_s(data.get(), data_size, d, data_size);
 	}
 }
 
@@ -262,14 +267,11 @@ std::wstring disk_write::flags_to_string(long long flags)
 
 std::wostream& fs_testing::utils::operator<<(std::wostream& os, const disk_write& dw)
 {
-	os << std::dec << std::setw(18) << std::fixed <<
-		((double)dw.metadata.time_ns) / 100000000 <<
-		" " << std::setw(18) << std::hex << std::showbase <<
-		dw.metadata.write_sector <<
-		" " << std::setw(18) << dw.metadata.size << std::endl <<
-		'\t' << "flags " << std::setw(18) << dw.metadata.bi_rw << std::noshowbase
-		<< std::dec << ": " << disk_write::flags_to_string(dw.metadata.bi_rw) <<
-		endl;
+	os << std::dec << std::setw(16) << std::fixed << ((double)dw.metadata.time_ns) / 100000000 <<
+		" " << std::setw(16) << std::hex << std::showbase << dw.metadata.write_sector <<
+		" " << std::setw(16) << dw.metadata.size << /*std::endl <<*/
+		/*'\t' << "flags " <<*/ /*std::setw(18) << dw.metadata.bi_rw <<*/ std::noshowbase
+		/*<< std::dec << ": "*/ << disk_write::flags_to_string(dw.metadata.bi_rw); /*<<	endl;*/
 	return os;
 }
 

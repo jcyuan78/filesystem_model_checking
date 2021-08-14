@@ -18,24 +18,38 @@
       <Platform>x64</Platform>
     </ProjectConfiguration>
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="source\dllmain.cpp" />
+    <ClCompile Include="source\generic_002.cpp" />
+    <ClCompile Include="source\pch.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|Win32'">Create</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|Win32'">Create</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'">Create</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">Create</PrecompiledHeader>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="source\framework.h" />
+    <ClInclude Include="source\pch.h" />
+  </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>16.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{6268e51d-fd17-4ef0-921c-9484dd784407}</ProjectGuid>
-    <RootNamespace>crashmonkeyui</RootNamespace>
+    <ProjectGuid>{6df3f7e2-2e66-4488-a8e3-ed608cbaf2ca}</ProjectGuid>
+    <RootNamespace>generaltestcases</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|Win32'" Label="Configuration">
     <VcpkgConfiguration>Debug</VcpkgConfiguration>
-    <ConfigurationType>Application</ConfigurationType>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v142</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|Win32'" Label="Configuration">
     <VcpkgConfiguration>Release</VcpkgConfiguration>
-    <ConfigurationType>Application</ConfigurationType>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v142</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
@@ -43,14 +57,14 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'" Label="Configuration">
     <VcpkgConfiguration>Debug</VcpkgConfiguration>
-    <ConfigurationType>Application</ConfigurationType>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v142</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'" Label="Configuration">
     <VcpkgConfiguration>Release</VcpkgConfiguration>
-    <ConfigurationType>Application</ConfigurationType>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v142</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
@@ -74,8 +88,8 @@
     <Import Project="..\..\..\build\external_libs.props" />
     <Import Project="..\..\..\jcvos2\support_jcvos.props" />
     <Import Project="..\..\..\extlib\boost\support_boost.props" />
-    <Import Project="..\..\filesystem\dokanfs-lib\support_dokanfs.props" />
     <Import Project="..\..\build_app.props" />
+    <Import Project="..\..\filesystem\dokanfs-lib\support_dokanfs.props" />
   </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
@@ -90,8 +104,8 @@
     <Import Project="..\..\..\build\external_libs.props" />
     <Import Project="..\..\..\jcvos2\support_jcvos.props" />
     <Import Project="..\..\..\extlib\boost\support_boost.props" />
-    <Import Project="..\..\filesystem\dokanfs-lib\support_dokanfs.props" />
     <Import Project="..\..\build_app.props" />
+    <Import Project="..\..\filesystem\dokanfs-lib\support_dokanfs.props" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|Win32'">
@@ -110,13 +124,16 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <ConformanceMode>false</ConformanceMode>
-      <AdditionalIncludeDirectories>$(WORKSPACE)\application\filesystem\dokanfs-lib\include;$(WORKSPACE)\application\filesystem-test\crashmonkey_comm;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WIN32;_DEBUG;GENERALTESTCASES_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <AdditionalIncludeDirectories>$(WORKSPACE)\application\filesystem-test\crashmonkey_comm;$(WORKSPACE)\application\filesystem\dokanfs-lib\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
-      <SubSystem>Console</SubSystem>
+      <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableUAC>false</EnableUAC>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|Win32'">
@@ -125,28 +142,34 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <ConformanceMode>false</ConformanceMode>
-      <AdditionalIncludeDirectories>$(WORKSPACE)\application\filesystem\dokanfs-lib\include;$(WORKSPACE)\application\filesystem-test\crashmonkey_comm;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WIN32;NDEBUG;GENERALTESTCASES_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <AdditionalIncludeDirectories>$(WORKSPACE)\application\filesystem-test\crashmonkey_comm;$(WORKSPACE)\application\filesystem\dokanfs-lib\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
-      <SubSystem>Console</SubSystem>
+      <SubSystem>Windows</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableUAC>false</EnableUAC>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <ConformanceMode>false</ConformanceMode>
-      <AdditionalIncludeDirectories>$(WORKSPACE)\application\filesystem\dokanfs-lib\include;$(WORKSPACE)\application\filesystem-test\crashmonkey_comm;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>_DEBUG;GENERALTESTCASES_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <AdditionalIncludeDirectories>$(WORKSPACE)\application\filesystem-test\crashmonkey_comm;$(WORKSPACE)\application\filesystem\dokanfs-lib\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
-      <SubSystem>Console</SubSystem>
+      <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableUAC>false</EnableUAC>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'">
@@ -155,53 +178,20 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <ConformanceMode>false</ConformanceMode>
-      <AdditionalIncludeDirectories>$(WORKSPACE)\application\filesystem\dokanfs-lib\include;$(WORKSPACE)\application\filesystem-test\crashmonkey_comm;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>NDEBUG;GENERALTESTCASES_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <AdditionalIncludeDirectories>$(WORKSPACE)\application\filesystem-test\crashmonkey_comm;$(WORKSPACE)\application\filesystem\dokanfs-lib\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
-      <SubSystem>Console</SubSystem>
+      <SubSystem>Windows</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableUAC>false</EnableUAC>
     </Link>
   </ItemDefinitionGroup>
-  <ItemGroup>
-    <ClCompile Include="source\crashmonkey_app.cpp" />
-    <ClCompile Include="source\DiskContents.cpp" />
-    <ClCompile Include="source\factory.cpp" />
-    <ClCompile Include="source\FsSpecific.cpp" />
-    <ClCompile Include="source\pch.cpp" />
-    <ClCompile Include="source\permuter\Permuter.cpp" />
-    <ClCompile Include="source\permuter\RandomPermuter.cpp" />
-    <ClCompile Include="source\results\FileSystemTestResult.cpp" />
-    <ClCompile Include="source\results\PermuteTestResult.cpp" />
-    <ClCompile Include="source\results\SingleTestInfo.cpp" />
-    <ClCompile Include="source\results\TestSuiteResult.cpp" />
-    <ClCompile Include="source\Tester.cpp" />
-    <ClCompile Include="source\ThreadMessageQue.cpp" />
-    <ClCompile Include="source\utils\utils.cpp" />
-    <ClCompile Include="source\wrapper_dev.cpp" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="source\DiskContents.h" />
-    <ClInclude Include="source\framework.h" />
-    <ClInclude Include="source\FsSpecific.h" />
-    <ClInclude Include="source\pch.h" />
-    <ClInclude Include="source\permuter\Permuter.h" />
-    <ClInclude Include="source\permuter\RandomPermuter.h" />
-    <ClInclude Include="source\results\FileSystemTestResult.h" />
-    <ClInclude Include="source\results\PermuteTestResult.h" />
-    <ClInclude Include="source\results\SingleTestInfo.h" />
-    <ClInclude Include="source\results\TestSuiteResult.h" />
-    <ClInclude Include="source\Tester.h" />
-    <ClInclude Include="source\crashmonkey_app.h" />
-    <ClInclude Include="source\ThreadMessageQue.h" />
-    <ClInclude Include="source\utils\ClassLoader.h" />
-    <ClInclude Include="source\utils\communication\SocketUtils.h" />
-    <ClInclude Include="source\utils\utils.h" />
-    <ClInclude Include="source\wrapper_dev.h" />
-  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

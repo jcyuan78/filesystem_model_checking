@@ -28,10 +28,13 @@ protected:
 
 public:
 	std::wstring m_config_file;
-	std::wstring m_test_dev_name;
-	std::wstring m_test_case_name;
+//	std::wstring m_test_dev_name;
+//	std::wstring m_test_case_name;
 	size_t m_test_dev_size;
 	size_t m_disk_size;
+	//½ûÓÃË³ĞòÅÅÁĞÆ÷²âÊÔ
+	bool m_disable_permuted_order_replay=false;
+	bool m_automate_check_test = false;
 
 protected:
 //	std::wstring m_str_lib;
@@ -45,4 +48,5 @@ protected:
 
 	IFsFactory* m_tester_factory;
 	std::wstring m_test_case;
+	std::wstring m_test_module;
 };

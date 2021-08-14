@@ -2,16 +2,18 @@
 
 #include <ifilesystem.h>
 #include <crashmonkey_comm.h>
+#include "utils/utils.h"
 
 
 struct disk_write_op
 {
 public:
-	disk_write_op(void) : data(NULL) {};
-	~disk_write_op(void) { delete[] data; }
+	disk_write_op(void) /*: data(NULL)*/ {};
+	~disk_write_op(void) {/* delete[] data;*/ }
 	struct disk_write_op_meta metadata;
-	void* data=nullptr;
+//	void* data=nullptr;
 	struct disk_write_op* next = nullptr;
+	std::shared_ptr<BYTE> m_data;
 };
 
 static int major_num = 0;
@@ -40,14 +42,14 @@ struct hwm_device
 class CWrapperDisk : public IVirtualDisk
 {
 public:
-	CWrapperDisk(void) {};
+	CWrapperDisk(void) { m_hwm_dev.current_write = NULL; m_hwm_dev.writes = NULL; m_hwm_dev.current_log_write = NULL; };
 	~CWrapperDisk(void);
 public:
 	virtual size_t GetCapacity(void) { return m_target_dev->GetCapacity(); }		// in sector
 	virtual bool ReadSectors(void* buf, size_t lba, size_t secs);
 	virtual bool WriteSectors(void* buf, size_t lba, size_t secs);
 	virtual bool Trim(UINT lba, size_t secs) { return false; }
-	virtual bool FlushData(UINT lba, size_t secs) { return false; }
+	virtual bool FlushData(UINT lba, size_t secs);
 	virtual void SetSectorSize(UINT size) { return; }
 	virtual void CopyFrom(IVirtualDisk* dev) { return; }
 	// 将当前的image保存到文件中.
@@ -61,13 +63,15 @@ public:
 	virtual int  IoCtrl(int mode, UINT cmd, void* arg);
 
 public:
+	int GetWriteLog(fs_testing::utils::disk_write& log);
+
+public:
 	bool Initialize(IVirtualDisk* target_dev);
 
 protected:
 	void FreeLogs(void);
 	void RemoveAllLogs(void);
-
-
+	void InsertLog(disk_write_op* write);
 
 protected:
 	IVirtualDisk* m_target_dev;

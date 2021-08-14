@@ -1,7 +1,8 @@
 #ifndef HARNESS_SINGLE_TEST_INFO_H
 #define HARNESS_SINGLE_TEST_INFO_H
 
-#include "DataTestResult.h"
+//#include "DataTestResult.h"
+#include <crashmonkey_comm.h>
 #include "FileSystemTestResult.h"
 #include "PermuteTestResult.h"
 

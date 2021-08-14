@@ -66,11 +66,6 @@ bool CWrapperDisk::ReadSectors(void* buf, size_t lba, size_t secs)
 
 bool CWrapperDisk::WriteSectors(void* buf, size_t lba, size_t secs)
 {
-//	int copied_data;
-//	struct disk_write_op* write;
-//	struct hwm_device* hwm;
-//	ktime_t curr_time;
-
 	/*
 	LOG_NOTICE(L "hwm: bio rw of size %u headed for 0x%lx (sector 0x%lx)"
 		" has flags:\n", bio->BI_SIZE, bio->BI_SECTOR * 512, bio->BI_SECTOR);
@@ -81,104 +76,82 @@ bool CWrapperDisk::WriteSectors(void* buf, size_t lba, size_t secs)
 	{
 		if (m_hwm_dev.log_on)
 		{
-//			curr_time = ktime_get();
-
-			LOG_NOTICE(L"hwm: bio rw of size %zd headed for sector 0x%zX has flags : ", secs, lba);
+			LOG_DEBUG_(1, L"hwm: bio rw of size %zd headed for sector 0x%zX has flags : ", secs, lba);
 //			print_rw_flags(bio->BI_RW, bio->bi_flags);
 
 			// Log data to disk logs.
 			jcvos::auto_ptr<disk_write_op> 	write(new disk_write_op);
-			//		write = kzalloc(sizeof(struct disk_write_op), GFP_NOIO);
 			if (write == NULL)	THROW_ERROR(ERR_MEM, L"hwm: unable to make new write node ");
-			//{
-			//	LOG_WARNING(L"hwm: unable to make new write node\n");
-			//	goto passthrough;
-			//}
-
-//			write->metadata.bi_flags = convert_flags(bio->bi_flags);
-//			write->metadata.bi_rw = convert_flags(bio->BI_RW);
 			write->metadata.bi_flags = HWM_WRITE_FLAG;
 			write->metadata.bi_rw = HWM_WRITE_FLAG;
-
 			write->metadata.write_sector = boost::numeric_cast<UINT>(lba);
 			write->metadata.size = boost::numeric_cast<UINT>(secs);
-#ifdef  _TO_BE_IMPLEMENTED_
-			write->metadata.time_ns = ktime_to_ns(curr_time);
-#endif //  _TO_BE_IMPLEMENTED_
+			write->metadata.time_ns = jcvos::GetTimeStamp();
 
 			//<YUAN> 内存处理，交换顺序。
-			//		write->data = kmalloc(write->metadata.size, GFP_NOIO);
-			write->data = new BYTE[write->metadata.size];
-			if (write->data == NULL)	THROW_ERROR(ERR_MEM, L"hwm: unable to get memory for data logging");
-			//{
-			//	LOG_WARNING(L"hwm: unable to get memory for data logging\n");
-			//	kfree(write);
-			//	goto passthrough;
-			//}
-			//copied_data = 0;
-			//struct bio_vec vec;
-			//struct bvec_iter iter;
-			//bio_for_each_segment(vec, bio, iter)
-			//{
-			//	//LOG_NOTICE(L "hwm: making new page for segment of data\n");
-			//	void* bio_data = kmap(vec.bv_page);
-			//	memcpy((void*)(write->data + copied_data), bio_data + vec.bv_offset, vec.bv_len);
-			//	kunmap(bio_data);
-			//	copied_data += vec.bv_len;
-			//}
-			memcpy_s(write->data, write->metadata.size, buf, write->metadata.size);
+			size_t data_size = secs * SECTOR_SIZE;
+			BYTE * data = new BYTE[data_size];
+			if (data == NULL)	THROW_ERROR(ERR_MEM, L"hwm: unable to get memory for data logging");
+			memcpy_s(data, data_size, buf, data_size);
+
+			write->m_data.reset(data, [](BYTE* c) {delete[] c; });
 			// Sanity check which prints data copied to the log.
-			/*
-			LOG_NOTICE(L "hwm: copied %ld bytes of from %lx data: \n~~~\n%s\n~~~\n",
-				write->metadata.size, write->metadata.write_sector * 512, write->data);
-			*/
+			InsertLog(write.detach());
 
-			// Protect playing around with our list of logged bios.
-#ifdef  _TO_BE_IMPLEMENTED_
-			spin_lock(&m_hwm_dev.lock);
-#endif //  _TO_BE_IMPLEMENTED_
-
-			if (m_hwm_dev.current_write == NULL)
-			{	// With the default first checkpoint, this case should never happen.
-				LOG_WARNING(L"hwm: found empty list of previous disk ops");
-				// This is the first write in the log.
-				m_hwm_dev.writes = write;
-				// Set the first write in the log so that it's picked up later.
-				m_hwm_dev.current_log_write = write;
-			}
-			else
-			{	// Some write(s) was/were already made so add this to the back of the chain and update pointers.
-				m_hwm_dev.current_write->next = write;
-			}
-//			m_hwm_dev.current_write = write;
-			m_hwm_dev.current_write = write.detach();
-#ifdef  _TO_BE_IMPLEMENTED_
-			spin_unlock(&m_hwm_dev.lock);
-#endif //  _TO_BE_IMPLEMENTED_
+//			// Protect playing around with our list of logged bios.
+//#ifdef  _TO_BE_IMPLEMENTED_
+//			spin_lock(&m_hwm_dev.lock);
+//#endif //  _TO_BE_IMPLEMENTED_
+//
+//			if (m_hwm_dev.current_write == NULL)
+//			{	// With the default first checkpoint, this case should never happen.
+//				LOG_WARNING(L"hwm: found empty list of previous disk ops");
+//				// This is the first write in the log.
+//				m_hwm_dev.writes = write;
+//				// Set the first write in the log so that it's picked up later.
+//				m_hwm_dev.current_log_write = write;
+//			}
+//			else
+//			{	// Some write(s) was/were already made so add this to the back of the chain and update pointers.
+//				m_hwm_dev.current_write->next = write;
+//			}
+////			m_hwm_dev.current_write = write;
+//			m_hwm_dev.current_write = write.detach();
+//#ifdef  _TO_BE_IMPLEMENTED_
+//			spin_unlock(&m_hwm_dev.lock);
+//#endif //  _TO_BE_IMPLEMENTED_
 		}
 	}
 	catch (jcvos::CJCException& err)
 	{
 	}
-
-//passthrough:
-	// Pass request off to normal device driver.
-	//hwm = (struct hwm_device*)q->queuedata;
-	//bio->bi_disk = hwm->target_dev;
-	//bio->bi_partno = hwm->target_partno;
-	//submit_bio(bio);
-	//return BLK_QC_T_NONE;
 	JCASSERT(m_target_dev);
 	return m_target_dev->WriteSectors(buf, lba, secs);
+}
+
+bool CWrapperDisk::FlushData(UINT lba, size_t secs)
+{
+	LOG_STACK_TRACE();
+	if (m_hwm_dev.log_on)
+	{
+		jcvos::auto_ptr<disk_write_op> write(new disk_write_op);
+		if (write == NULL) THROW_ERROR(ERR_MEM, L"hwm: unable to make new write node");
+		write->metadata.bi_flags = HWM_SYNC_FLAG | HWM_FLUSH_FLAG;
+		write->metadata.bi_rw = HWM_SYNC_FLAG | HWM_FLUSH_FLAG;
+		write->metadata.write_sector = 0;
+		write->metadata.size = 0;
+		write->metadata.time_ns = jcvos::GetTimeStamp();
+		write->m_data.reset();
+//		write->data = NULL;
+
+		InsertLog(write.detach());
+	}
+	return true;
 }
 
 int CWrapperDisk::IoCtrl(int mode, UINT cmd, void* arg)
 {
 	int ret = 0;
-//	size_t not_copied;
-	//struct disk_write_op* checkpoint = NULL;
-//	ktime_t curr_time;
-
 	switch (cmd)
 	{
 	case HWM_LOG_OFF:
@@ -206,37 +179,19 @@ int CWrapperDisk::IoCtrl(int mode, UINT cmd, void* arg)
 		//	return -EFAULT;
 		//}
 		// Copy metadata.
-		//not_copied = sizeof(struct disk_write_op_meta);
-		//while (not_copied != 0)
-		//{
-			memcpy_s(arg, sizeof(disk_write_op_meta), &m_hwm_dev.current_log_write->metadata, sizeof(disk_write_op_meta));
-			//size_t offset = sizeof(struct disk_write_op_meta) - not_copied;
-			//not_copied = copy_to_user((void*)(arg + offset), &(m_hwm_dev.current_log_write->metadata) + offset, not_copied);
-		//}
+		memcpy_s(arg, sizeof(disk_write_op_meta), &m_hwm_dev.current_log_write->metadata, sizeof(disk_write_op_meta));
 		break;
-	case HWM_GET_LOG_DATA:
-		//LOG_NOTICE(L "hwm: getting log entry data\n");
-		if (m_hwm_dev.current_log_write == NULL)
-		{
-			LOG_ERROR(L"[err] hwm: no log entries to report data for");
-			return -ENODATA;
-		}
-
-		//if (!access_ok(VERIFY_WRITE, (void*)arg, m_hwm_dev.current_log_write->metadata.size))
-		//{	// TODO(ashmrtn): Find right error code.
-		//	return -EFAULT;
-		//}
-
-		// Copy written data.
-		//not_copied = m_hwm_dev.current_log_write->metadata.size;
-		//while (not_copied != 0)
+	case HWM_GET_LOG_DATA: {
+		JCASSERT(0);
+		//if (m_hwm_dev.current_log_write == NULL)
 		//{
-		//	unsigned int offset = m_hwm_dev.current_log_write->metadata.size - not_copied;
-		//	not_copied = copy_to_user((void*)(arg + offset), m_hwm_dev.current_log_write->data + offset, not_copied);
+		//	LOG_ERROR(L"[err] hwm: no log entries to report data for");
+		//	return -ENODATA;
 		//}
-		memcpy_s(arg, m_hwm_dev.current_log_write->metadata.size, m_hwm_dev.current_log_write->data, 
-			m_hwm_dev.current_log_write->metadata.size);
-		break;
+		//size_t data_size = m_hwm_dev.current_log_write->metadata.size * SECTOR_SIZE;
+		//memcpy_s(arg, data_size, m_hwm_dev.current_log_write->data, data_size);
+	} break;
+
 	case HWM_NEXT_ENT:
 		//LOG_NOTICE(L "hwm: moving to next log entry\n");
 		if (m_hwm_dev.current_log_write == NULL)
@@ -253,7 +208,6 @@ int CWrapperDisk::IoCtrl(int mode, UINT cmd, void* arg)
 		break;
 
 	case HWM_CHECKPOINT: {
-		//curr_time = ktime_get();
 		LOG_NOTICE(L"hwm: making checkpoint in log");
 		// Create a new log entry that just says we got a checkpoint.
 		disk_write_op* checkpoint = new disk_write_op;
@@ -261,17 +215,27 @@ int CWrapperDisk::IoCtrl(int mode, UINT cmd, void* arg)
 
 		checkpoint->metadata.bi_rw = HWM_CHECKPOINT_FLAG;
 		checkpoint->metadata.bi_flags = HWM_CHECKPOINT_FLAG;
-		checkpoint->metadata.size = 0;
-#ifdef _TO_BE_IMPLEMENTED_
-		checkpoint->metadata.time_ns = ktime_to_ns(curr_time);
-#endif
+		checkpoint->metadata.time_ns = jcvos::GetTimeStamp();
+		//<YUAN> checkpoing增加注释功能
+		const std::wstring* msg = reinterpret_cast<std::wstring*>(arg);
+		if (msg && !msg->empty())
+		{	//表示message时，size为byte单位
+			size_t len = msg->size() + 1;
+			checkpoint->metadata.size = boost::numeric_cast<unsigned int>(len * sizeof(wchar_t));
+			wchar_t* str = new wchar_t[len * sizeof(wchar_t)];
+			wcscpy_s(str, len, msg->c_str());
+			checkpoint->m_data.reset((BYTE*)str, [](BYTE* c) {delete[] c; });
+//			checkpoint->data = new wchar_t[len];
+		}
+		else checkpoint->metadata.size = 0;
 		// Aquire lock and add the new entry to the end of the list.
 //		spin_lock(&m_hwm_dev.lock);
 		// Assuming spinlock keeps the compiler from reordering this before the lock is aquired...
 		checkpoint->metadata.write_sector = m_hwm_dev.current_checkpoint;
 		++m_hwm_dev.current_checkpoint;
-		m_hwm_dev.current_write->next = checkpoint;
-		m_hwm_dev.current_write = checkpoint;
+		InsertLog(checkpoint);
+		//m_hwm_dev.current_write->next = checkpoint;
+		//m_hwm_dev.current_write = checkpoint;
 		// Drop lock and return success.
 //		spin_unlock(&m_hwm_dev.lock);
 		} break;
@@ -281,13 +245,20 @@ int CWrapperDisk::IoCtrl(int mode, UINT cmd, void* arg)
 	return ret;
 }
 
+int CWrapperDisk::GetWriteLog(fs_testing::utils::disk_write& log)
+{
+	if (m_hwm_dev.current_log_write == NULL)
+	{
+		LOG_ERROR(L"[err] hwm: no log entry here");
+		return -ENODATA;
+	}
+	log.metadata = m_hwm_dev.current_log_write->metadata;
+	if (log.metadata.size > 0) log.set_data(m_hwm_dev.current_log_write->m_data);
+	return 0;
+}
+
 bool CWrapperDisk::Initialize(IVirtualDisk* target_dev)
 {
-//	unsigned int flush_flags;
-//	unsigned long queue_flags;
-//	struct block_device* flags_device, * target_device;
-//	struct disk_write_op* first = NULL;
-//	ktime_t curr_time;
 	LOG_STACK_TRACE(L"hwm: Hello World from module\n");
 
 	if (target_dev == NULL) THROW_ERROR(ERR_APP, L"target device cannot be null");
@@ -308,27 +279,15 @@ bool CWrapperDisk::Initialize(IVirtualDisk* target_dev)
 	first->metadata.bi_rw = HWM_CHECKPOINT_FLAG;
 	first->metadata.write_sector = 0;
 	first->metadata.size = 0;
-	//	first->metadata.time_ns = ktime_to_ns(curr_time);
-	m_hwm_dev.current_write = first;
-	m_hwm_dev.writes = first;
-	m_hwm_dev.current_log_write = first;
+	first->metadata.time_ns = jcvos::GetTimeStamp();
+
+	m_hwm_dev.current_write = NULL;
+	InsertLog(first);
+	//m_hwm_dev.current_write = first;
+	//m_hwm_dev.writes = first;
+	//m_hwm_dev.current_log_write = first;
 	m_hwm_dev.current_checkpoint = 1;
 
-	//first = kzalloc(sizeof(struct disk_write_op), GFP_NOIO);
-	//if (first == NULL)
-	//{
-	//	LOG_ERROR(L "hwm: error allocating default checkpoint\n");
-	//	goto out;
-	//}
-
-	//curr_time = ktime_get();
-
-	//first->metadata.bi_rw = HWM_CHECKPOINT_FLAG;
-	//first->metadata.bi_flags = HWM_CHECKPOINT_FLAG;
-	//first->metadata.time_ns = ktime_to_ns(curr_time);
-	//m_hwm_dev.writes = first;
-	//m_hwm_dev.current_write = first;
-	//m_hwm_dev.current_log_write = m_hwm_dev.current_write;
 
 	// Get registered.
 	//target_device = blkdev_get_by_path(target_device_path, FMODE_READ, &m_hwm_dev);
@@ -408,28 +367,21 @@ void CWrapperDisk::FreeLogs(void)
 {
 	// Remove all writes.
 	RemoveAllLogs();
-//	ktime_t curr_time;
 	struct disk_write_op* first = new disk_write_op;
 
 	// Create default first checkpoint at start of log.
-//	first = kzalloc(sizeof(struct disk_write_op), GFP_NOIO);
 	if (first == NULL)	THROW_ERROR(ERR_MEM, L"hwm: error allocating default checkpoint");
-	//{
-	//	LOG_ERROR(L "hwm: error allocating default checkpoint\n");
-	//	return;
-	//}
 
-//	curr_time = ktime_get();
-
+	first->metadata.write_sector = 0;
 	first->metadata.bi_flags = HWM_CHECKPOINT_FLAG;
 	first->metadata.bi_rw = HWM_CHECKPOINT_FLAG;
 	first->metadata.size = 0;
-//	first->metadata.time_ns = ktime_to_ns(curr_time);
-	m_hwm_dev.current_write = first;
-	m_hwm_dev.writes = first;
-	m_hwm_dev.current_log_write = first;
+	first->metadata.time_ns = jcvos::GetTimeStamp();
+	//m_hwm_dev.current_write = first;
+	//m_hwm_dev.writes = first;
+	//m_hwm_dev.current_log_write = first;
+	InsertLog(first);
 	m_hwm_dev.current_checkpoint = 1;
-
 }
 
 void CWrapperDisk::RemoveAllLogs(void)
@@ -438,11 +390,44 @@ void CWrapperDisk::RemoveAllLogs(void)
 	struct disk_write_op* tmp_w;
 	while (w != NULL)
 	{
-		//		kfree(w->data);
 		tmp_w = w;
 		w = w->next;
-		//		kfree(tmp_w);
 		delete tmp_w;
 	}
+	m_hwm_dev.writes = NULL;
+	m_hwm_dev.current_write = NULL;
+	m_hwm_dev.current_log_write = NULL;
+
+}
+
+void CWrapperDisk::InsertLog(disk_write_op* write)
+{
+#ifdef _DEBUG
+	static int index = 0;
+#endif
+	// Protect playing around with our list of logged bios.
+#ifdef  _TO_BE_IMPLEMENTED_
+	spin_lock(&m_hwm_dev.lock);
+#endif //  _TO_BE_IMPLEMENTED_
+
+	if (m_hwm_dev.current_write == NULL)
+	{	// With the default first checkpoint, this case should never happen.
+//			LOG_WARNING(L"hwm: found empty list of previous disk ops");
+			// This is the first write in the log.
+		m_hwm_dev.writes = write;
+		// Set the first write in the log so that it's picked up later.
+		m_hwm_dev.current_log_write = write;
+	}
+	else
+	{	// Some write(s) was/were already made so add this to the back of the chain and update pointers.
+		m_hwm_dev.current_write->next = write;
+	}
+	//			m_hwm_dev.current_write = write;
+	m_hwm_dev.current_write = write;
+	LOG_DEBUG(L"insert log:%d, type=0x%X, lba=0x%X, secs=0x%0X", index++, write->metadata.bi_rw,
+		write->metadata.write_sector, write->metadata.size);
+#ifdef  _TO_BE_IMPLEMENTED_
+	spin_unlock(&m_hwm_dev.lock);
+#endif //  _TO_BE_IMPLEMENTED_
 
 }

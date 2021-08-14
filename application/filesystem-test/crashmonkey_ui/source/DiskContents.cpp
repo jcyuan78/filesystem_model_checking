@@ -163,35 +163,40 @@ DiskContents::~DiskContents()
 
 int DiskContents::mount_disk()
 {
-	LOG_STACK_TRACE();
-	JCASSERT(0); return 0;
-#ifdef _TO_BE_IMPLEMENTED_
+#if 1 //_TO_BE_IMPLEMENTED_
 
 	// Construct and set mount_point
 	mount_point = L"/mnt/";
 	mount_point += disk_path.substr(5);
-	// Create the mount directory with read/write/search permissions for owner and group, 
-	// and with read/search permissions for others.
+	LOG_DEBUG(L"mount point = %s", mount_point.c_str());
+	// Create the mount directory with read/write/search permissions for owner and group, and with read/search permissions for others.
+#if 0
 	int ret = mkdir(mount_point.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
 	if (ret == -1 && errno != EEXIST)
 	{
 		cout << "creating mountpoint failed" << endl;
 		return -1;
 	}
+#endif
+	LOG_DEBUG(L"[linux] make dir: %s", mount_point.c_str());
+
 	// Mount the disk
-	if (mount(disk_path.c_str(), mount_point.c_str(), fs_type.c_str(), MS_RDONLY, NULL) < 0)
-	{
-		return -1;
-	}
+#if 0
+	if (mount(disk_path.c_str(), mount_point.c_str(), fs_type.c_str(), MS_RDONLY, NULL) < 0)	{	return -1;	}
 	// sleep after mount
 	unsigned int to_sleep = 0;
 	do
 	{
 		to_sleep = sleep(to_sleep);
 	} while (to_sleep > 0);
-
+#endif
+	LOG_DEBUG(L"[linux] mount dev %s to dir %s, fs type = %s", disk_path.c_str(), mount_point.c_str(), fs_type.c_str());
 	device_mounted = true;
 	return 0;
+#else
+	LOG_STACK_TRACE();
+	JCASSERT(0); return 0;
+
 #endif
 }
 
@@ -389,8 +394,7 @@ bool DiskContents::compare_disk_contents(DiskContents& compare_disk, std::wofstr
 }
 
 // TODO(P.S.) Cleanup the code and pull out redundant code into separate functions
-bool DiskContents::compare_entries_at_path(DiskContents& compare_disk,
-	std::wstring& path, std::wofstream& diff_file)
+bool DiskContents::compare_entries_at_path(DiskContents& compare_disk, std::wstring& path, std::wofstream& diff_file)
 {
 	bool retValue = true;
 	if (disk_path.compare(compare_disk.disk_path) == 0) { return retValue; }
@@ -403,10 +407,12 @@ bool DiskContents::compare_entries_at_path(DiskContents& compare_disk,
 
 	std::wstring compare_disk_mount_point(compare_disk.get_mount_point());
 	std::wstring compare_path = compare_disk_mount_point + path;
+	LOG_DEBUG(L"compare point=%s, compare path=%s", compare_disk_mount_point.c_str(), compare_path.c_str());
 
 	fileAttributes base_fa, compare_fa;
 	bool failed_stat = false;
 	struct _stat base_statbuf, compare_statbuf;
+#if 0
 	if (_wstat(base_path.c_str(), &base_statbuf) == -1)
 	{
 		diff_file << L"Failed stating the file " << base_path << endl;
@@ -417,6 +423,8 @@ bool DiskContents::compare_entries_at_path(DiskContents& compare_disk,
 		diff_file << L"Failed stating the file " << compare_path << endl;
 		failed_stat = true;
 	}
+#endif
+	LOG_DEBUG(L"stat file: base=%s, compare=%s", base_path.c_str(), compare_path.c_str());
 
 	if (failed_stat)
 	{
@@ -424,6 +432,7 @@ bool DiskContents::compare_entries_at_path(DiskContents& compare_disk,
 		return false;
 	}
 
+#if 0
 	base_fa.set_stat_attr(base_path, false);
 	compare_fa.set_stat_attr(compare_path, false);
 	if (!(base_fa.compare_stat_attr(compare_fa.stat_attr)))
@@ -451,6 +460,7 @@ bool DiskContents::compare_entries_at_path(DiskContents& compare_disk,
 			return false;
 		}
 	}
+#endif
 	compare_disk.unmount_and_delete_mount_point();
 	return retValue;
 }

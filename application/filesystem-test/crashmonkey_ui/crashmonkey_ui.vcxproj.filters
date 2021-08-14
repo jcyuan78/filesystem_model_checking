@@ -39,37 +39,25 @@
     <ClCompile Include="source\results\SingleTestInfo.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="source\results\DataTestResult.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
     <ClCompile Include="source\results\PermuteTestResult.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="source\utils\utils.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="source\tests\BaseTestCase.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
     <ClCompile Include="source\permuter\Permuter.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
-    <ClCompile Include="source\tests\generic_002.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
-    <ClCompile Include="source\user_tools\actions.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
-    <ClCompile Include="source\utils\DiskMod.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
-    <ClCompile Include="source\utils\ClassLoader.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="source\ThreadMessageQue.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="source\utils\communication\ClientCommandSender.cpp">
+    <ClCompile Include="source\factory.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="source\permuter\RandomPermuter.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="source\wrapper_dev.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>
@@ -92,9 +80,6 @@
     <ClInclude Include="source\crashmonkey_app.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="source\tests\BaseTestCase.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
     <ClInclude Include="source\utils\communication\SocketUtils.h">
       <Filter>头文件</Filter>
     </ClInclude>
@@ -110,9 +95,6 @@
     <ClInclude Include="source\results\SingleTestInfo.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="source\results\DataTestResult.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
     <ClInclude Include="source\results\PermuteTestResult.h">
       <Filter>头文件</Filter>
     </ClInclude>
@@ -122,16 +104,13 @@
     <ClInclude Include="source\permuter\Permuter.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="source\user_tools\actions.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
-    <ClInclude Include="source\utils\DiskMod.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
     <ClInclude Include="source\ThreadMessageQue.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="source\utils\communication\ClientCommandSender.h">
+    <ClInclude Include="source\permuter\RandomPermuter.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="source\wrapper_dev.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>

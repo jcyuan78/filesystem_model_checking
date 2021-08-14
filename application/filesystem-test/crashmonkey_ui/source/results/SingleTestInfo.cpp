@@ -1,5 +1,7 @@
 #include "../pch.h"
-#include "DataTestResult.h"
+
+#include <crashmonkey_comm.h>
+//#include "DataTestResult.h"
 #include "FileSystemTestResult.h"
 #include "SingleTestInfo.h"
 

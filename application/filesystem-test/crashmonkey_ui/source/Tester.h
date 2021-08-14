@@ -9,15 +9,17 @@
 //#include <vector>
 //#include <map>
 
+#include <crashmonkey_comm.h>
+
 #include "results/FileSystemTestResult.h"
 
 #include "FsSpecific.h"
 #include "permuter/Permuter.h"
 #include "results/TestSuiteResult.h"
-#include "tests/BaseTestCase.h"
 #include "utils/ClassLoader.h"
-#include "utils/DiskMod.h"
 #include "utils/utils.h"
+
+#include "wrapper_dev.h"
 
 #include <dokanfs-lib.h>
 
@@ -44,6 +46,9 @@
 
 #define DIRTY_EXPIRE_TIME_SIZE 11
 
+#define MESSAGE(m) std::wcout << m; logfile << m;
+
+
 namespace fs_testing
 {
 #ifdef TEST_CASE
@@ -66,27 +71,33 @@ namespace fs_testing
 			TEST_CASE_TIME, MOUNT_TIME, TOTAL_TIME, NUM_TIME,
 		};
 
-		Tester(const size_t device_size, const unsigned int sector_size, const bool verbosity);
+		Tester(const size_t device_size, const unsigned int sector_size, const bool verbosity, std::wostream & log);
 		~Tester();
 
 		const bool verbose = false;
 		void set_fs_type(const std::wstring type);
-		void set_device(const std::wstring device_path);
 		void set_flag_device(const std::wstring device_path);
-
 		const wchar_t* update_dirty_expire_time(const wchar_t* time);
 
 		int partition_drive();
 		int wipe_partitions();
-		int format_drive();
+
+//<YUAN> 文件系统相关
+	protected:
+		IFileSystem* m_fs=nullptr;
+	public:
+		int format_drive(void);
 		int clone_device();
 		//        int clone_device_restore(int snapshot_fd, bool reread);
 		int clone_device_restore(IVirtualDisk* snapshot, bool reread);
 
-		int permuter_load_class(const wchar_t* path);
+		int permuter_load_class(const wchar_t* path, const wchar_t * class_name);
 		void permuter_unload_class();
 
-		int test_load_class(const wchar_t* path);
+		//<YUAN> 加载DLL并且获取factory函数。原始设计中，对于特定的DLL，factory函数和defactory函数名称固定。
+		//	修改：factory函数改为factory类，一个DLL可以包含多个factory，通过名称区分。
+		//	参数：path: DLL路径名称，如果path为空，从本地GetFactory函数获取factory；class_name：factory类的名称。
+		int test_load_class(const wchar_t* path, const wchar_t * class_name);
 		void test_unload_class();
 
 //<YUAN> 测试线程相关函数
@@ -95,6 +106,7 @@ namespace fs_testing
 		int test_run(FILE * change_fd, const int checkpoint);
 		int async_test_run(FILE * chage_fd, const int checkpoint);
 		int get_test_running_status(void);
+		HANDLE GetTestThread(void) const { return m_test_thread; }
 
 	protected:
 		static DWORD WINAPI _start_async_test_run(LPVOID param);
@@ -116,7 +128,10 @@ namespace fs_testing
 
 		int mount_snapshot();
 		int umount_snapshot();
+	protected:
+		int mount_device(const wchar_t* dev_name, const wchar_t* opts, IVirtualDisk * dev);
 
+	public:
 		int mapCheckpointToSnapshot(int checkpoint);
 		int getNewDiskClone(int checkpoint);
 		void getCompleteRunDiskClone();
@@ -136,7 +151,7 @@ namespace fs_testing
 //		int GetChangeData(const int fd);
 		int GetChangeData(FILE* fd);
 
-		int CreateCheckpoint();
+		int CreateCheckpoint(const std::wstring & msg);
 
 		int clear_caches();
 		void cleanup_harness();
@@ -161,34 +176,46 @@ namespace fs_testing
 	private:
 		FsSpecific* fs_specific_ops_ = NULL;
 
-		const size_t device_size;
+		const size_t m_device_size;
 		fs_testing::utils::ClassLoader<fs_testing::tests::BaseTestCase> test_loader;
 		fs_testing::utils::ClassLoader<fs_testing::permuter::Permuter> permuter_loader;
 
 		wchar_t dirty_expire_time[DIRTY_EXPIRE_TIME_SIZE];
 		std::wstring fs_type;
+		std::wstring flags_device;
+
+//<YUAN> device_raw
+	public:
+		//<YUAN> 设置device_raw。device_raw是文件系统运行的磁盘。用IVirtialDisk代替device名称
+		void set_device(const std::wstring device_path, IVirtualDisk* dev);
+	protected:
+		IVirtualDisk* m_device_raw;
 		std::wstring device_raw;
 		std::wstring device_mount;
-		std::wstring flags_device;
+
+	private:
+
 
 		TestSuiteResult* current_test_suite_ = NULL;
 
 		bool wrapper_inserted = false;
 		bool cow_brd_inserted = false;  // RAM DISK已经初始化
 //        int cow_brd_fd = -1;            // RAM DISK的设别号
+		// 指向CCrashMonkeyCtrl的对象，从他可以获得ram device和snapshot device
+		//	原设计中cow_brd_fd指向/dev/cow_ram0，目前设计中改为m_device_raw;
 		IVirtualDisk* m_cow_brd = nullptr;
 
 		bool disk_mounted = false;
 		//        int ioctl_fd = -1;              // disk wrape的设备号
-		IVirtualDisk* m_ioctl_dev = nullptr;
+//		IVirtualDisk* m_ioctl_dev = nullptr;
+		CWrapperDisk* m_ioctl_dev = nullptr;
 
 		IVirtualDisk* m_ram_drive = nullptr;
 
 		const unsigned int sector_size_;
-		std::vector<fs_testing::utils::disk_write> log_data;
+		std::vector<fs_testing::utils::disk_write> m_log_data;
 		std::vector<std::vector<fs_testing::utils::DiskMod> > mods_;
 
-		int mount_device(const wchar_t* dev, const wchar_t* opts);
 
 		bool read_dirty_expire_time(int fd);
 		bool write_dirty_expire_time(int fd, const wchar_t* time);
@@ -202,8 +229,8 @@ namespace fs_testing
 			const std::vector<fs_testing::utils::DiskWriteData>::iterator& start,
 			const std::vector<fs_testing::utils::DiskWriteData>::iterator& end);
 
-		std::vector<std::chrono::milliseconds> test_fsck_and_user_test(
-			const std::wstring device_path, const unsigned int last_checkpoint,
+		std::vector<std::chrono::milliseconds> test_fsck_and_user_test(IVirtualDisk* device,
+			/*const std::wstring device_path, */const unsigned int last_checkpoint,
 			SingleTestInfo& test_info, bool automate_check_test);
 
 		bool check_disk_and_snapshot_contents(std::wstring disk_path, int last_checkpoint);
@@ -213,12 +240,17 @@ namespace fs_testing
 
 		std::map<int, std::wstring> checkpointToSnapshot_;
 
-		std::wstring snapshot_path_;    //<YUAN> 原设计中，snapshot_path_指向设备的路径，更改为虚拟设备
+		std::wstring m_snapshot_path_;    //<YUAN> 原设计中，snapshot_path_指向设备的路径，更改为虚拟设备
 		IVirtualDisk* m_snapshot_dev = nullptr;
+
+	protected:
+		std::wostream& m_log_stream;
 
 	};
 
 	std::wostream& operator<<(std::wostream& os, Tester::time_stats time);
+
+
 
 }  // namespace fs_testing
 

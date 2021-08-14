@@ -1,0 +1,13 @@
+.git
+.vs
+
+*.user
+
+/build
+/_extlib
+/_tool
+
+
+ReNewDisk.sln
+application/Renewdisk/bin/
+application/Renewdisk/obj/

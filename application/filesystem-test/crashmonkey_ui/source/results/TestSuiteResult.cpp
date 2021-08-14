@@ -1,5 +1,6 @@
 #include "../pch.h"
-#include "DataTestResult.h"
+//#include "DataTestResult.h"
+#include <crashmonkey_comm.h>
 #include "FileSystemTestResult.h"
 #include "TestSuiteResult.h"
 
