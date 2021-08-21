@@ -51,10 +51,11 @@ public:
 
 public:
 	virtual ULONG GetFileSystemOption(void) const { return 0; };
-	virtual bool ConnectToDevice(IVirtualDisk * dev);
-	virtual void Disconnect(void);
-	virtual bool Mount(void);
-	virtual void Unmount(void) {};
+	virtual bool Mount(IVirtualDisk * dev);
+	virtual void Unmount(void);
+	// Volume Size：sector单位
+	virtual bool MakeFileSystem(IVirtualDisk * dev, UINT32 volume_secs, const std::wstring & volume_name);
+	virtual FsCheckResult FileSystemCheck(IVirtualDisk * dev, bool repair);
 
 	virtual bool DokanGetDiskSpace(ULONGLONG &free_bytes, ULONGLONG &total_bytes, ULONGLONG &total_free_bytes);
 	virtual bool GetVolumnInfo(std::wstring & vol_name,
@@ -63,25 +64,27 @@ public:
 
 	// file attribute (attr) and create disposition (disp) is in user mode 
 	virtual bool DokanCreateFile(IFileInfo * &file, const std::wstring & fn,
-		ACCESS_MASK access_mask, DWORD attr, DWORD disp,
+		ACCESS_MASK access_mask, DWORD attr, FsCreateDisposition disp,
 		ULONG share, ULONG opt, bool isdir);
 	virtual bool DokanDeleteFile(const std::wstring & fn, IFileInfo * file, bool isdir);
 	virtual void FindStreams(void) {};
 	virtual bool DokanMoveFile(const std::wstring & src_fn, const std::wstring & dst_fn, bool replace, IFileInfo * file) { return true; }
 
-	// Volume Size：sector单位
-	virtual bool MakeFileSystem(UINT32 volume_secs, const std::wstring & volume_name);
-	virtual FsCheckResult FileSystemCheck(bool repair);
 
 	virtual bool MakeDir(const std::wstring& dir) { JCASSERT(0); return false; }
 
-	virtual bool HardLink(const std::wstring src, const std::wstring dst) { JCASSERT(0); return false; }
-	virtual bool Sync(void) { return true; }
+	virtual bool HardLink(const std::wstring &src, const std::wstring & dst) { JCASSERT(0); return false; }
+	virtual bool Unlink(const std::wstring& fn) { JCASSERT(0); return false; }
+	virtual bool Sync(void);
 
 	// local
 public:
 	bool MediaRead(UINT sector, void * buffer, size_t sector_count);
 	bool MediaWrite(UINT sector, void * buffer, size_t sector_count);
+
+protected:
+	virtual bool ConnectToDevice(IVirtualDisk * dev);
+	virtual void Disconnect(void);
 
 protected:
 	struct fatfs* m_fs;
@@ -98,4 +101,4 @@ public:
 };
 
 
-extern jcvos::CStaticInstance<CFSFatIo>	g_fs;
+//extern jcvos::CStaticInstance<CFSFatIo>	g_fs;

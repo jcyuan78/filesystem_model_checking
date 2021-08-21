@@ -7,7 +7,7 @@ extern "C" {
 }
 #include "fat_io_dokan.h"
 
-LOCAL_LOGGER_ENABLE(L"fat.fs", LOGGER_LEVEL_DEBUGINFO);
+LOCAL_LOGGER_ENABLE(L"fat.fs", LOGGER_LEVEL_NOTICE);
 
 
 jcvos::CStaticInstance<CFSFatIo>	g_fs;
@@ -24,50 +24,69 @@ int media_write(uint32 sector, uint8 * buffer, uint32 sector_count)
 	return br;
 }
 
+int media_sync(void)
+{
+	bool br = g_fs.Sync();
+	return br;
+}
+
+
 CFSFatIo::CFSFatIo(void) : m_fs(NULL), m_dev(NULL)
 {
-	fl_init();
+//	fl_init();
 }
 
 CFSFatIo::~CFSFatIo(void)
 {
-	RELEASE(m_dev);
-	fl_shutdown();
+	JCASSERT(m_dev == NULL);
+//	RELEASE(m_dev);
+//	fl_shutdown();
 }
 
 bool CFSFatIo::ConnectToDevice(IVirtualDisk * dev)
 {
-	JCASSERT(dev);
-
+	if (m_dev != NULL) THROW_ERROR(ERR_APP, L"device has already connected");
+	if (dev == NULL) THROW_ERROR(ERR_APP, L"device cannot be null");
 	m_dev = dev;
 	m_dev->AddRef();
-//	fl_init();
 	return true;
 }
 
 void CFSFatIo::Disconnect(void)
 {
 	RELEASE(m_dev);
-//	fl_shutdown();
 }
 
-bool CFSFatIo::Mount(void)
+bool CFSFatIo::Mount(IVirtualDisk * dev)
 {
+	ConnectToDevice(dev);
 	int ir;
-	ir = fl_attach_media(media_read, media_write);
+	fl_init();
+	ir = fl_attach_media(media_read, media_write, media_sync);
 	if (ir!=FAT_INIT_OK)
 	{
+		fl_shutdown();
+		Disconnect();
 		LOG_ERROR(L"[err] failed on attach to media, res=%d", ir);
 		return false;
 	}
 	m_fs = fl_get_fs();
 	if (!m_fs)
 	{
+		fl_shutdown();
+		Disconnect();
 		LOG_ERROR(L"[err] failed on getting fs");
 		return false;
 	}
 
 	return true;
+}
+
+void CFSFatIo::Unmount(void)
+{	// 清理FS，关闭所有已打开的文件，回收资源
+	fl_shutdown();
+//	RELEASE(m_dev);
+	Disconnect();
 }
 
 bool CFSFatIo::DokanGetDiskSpace(ULONGLONG & free_bytes, ULONGLONG & total_bytes, ULONGLONG & total_free_bytes)
@@ -91,7 +110,7 @@ bool CFSFatIo::GetVolumnInfo(std::wstring & vol_name,
 }
 
 bool CFSFatIo::DokanCreateFile(IFileInfo *& file, const std::wstring & _fn,
-	ACCESS_MASK access_mask, DWORD attr, DWORD disp, ULONG share, ULONG opt, bool isdir)
+	ACCESS_MASK access_mask, DWORD attr, FsCreateDisposition disp, ULONG share, ULONG opt, bool isdir)
 {
 	JCASSERT(file==NULL);
 
@@ -118,7 +137,7 @@ bool CFSFatIo::DokanCreateFile(IFileInfo *& file, const std::wstring & _fn,
 
 		if (dd)
 		{
-			if (disp == CREATE_NEW)
+			if (disp == IFileSystem::FS_CREATE_NEW)
 			{
 				LOG_ERROR_EX(1128, L"dir %s has already existed while CREATE_NEW", _fn.c_str());
 				return false;
@@ -126,7 +145,7 @@ bool CFSFatIo::DokanCreateFile(IFileInfo *& file, const std::wstring & _fn,
 		}
 		else
 		{
-			if (disp == OPEN_EXISTING)
+			if (disp == IFileSystem::FS_OPEN_EXISTING)
 			{
 				LOG_ERROR_EX(1136, L"dir %s does not existed while OPEN_EXISTING", _fn.c_str());
 				return false;
@@ -164,7 +183,8 @@ bool CFSFatIo::DokanCreateFile(IFileInfo *& file, const std::wstring & _fn,
 
 		// retry for create
 		LOG_DEBUG(L"mode=%S, open fail", mode);
-		if (disp == CREATE_NEW || disp == CREATE_ALWAYS || disp==OPEN_ALWAYS)
+		if (disp == IFileSystem::FS_CREATE_NEW || disp == IFileSystem::FS_CREATE_ALWAYS 
+			|| disp== IFileSystem::FS_OPEN_ALWAYS)
 		{
 			f = fl_fopen(str_fn.c_str(), "a+");
 			if (f)
@@ -176,7 +196,7 @@ bool CFSFatIo::DokanCreateFile(IFileInfo *& file, const std::wstring & _fn,
 			LOG_ERROR(L"failed on creating file %s", fn.c_str());
 			return false;
 		}
-		else if (disp == OPEN_EXISTING)
+		else if (disp == IFileSystem::FS_OPEN_EXISTING)
 		{	// maybe file has already opened, try again
 			f = fl_fopen(str_fn.c_str(), mode);
 			if (f)
@@ -185,7 +205,7 @@ bool CFSFatIo::DokanCreateFile(IFileInfo *& file, const std::wstring & _fn,
 				ff.detach(file);
 				return true;
 			}
-			LOG_ERROR(L"failed on open existing file %s", fn.c_str());
+			LOG_ERROR(L"[err] failed on open existing file %s", fn.c_str());
 			return false;
 		}
 		return false;
@@ -203,32 +223,46 @@ bool CFSFatIo::DokanDeleteFile(const std::wstring & fn, IFileInfo * file, bool i
 	else return false;
 }
 
-bool CFSFatIo::MakeFileSystem(UINT32 volume_secs, const std::wstring & volume_name)
+bool CFSFatIo::MakeFileSystem(IVirtualDisk * dev, UINT32 volume_secs, const std::wstring & volume_name)
 {
-	JCASSERT(m_dev);
+	ConnectToDevice(dev);
+	fl_init();
 	std::string str_vol;
 	jcvos::UnicodeToUtf8(str_vol, volume_name);
-	pre_attach_media(media_read, media_write);
+	pre_attach_media(media_read, media_write, media_sync);
 
+	bool br = true;
 	int ir = fl_format(volume_secs, str_vol.c_str());
 	if (ir == 0)
 	{
 		LOG_ERROR(L"[err] failed on formatting disk.");
-		return false;
 	}
-	return true;
+	fl_shutdown();
+	Disconnect();
+	return br;
 }
 
-IFileSystem::FsCheckResult CFSFatIo::FileSystemCheck(bool repair)
+IFileSystem::FsCheckResult CFSFatIo::FileSystemCheck(IVirtualDisk* dev, bool repair)
 {
+	ConnectToDevice(dev);
+	fl_init();
+	IFileSystem::FsCheckResult res = IFileSystem::CheckNoError;
 	int ir = fl_fsck(repair);
 	if (!ir)
 	{
 		LOG_ERROR(L"[err] fs check failed");
-		return IFileSystem::CheckFailed;
+		res = IFileSystem::CheckFailed;
 	}
+	fl_shutdown();
+	Disconnect();
 	LOG_NOTICE(L"no error was found");
-	return IFileSystem::CheckNoError;
+	return res;
+}
+
+bool CFSFatIo::Sync(void)
+{
+	bool br = m_dev->FlushData(0, 0);
+	return br;
 }
 
 bool CFSFatIo::MediaRead(UINT sector, void * buffer, size_t sector_count)
@@ -245,7 +279,9 @@ bool CFSFatIo::MediaWrite(UINT sector, void * buffer, size_t sector_count)
 
 
 
-///////////////////////////////////////////////////////////////////////////////
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // -- CFileInfo
 
 void CFileInfoFatIo::Cleanup(void)

@@ -22,7 +22,8 @@ extern "C" __declspec(dllexport) bool GetFactory(IFsFactory * & fac)
 bool CFatIoFactory::CreateFileSystem(IFileSystem *& fs, const std::wstring & fs_name)
 {
 	JCASSERT(fs == NULL);
-	fs = static_cast<IFileSystem*>(&g_fs);
+//	fs = static_cast<IFileSystem*>(&g_fs);
+	fs = jcvos::CDynamicInstance<CFSFatIo>::Create();
 	return true;
 }
 

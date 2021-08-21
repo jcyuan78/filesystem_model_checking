@@ -82,12 +82,10 @@ static FL_FILE* _allocate_file(void)
 static int _check_file_open(FL_FILE* file)
 {
     struct fat_node *node;
-
     // Compare open files
     fat_list_for_each(&_open_file_list, node)
     {
         FL_FILE* openFile = fat_list_entry(node, FL_FILE, list_node);
-
         // If not the current file
         if (openFile != file)
         {
@@ -326,7 +324,10 @@ static FL_FILE* _open_file(const char *path)
     // Allocate a new file handle
     file = _allocate_file();
     if (!file)
+    {
+        fprintf_s(stderr, "[err] failed on allocating file");
         return NULL;
+    }
 
     // Clear filename
     memset(file->path, '\0', sizeof(file->path));
@@ -335,6 +336,7 @@ static FL_FILE* _open_file(const char *path)
     // Split full path into filename and directory path
     if (fatfs_split_path((char*)path, file->path, sizeof(file->path), file->filename, sizeof(file->filename)) == -1)
     {
+        fprintf_s(stderr, "[err] failed on split path %s", path);
         _free_file(file);
         return NULL;
     }
@@ -342,33 +344,33 @@ static FL_FILE* _open_file(const char *path)
     // Check if file already open
     if (_check_file_open(file))
     {
+        fprintf_s(stderr, "[err] file %s has already opened", path);
         _free_file(file);
         return NULL;
     }
 
     // If file is in the root dir
-    if (file->path[0]==0)
-        file->parentcluster = fatfs_get_root_cluster(&_fs);
+    if (file->path[0]==0)       file->parentcluster = fatfs_get_root_cluster(&_fs);
     else
     {
         // Find parent directory start cluster
         if (!_open_directory(file->path, &file->parentcluster))
         {
+            fprintf_s(stderr, "[err] failed on opening parent dir: %s", file->path);
             _free_file(file);
             return NULL;
         }
     }
 
     // Using dir cluster address search for filename
-    if (fatfs_get_file_entry(&_fs, file->parentcluster, file->filename,&sfEntry))
-        // Make sure entry is file not dir!
+    if (fatfs_get_file_entry(&_fs, file->parentcluster, file->filename, &sfEntry))
+    {   // Make sure entry is file not dir!
         if (fatfs_entry_is_file(&sfEntry))
-        {
-            // Initialise file details
+        {   // Initialise file details
             memcpy(file->shortfilename, sfEntry.Name, FAT_SFN_SIZE_FULL);
             file->filelength = FAT_HTONL(sfEntry.FileSize);
             file->bytenum = 0;
-            file->startcluster = ((FAT_HTONS((uint32)sfEntry.FstClusHI))<<16) + FAT_HTONS(sfEntry.FstClusLO);
+            file->startcluster = ((FAT_HTONS((uint32)sfEntry.FstClusHI)) << 16) + FAT_HTONS(sfEntry.FstClusLO);
             file->file_data_address = 0xFFFFFFFF;
             file->file_data_dirty = 0;
             file->filelength_changed = 0;
@@ -383,7 +385,8 @@ static FL_FILE* _open_file(const char *path)
 
             return file;
         }
-
+    }
+    fprintf_s(stderr, "[err] unknown error");
     _free_file(file);
     return NULL;
 }
@@ -699,10 +702,16 @@ void* fl_fopen(const char *path, const char *mode)
     CHECK_FL_INIT();
 
     if (!_filelib_valid)
+    {
+        fprintf_s(stderr, "[err] file lib is not valid");
         return NULL;
+    }
 
     if (!path || !mode)
+    {
+        fprintf_s(stderr, "[err] path or mode is null");
         return NULL;
+    }
 
     // Supported Modes:
     // "r" Open a file for reading.
@@ -774,30 +783,25 @@ void* fl_fopen(const char *path, const char *mode)
 #endif
 
     // No write access - remove write/modify flags
-    if (!_fs.disk_io.write_media)
-        flags &= ~(FILE_CREATE | FILE_WRITE | FILE_APPEND);
-
+    if (!_fs.disk_io.write_media)               flags &= ~(FILE_CREATE | FILE_WRITE | FILE_APPEND);
     FL_LOCK(&_fs);
-
     // Read
-    if (flags & FILE_READ)
-        file = _open_file(path);
-
+    if (flags & FILE_READ)                      file = _open_file(path);
     // Create New
 #if FATFS_INC_WRITE_SUPPORT
-    if (!file && (flags & FILE_CREATE))
-        file = _create_file(path);
+    if (!file && (flags & FILE_CREATE))         file = _create_file(path);
 #endif
 
     // Write Existing (and not open due to read or create)
     if (!(flags & FILE_READ))
+    {
         if ((flags & FILE_CREATE) && !file)
-            if (flags & (FILE_WRITE | FILE_APPEND))
-                file = _open_file(path);
+        {
+            if (flags & (FILE_WRITE | FILE_APPEND))          file = _open_file(path);
+        }
+    }
 
-    if (file)
-        file->flags = flags;
-
+    if (file)        file->flags = flags;
     FL_UNLOCK(&_fs);
     return file;
 }
