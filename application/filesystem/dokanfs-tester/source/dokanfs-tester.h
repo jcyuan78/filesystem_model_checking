@@ -44,7 +44,7 @@ public:
 
 public:
 	void Initialize(const CReferenceFs * src);
-	bool EnumerateOp(void);
+	bool EnumerateOp(bool test_spor);
 	void OutputState(FILE * log_file);
 protected:
 	void GenerateFn(wchar_t * fn, size_t len);
@@ -105,6 +105,10 @@ protected:
 	std::wstring m_str_fs;		// file system name
 	size_t m_capacity;		// in sectors
 	UINT32 m_total_block;
+
+// test confiuration 
+	bool m_test_spor;
+	bool m_support_trunk;
 public:
 	std::wstring m_config_file;
 	std::wstring m_mount;
@@ -113,4 +117,6 @@ public:
 	bool m_unmount;
 
 	size_t m_test_depth;
+
+
 };

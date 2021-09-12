@@ -7,7 +7,9 @@
 #pragma comment (lib, "shlwapi.lib")
 #include <Shlobj.h>
 
+#ifdef _DEBUG
 #include <vld.h>
+#endif
 
 #include <iostream>
 #include <Psapi.h>
@@ -43,6 +45,8 @@ BOOL WINAPI HandlerRoutine(DWORD dwCtrlType);
 CFsTesterApp::CFsTesterApp(void)
 	: m_dev(NULL), m_fs(NULL), m_capacity(0)
 {
+	m_test_spor = false;
+	m_support_trunk = true;
 }
 
 CFsTesterApp::~CFsTesterApp(void)
@@ -110,8 +114,12 @@ int CFsTesterApp::Run(void)
 	if (device_pt)
 	{
 		br = factory->CreateVirtualDisk(m_dev, (*device_pt), true);
+		m_capacity = m_dev->GetCapacity();
 	}
 
+// load config
+	m_test_spor = pt.get < bool>(L"test_sopr", false);
+	m_support_trunk = pt.get<bool>(L"support_trunk", true);
 	// test for format
 //	br = SporTest();
 //	br = GeneralTest();
@@ -128,7 +136,7 @@ int CompareData(const char * src, const char * tar, size_t size)
 {
 	for (size_t ii = 0; ii < size; ++ii)
 	{
-		if (src[ii] != tar[ii]) return ii;
+		if (src[ii] != tar[ii]) return boost::numeric_cast<int>(ii);
 //			THROW_ERROR(ERR_APP, L"failed on reading file, offset=%d", ii);
 	}
 	return -1;
@@ -137,16 +145,16 @@ int CompareData(const char * src, const char * tar, size_t size)
 bool CFsTesterApp::GeneralTest(void)
 {
 	bool br;
-	br = m_fs->ConnectToDevice(m_dev);
-	if (!br) THROW_ERROR(ERR_APP, L"failed on connect device");
-	br = m_fs->MakeFileSystem(m_capacity, L"test");
+//	br = m_fs->ConnectToDevice(m_dev);
+//	if (!br) THROW_ERROR(ERR_APP, L"failed on connect device");
+	br = m_fs->MakeFileSystem(m_dev, boost::numeric_cast<UINT32>(m_capacity), L"test");
 	if (!br) THROW_ERROR(ERR_APP, L"failed on make file system");
-	br = m_fs->Mount();
+	br = m_fs->Mount(m_dev);
 	if (!br) THROW_ERROR(ERR_APP, L"failed on mount");
 
 	// test for file operations
 	jcvos::auto_interface<IFileInfo> file;
-	br = m_fs->DokanCreateFile(file, L"\\test.txt", GENERIC_READ | GENERIC_WRITE, 0, CREATE_ALWAYS, 0, 0, false);
+	br = m_fs->DokanCreateFile(file, L"\\test.txt", GENERIC_READ | GENERIC_WRITE, 0, IFileSystem::FS_CREATE_ALWAYS, 0, 0, false);
 	if (!br || !file) THROW_ERROR(ERR_APP, L"failed on creating file %s", L"\\test.txt");
 	// write test
 	file->SetEndOfFile(1024);
@@ -160,10 +168,10 @@ bool CFsTesterApp::GeneralTest(void)
 	file.release();
 
 	m_fs->Unmount();
-	br = m_fs->Mount();
+	br = m_fs->Mount(m_dev);
 	if (!br) THROW_ERROR(ERR_APP, L"failed on mount");
 
-	br = m_fs->DokanCreateFile(file, L"\\test.txt", GENERIC_READ, 0, OPEN_EXISTING, 0, 0, false);
+	br = m_fs->DokanCreateFile(file, L"\\test.txt", GENERIC_READ, 0, IFileSystem::FS_OPEN_EXISTING, 0, 0, false);
 	if (!br || !file) THROW_ERROR(ERR_APP, L"failed on opening file %s", L"\\test.txt");
 	jcvos::auto_array<char> buf2(1024);
 	DWORD read = 0;
@@ -175,7 +183,7 @@ bool CFsTesterApp::GeneralTest(void)
 	}
 	file->CloseFile();
 	m_fs->Unmount();
-	m_fs->Disconnect();
+//	m_fs->Disconnect();
 
 	return true;
 }
@@ -290,7 +298,7 @@ bool CFsTesterApp::FullTest(void)
 	{
 		INandDriver::NAND_DEVICE_INFO info;
 		nand->GetFlashId(info);
-		m_total_block = info.block_num;
+		m_total_block = boost::numeric_cast<UINT32>( info.block_num);
 	}
 
 	boost::posix_time::ptime ts_start = boost::posix_time::microsec_clock::local_time();
@@ -299,16 +307,16 @@ bool CFsTesterApp::FullTest(void)
 	{	// initlaize state
 		CTestState * cur_state = m_test_state;
 		bool br;
-		br = m_fs->ConnectToDevice(m_dev);
-		if (!br) THROW_ERROR(ERR_APP, L"failed on connect device");
-		br = m_fs->MakeFileSystem(m_capacity, L"test");
+//		br = m_fs->ConnectToDevice(m_dev);
+//		if (!br) THROW_ERROR(ERR_APP, L"failed on connect device");
+		br = m_fs->MakeFileSystem(m_dev, boost::numeric_cast<UINT32>(m_capacity), L"test");
 		if (!br) THROW_ERROR(ERR_APP, L"failed on make file system");
 
-		br = m_fs->Mount();
+		br = m_fs->Mount(m_dev);
 		if (!br) THROW_ERROR(ERR_APP, L"failed on mount");
 
 		cur_state->Initialize(NULL);
-		cur_state->EnumerateOp();
+		cur_state->EnumerateOp(m_test_spor);
 		depth = 0;
 		while (1)
 		{
@@ -344,7 +352,7 @@ bool CFsTesterApp::FullTest(void)
 				else
 				{	// enumlate ops for new state
 					depth++;
-					next_state->EnumerateOp();
+					next_state->EnumerateOp(m_test_spor);
 					cur_state = next_state;
 				}
 			}	
@@ -367,7 +375,7 @@ bool CFsTesterApp::FullTest(void)
 		PrintProgress(ts);
 		wprintf_s(L"Test completed\n");
 		m_fs->Unmount();
-		m_fs->Disconnect();
+		//m_fs->Disconnect();
 	}
 	catch (jcvos::CJCException & err)
 	{
@@ -412,7 +420,7 @@ bool CFsTesterApp::FsOperate(IFileSystem * fs, CReferenceFs & ref, const FS_OP *
 		else path = op->path +  op->param1;		// root
 		jcvos::auto_interface<IFileInfo> file;
 		std::wstring file_path = path;
-		bool br = fs->DokanCreateFile(file, file_path, GENERIC_READ | GENERIC_WRITE, 0, CREATE_NEW, 0, 0, isdir);
+		bool br = fs->DokanCreateFile(file, file_path, GENERIC_READ | GENERIC_WRITE, 0, IFileSystem::FS_CREATE_NEW, 0, 0, isdir);
 		// check if doubled name, update ref fs
 		if (ref.IsExist(path))
 		{	// 文件已经存在，要求返回false
@@ -424,7 +432,7 @@ bool CFsTesterApp::FsOperate(IFileSystem * fs, CReferenceFs & ref, const FS_OP *
 		{	// create file in fs
 			TEST_LOG(L" new file/dir");
 			ref.AddPath(path, isdir);
-			if (br == false || file == NULL) THROW_ERROR(ERR_USER, L"failed on creating file fn=%s", path.c_str());
+			if (br == false || !file) THROW_ERROR(ERR_USER, L"failed on creating file fn=%s", path.c_str());
 			file->CloseFile();
 			res = true;
 		}
@@ -461,7 +469,7 @@ bool CFsTesterApp::TestMount(IFileSystem * fs, CReferenceFs & ref)
 	m_dev->GetHealthInfo(info);
 	LOG_DEBUG(L"empty block = %d", info.empty_block);
 	fs->Unmount();
-	bool br = fs->Mount();
+	bool br = fs->Mount(m_dev);
 	TEST_LOG(L" res=%s", br ? L"pass" : L"failed");
 	if (!br) THROW_ERROR(ERR_USER, L"mount test returns false");
 	TEST_CLOSE_LOG
@@ -475,7 +483,7 @@ bool CFsTesterApp::TestWrite(IFileSystem * fs, CReferenceFs & ref, bool overwrit
 		overwrite ? L"OVER WRITE" : L"APPEND", path.c_str(), len);
 
 	jcvos::auto_interface<IFileInfo> file;
-	bool br = fs->DokanCreateFile(file, path, GENERIC_READ | GENERIC_WRITE, 0, OPEN_EXISTING, 0, 0, false);
+	bool br = fs->DokanCreateFile(file, path, GENERIC_READ | GENERIC_WRITE, 0, IFileSystem::FS_OPEN_EXISTING, 0, 0, false);
 	if (!br || !file)
 	{
 		JCASSERT(0);
@@ -519,10 +527,10 @@ bool CFsTesterApp::TestPower(IFileSystem * fs, CReferenceFs & ref)
 	LOG_DEBUG(L"empty block = %d", info.empty_block);
 	fs->Unmount();
 
-	INandDriver * nand = dynamic_cast<INandDriver*>(m_dev);
-	if (!nand) THROW_ERROR(ERR_APP, L"the drive does not support NAND");
+	//INandDriver * nand = dynamic_cast<INandDriver*>(m_dev);
+	//if (!nand) THROW_ERROR(ERR_APP, L"the drive does not support NAND");
 #if 1
-	size_t log_num = nand->GetLogNumber();
+	size_t log_num = m_dev->GetLogNumber();
 	if (log_num == 0)
 	{
 		TEST_LOG(L"[OP](%d) POWER, backlog 0,", m_op_id++);
@@ -530,13 +538,13 @@ bool CFsTesterApp::TestPower(IFileSystem * fs, CReferenceFs & ref)
 	else
 	{
 		int roll_back = rand() % log_num;
-		nand->BackLog(roll_back);
+		m_dev->BackLog(roll_back);
 		TEST_LOG(L"[OP](%d) POWER, backlog %d / %zd,", m_op_id++, roll_back, log_num);
 		LOG_NOTICE(L"roll back log %d", roll_back);
 	}
 #endif
-	bool br = fs->Mount();
-	nand->ResetLog();
+	bool br = fs->Mount(m_dev);
+	m_dev->ResetLog();
 	TEST_LOG(L" res=%s", br ? L"pass" : L"failed");
 	if (!br) THROW_ERROR(ERR_USER, L"mount test returns false");
 	TEST_CLOSE_LOG
@@ -574,6 +582,7 @@ bool CFsTesterApp::Rollback(IFileSystem * fs, CReferenceFs & ref, const FS_OP * 
 	case DELETE_DIR:	break;
 	case MOVE:			break;
 	case OVER_WRITE: {
+		if (!m_support_trunk) break;
 		// overwrite没有逆操作，只能删除文件，同时删除ref中的文件 X
 		//	由于
 		//TEST_LOG(L"[ROLLBACK](%d) DELETE FILE, path=%s", m_op_id ++, op->path.c_str());
@@ -588,7 +597,7 @@ bool CFsTesterApp::Rollback(IFileSystem * fs, CReferenceFs & ref, const FS_OP * 
 		ref.GetFileInfo(*ref_file, cur_checksum, cur_len);
 
 		jcvos::auto_interface<IFileInfo> file;
-		bool br = fs->DokanCreateFile(file, op->path, GENERIC_READ | GENERIC_WRITE, 0, OPEN_EXISTING, 0, 0, false);
+		bool br = fs->DokanCreateFile(file, op->path, GENERIC_READ | GENERIC_WRITE, 0, IFileSystem::FS_OPEN_EXISTING, 0, 0, false);
 		if (!br || !file) THROW_ERROR(ERR_USER, L"failed on opening file, fn=%s", op->path.c_str());
 		BY_HANDLE_FILE_INFORMATION info;
 		file->GetFileInformation(&info);
@@ -601,6 +610,7 @@ bool CFsTesterApp::Rollback(IFileSystem * fs, CReferenceFs & ref, const FS_OP * 
 		break; }
 
 	case APPEND_FILE: {
+		if (!m_support_trunk) break;
 		size_t cur_len;
 		DWORD cur_checksum;
 		CReferenceFs::CRefFile * ref_file = ref.FindFile(op->path);
@@ -609,7 +619,7 @@ bool CFsTesterApp::Rollback(IFileSystem * fs, CReferenceFs & ref, const FS_OP * 
 		ref.GetFileInfo(*ref_file, cur_checksum, cur_len);
 
 		jcvos::auto_interface<IFileInfo> file;
-		bool br = fs->DokanCreateFile(file, op->path, GENERIC_READ | GENERIC_WRITE, 0, OPEN_EXISTING, 0, 0, false);
+		bool br = fs->DokanCreateFile(file, op->path, GENERIC_READ | GENERIC_WRITE, 0, IFileSystem::FS_OPEN_EXISTING, 0, 0, false);
 		if (!br || !file) THROW_ERROR(ERR_USER, L"failed on opening file, fn=%s", op->path.c_str());
 		BY_HANDLE_FILE_INFORMATION info;
 		file->GetFileInformation(&info);
@@ -644,7 +654,7 @@ bool CFsTesterApp::Verify(const CReferenceFs & ref, IFileSystem * fs)
 		bool dir = ref.IsDir(ref_file);
 		TEST_LOG(L"\t<check %s> %s\\", dir ? L"dir" : L"file", path.c_str());
 		jcvos::auto_interface<IFileInfo> file;
-		bool br = fs->DokanCreateFile(file, path, GENERIC_READ, 0, OPEN_EXISTING, 0, 0, dir);
+		bool br = fs->DokanCreateFile(file, path, GENERIC_READ, 0, IFileSystem::FS_OPEN_EXISTING, 0, 0, dir);
 		if (!br || !file) THROW_ERROR(ERR_USER, L"failed on opening file, fn=%s", path.c_str());
 
 		if (!dir)	
@@ -698,7 +708,7 @@ bool CFsTesterApp::PrintProgress(INT64 ts)
 	return br1 && br2;
 }
 
-bool CTestState::EnumerateOp(void)
+bool CTestState::EnumerateOp(bool test_spor)
 {
 	auto endit = m_ref_fs.End();
 	auto it = m_ref_fs.Begin();
@@ -756,9 +766,11 @@ bool CTestState::EnumerateOp(void)
 	}
 	//FS_OP mount_op(DEMOUNT_MOUNT, L"");
 	//m_ops.push_back(mount_op);
-
-	FS_OP spor_op(POWER_OFF_RECOVERY, L"");
-	m_ops.push_back(spor_op);
+	if (test_spor)
+	{
+		FS_OP spor_op(POWER_OFF_RECOVERY, L"");
+		m_ops.push_back(spor_op);
+	}
 	return true;
 }
 

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="DEBUG_DYNAMIC|Win32">
@@ -36,21 +36,21 @@
     <ProjectGuid>{D43A866D-2592-43D1-A12D-E332BB233BC7}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>dokanfstester</RootNamespace>
-    <WindowsTargetPlatformVersion>10.0.17763.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|Win32'" Label="Configuration">
     <VcpkgConfiguration>Debug</VcpkgConfiguration>
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v141</PlatformToolset>
+    <PlatformToolset>v142</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|Win32'" Label="Configuration">
     <VcpkgConfiguration>Release</VcpkgConfiguration>
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v141</PlatformToolset>
+    <PlatformToolset>v142</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -58,14 +58,14 @@
     <VcpkgConfiguration>Debug</VcpkgConfiguration>
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v141</PlatformToolset>
+    <PlatformToolset>v142</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'" Label="Configuration">
     <VcpkgConfiguration>Release</VcpkgConfiguration>
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v141</PlatformToolset>
+    <PlatformToolset>v142</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -89,6 +89,7 @@
     <Import Project="..\..\..\extlib\boost\support_boost.props" />
     <Import Project="..\..\..\extlib\dokan\suport_dokan.props" />
     <Import Project="..\..\build_app.props" />
+    <Import Project="..\..\..\extlib\vld\vld_support_x64.props" />
     <Import Project="..\dokanfs-lib\support_dokanfs.props" />
   </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">
@@ -96,8 +97,8 @@
     <Import Project="..\..\..\build\external_libs.props" />
     <Import Project="..\..\..\jcvos2\support_jcvos.props" />
     <Import Project="..\..\..\extlib\boost\support_boost.props" />
-    <Import Project="..\..\..\extlib\dokan\suport_dokan.props" />
-    <Import Project="..\..\..\extlib\dokan\suport_dokan-x64.props" />
+    <Import Project="..\dokanfs-lib\support_dokanfs.props" />
+    <Import Project="..\..\..\extlib\vld\vld_support_x64.props" />
     <Import Project="..\..\build_app.props" />
   </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'">
@@ -107,6 +108,7 @@
     <Import Project="..\..\..\extlib\boost\support_boost.props" />
     <Import Project="..\..\..\extlib\dokan\suport_dokan.props" />
     <Import Project="..\..\..\extlib\dokan\suport_dokan-x64.props" />
+    <Import Project="..\..\..\extlib\vld\vld_support_x64.props" />
     <Import Project="..\..\build_app.props" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
