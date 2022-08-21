@@ -1,0 +1,477 @@
+#pragma once
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#include <dokanfs-lib.h>
+#include <linux-fs-wrapper.h>
+#include "f2fs_fs.h"
+#include "f2fs.h"
+
+//<YUAN>这是一个device的属性，一个命令最大可发送的sector数量。暂时用const代替
+#define MAX_DISCARD_SECTOR		(256)
+
+class CF2fsFileSystem;
+
+class CF2fsFile : public IFileInfo
+{
+public:
+	CF2fsFile(void):m_dentry(NULL), m_inode(NULL), m_fs(NULL) {};
+	void Init(dentry* de, inode* node, CF2fsFileSystem * fs, UINT32 mode);
+public:
+	virtual void Cleanup(void) { }
+	virtual void CloseFile(void);
+	virtual bool DokanReadFile(LPVOID buf, DWORD len, DWORD& read, LONGLONG offset);
+	virtual bool DokanWriteFile(const void* buf, DWORD len, DWORD& written, LONGLONG offset);
+
+	virtual bool LockFile(LONGLONG offset, LONGLONG len) {UNSUPPORT_1(bool);}
+	virtual bool UnlockFile(LONGLONG offset, LONGLONG len) {UNSUPPORT_1(bool);}
+	virtual bool EnumerateFiles(EnumFileListener* listener) const {UNSUPPORT_1(bool);}
+
+	virtual bool GetFileInformation(LPBY_HANDLE_FILE_INFORMATION fileinfo) const {UNSUPPORT_1(bool);}
+	virtual std::wstring GetFileName(void) const { JCASSERT(0); return L""; }
+
+	virtual bool DokanGetFileSecurity(SECURITY_INFORMATION psinfo, PSECURITY_DESCRIPTOR psdesc, ULONG& buf_size) {UNSUPPORT_1(bool);}
+	virtual bool DokanSetFileSecurity(PSECURITY_INFORMATION psinfo, PSECURITY_DESCRIPTOR psdesc, ULONG buf_size) {UNSUPPORT_1(bool);}
+	// for dir only
+	virtual bool IsDirectory(void) const {UNSUPPORT_1(bool);}
+	virtual bool SetAllocationSize(LONGLONG size);
+	virtual bool SetEndOfFile(LONGLONG);
+	virtual void DokanSetFileAttributes(DWORD attr) { UNSUPPORT_0; }
+
+	virtual void SetFileTime(const FILETIME* ct, const FILETIME* at, const FILETIME* mt) { UNSUPPORT_0; }
+	virtual bool FlushFile(void);
+
+	virtual void GetParent(IFileInfo*& parent) { UNSUPPORT_0; }
+
+	// 删除所有给文件分配的空间。如果是目录，删除目录下的所有文件。
+	virtual void ClearData(void) { UNSUPPORT_0; }
+
+	virtual bool OpenChild(IFileInfo*& file, const wchar_t* fn, UINT32 mode) const;
+	virtual bool OpenChildEx(IFileInfo*& file, const wchar_t* fn, size_t len);
+	virtual bool CreateChild(IFileInfo*& file, const wchar_t* fn, bool dir, UINT32 mode);
+
+protected:
+	dentry* m_dentry;
+	f2fs_inode_info* m_inode;
+	CF2fsFileSystem* m_fs;
+	file m_file;
+};
+
+typedef UINT64 off64_t;
+
+#define DIR_SEPARATOR	('\\')
+
+
+class CF2fsFileSystem : public IFileSystem/*, public CLinuxFsBase*/
+{
+public:
+	CF2fsFileSystem(void);
+	virtual ~CF2fsFileSystem(void);
+
+public:
+	friend struct f2fs_sb_info;
+
+public:
+	// 创建一个相同类型的file system object。创建的对象时空的，需要初始化。
+	// 考虑将这个方法放到IJCInterface中
+	virtual bool CreateObject(IJCInterface*& fs) { JCASSERT(0); return 0; }
+	virtual ULONG GetFileSystemOption(void) const { JCASSERT(0); return 0; }
+	//virtual bool ConnectToDevice(IVirtualDisk * dev) = 0;
+	//virtual void Disconnect(void) = 0;
+	virtual bool Mount(IVirtualDisk* dev);
+	virtual void Unmount(void);
+	virtual bool MakeFileSystem(IVirtualDisk* dev, UINT32 volume_size, const std::wstring& volume_name, const std::wstring & options);
+	// fsck，检查文件系统，返回检查结果
+	virtual FsCheckResult FileSystemCheck(IVirtualDisk* dev, bool repair) { JCASSERT(0); return CheckNoError; }
+
+	virtual bool DokanGetDiskSpace(ULONGLONG& free_bytes, ULONGLONG& total_bytes, ULONGLONG& total_free_bytes) { JCASSERT(0); return 0; }
+	virtual bool GetVolumnInfo(std::wstring& vol_name, DWORD& sn, DWORD& max_fn_len, DWORD& fs_flag,
+		std::wstring& fs_name)
+	{
+		JCASSERT(0); return 0;
+	}
+
+	// file attribute (attr) and create disposition (disp) is in user mode 
+	virtual bool DokanCreateFile(IFileInfo*& file, const std::wstring& fn, ACCESS_MASK access_mask,
+		DWORD attr, FsCreateDisposition disp, ULONG share, ULONG opt, bool isdir);
+	virtual bool MakeDir(const std::wstring& dir) { JCASSERT(0); return 0; }
+	//virtual bool OpenFile(IFileInfo * & file, UINT32 f_inode) = 0;
+
+	virtual bool DokanDeleteFile(const std::wstring& fn, IFileInfo* file, bool isdir) { JCASSERT(0); return 0; }
+	//virtual void FindFiles(void) = 0;
+	virtual void FindStreams(void) { JCASSERT(0); }
+	virtual bool DokanMoveFile(const std::wstring& src_fn, const std::wstring& dst_fn, bool replace, IFileInfo* file) { JCASSERT(0); return 0; }
+
+	virtual bool HardLink(const std::wstring& src, const std::wstring& dst) { JCASSERT(0); return 0; }
+	virtual bool Unlink(const std::wstring& fn) { JCASSERT(0); return 0; }
+	virtual bool Sync(void) { JCASSERT(0); return 0; }
+
+public:
+	virtual bool GetRoot(IFileInfo* &root);
+
+	// other functions
+public:
+	inline int get_inline_xattr_addrs(f2fs_inode* inode)
+	{
+		if (m_config.feature & cpu_to_le32(F2FS_FEATURE_FLEXIBLE_INLINE_XATTR))	
+			return le16_to_cpu(inode->_u._s.i_inline_xattr_size);
+		else if (inode->i_inline & F2FS_INLINE_XATTR ||	inode->i_inline & F2FS_INLINE_DENTRY)	
+			return DEFAULT_INLINE_XATTR_ADDRS;
+		else			return 0;
+	}
+	inline int set_feature_bits(struct feature* table, char* features)
+	{
+		UINT32 mask = feature_map(table, features);
+		if (mask) { m_config.feature |= cpu_to_le32(mask); }
+		else
+		{
+//			LOG_ERROR(L"[err] Wrong features %s\n", features);
+			wprintf_s(L"[err] Wrong features %S\n", features);
+			return -1;
+		}
+		return 0;
+	}
+	unsigned int addrs_per_inode(f2fs_inode* i)
+	{
+		unsigned int addrs = CUR_ADDRS_PER_INODE(i) - get_inline_xattr_addrs(i);
+		if (!LINUX_S_ISREG(le16_to_cpu(i->i_mode)) || !(le32_to_cpu(i->i_flags) & F2FS_COMPR_FL))	return addrs;
+		return ALIGN_DOWN(addrs, 1 << i->_u._s.i_log_cluster_size);
+	}
+	
+	inline int parse_feature(struct feature* table, const char* features)
+	{
+		char* buf, * sub, * next;
+		buf = _strdup(features);
+		if (!buf)		return -1;
+		for (sub = buf; sub && *sub; sub = next ? next + 1 : NULL)
+		{
+			/* Skip the beginning blanks */
+			while (*sub && *sub == ' ')		sub++;
+			next = sub;
+			/* Skip a feature word */
+			while (*next && *next != ' ' && *next != ',')	next++;
+			if (*next == 0)		next = NULL;
+			else				*next = 0;
+			if (set_feature_bits(table, sub))
+			{
+				free(buf);
+				return -1;
+			}
+		}
+		free(buf);
+		return 0;
+	}
+
+
+protected:
+	virtual bool ConnectToDevice(IVirtualDisk* dev);
+	virtual void Disconnect(void);
+	void Reset(void);
+
+// format related funcitons
+protected:
+	int f2fs_format_device(f2fs_configuration& config);
+	int f2fs_prepare_super_block(f2fs_configuration& config);
+	int f2fs_trim_devices(f2fs_configuration& config);
+	int f2fs_init_sit_area(f2fs_configuration& config);
+	int f2fs_init_nat_area(f2fs_configuration&);
+	int f2fs_create_root_dir(f2fs_configuration& config);
+	int f2fs_write_check_point_pack(f2fs_configuration& config);
+	int f2fs_write_super_block(f2fs_configuration& config);
+	int f2fs_add_default_dentry_root(f2fs_configuration & config);
+	int f2fs_write_lpf_inode(f2fs_configuration & config);
+	block_t f2fs_add_default_dentry_lpf(f2fs_configuration & config);
+	int f2fs_update_nat_root(f2fs_configuration & config);
+	int f2fs_write_qf_inode(f2fs_configuration & config, int qtype);
+	int f2fs_write_root_inode(f2fs_configuration & config);
+	int f2fs_discard_obsolete_dnode(f2fs_configuration & config);
+	bool is_extension_exist(const char* name);
+	void cure_extension_list(f2fs_configuration & config);
+
+	void f2fs_init_configuration(f2fs_configuration& config);
+	void f2fs_parse_operation(const std::wstring & vol_name, const std::wstring& str_config);
+	int f2fs_get_device_info(f2fs_configuration& config);
+	int f2fs_finalize_device(void);
+	int f2fs_write_default_quota(int qtype, unsigned int blkaddr, __le32 raw_id);
+
+public:
+	inline __u32 f2fs_inode_chksum(page* pp) { return f2fs_inode_chksum(F2FS_NODE(pp)); }
+protected:
+	__u32 f2fs_inode_chksum(struct f2fs_node* node);
+
+	inline int write_inode(struct f2fs_node* inode, UINT64 blkaddr)
+	{
+		if (m_config.feature & cpu_to_le32(F2FS_FEATURE_INODE_CHKSUM))
+			inode->i._u._s.i_inode_checksum = cpu_to_le32(f2fs_inode_chksum(inode));
+		return dev_write_block((BYTE*)inode, blkaddr);
+	}
+
+
+// io related functions
+protected:
+	int dev_read(BYTE* buf, __u64 offset, size_t len);
+	int dev_read_block(void* buf, __u64 blk_addr);
+	int dev_reada_block(__u64 blk_addr);
+	int dev_write(BYTE* buf, __u64 offset, size_t len);
+	int dev_write_block(BYTE* buf, __u64 blk_addr);
+	int dev_write_dump(void* buf, __u64 offset, size_t len);
+	int dev_fill(void* buf, __u64 offset, size_t len);
+	int dev_fill_block(void* buf, __u64 blk_addr);
+	int dev_read_version(void* buf, __u64 offset, size_t len);
+
+
+
+	IVirtualDisk* __get_device(__u64* offset);
+	int dcache_update_rw(IVirtualDisk* disk, BYTE* buf, UINT64 offset, size_t byte_count, bool is_write);
+	void dcache_init(void);
+	void dcache_release(void);
+	int dcache_alloc_all(long n);
+	void dcache_relocate_init(void);
+	long dcache_find(UINT64 blk);
+	int dcache_io_read(IVirtualDisk * disk, long entry, UINT64 offset, UINT64 blk);
+	int dev_readahead(__u64 offset, size_t len);
+	void dcache_print_statistics(void);
+
+	/* relocate on (n+1)-th collision */
+	inline long dcache_relocate(long entry, int n)
+	{
+		JCASSERT(m_dcache_config.num_cache_entry != 0);
+		return (entry + m_dcache_relocate_offset[n]) % m_dcache_config.num_cache_entry;
+	}
+
+	inline char* dcache_addr(long entry)
+	{
+		return m_dcache_buf + F2FS_BLKSIZE * entry;
+	}
+
+	// == bio
+public:
+	static void f2fs_write_end_io(bio* bb);
+	void write_end_io(bio* bb);
+
+	/* submit_bio_wait - submit a bio, and wait until it completes
+	 * @bio: The &struct bio which describes the I/O
+	 * Simple wrapper around submit_bio(). Returns 0 on success, or the error from bio_endio() on failure.
+	 * WARNING: Unlike to how submit_bio() is usually used, this function does not result in bio reference to be consumed. The caller must drop the reference on his own. */
+	int submit_bio_wait(bio* bbio);
+
+
+//<YUAN> from block/blk-flush.c
+/* blkdev_issue_flush - queue a flush
+ * @bdev:	blockdev to issue flush for
+ * Description:    Issue a flush for the block device in question. */
+
+	inline int blkdev_issue_flush(block_device* bdev)
+	{
+		struct bio bio;
+
+		bio_init(&bio, NULL, 0);
+		bio_set_dev(&bio, bdev);
+		bio.bi_opf = REQ_OP_WRITE | REQ_PREFLUSH;
+		return submit_bio_wait(&bio);
+	}
+
+	// 模拟Linux Block IO
+	void submit_bio(bio* bb);
+	inline void __submit_bio(bio* bio, enum page_type type);
+	bio* __bio_alloc(f2fs_io_info* fio, int npages);
+	int __blkdev_issue_discard(block_device * , sector_t lba, sector_t len, gfp_t gfp_mask, int flag, bio **);
+// == data.cpp
+public:
+	int f2fs_submit_page_bio(f2fs_io_info* fio);
+	bio* f2fs_grab_read_bio(inode* inode, block_t blkaddr, unsigned nr_pages, unsigned op_flag, pgoff_t first_idx, bool for_write);
+
+	//int sync_filesystem(void) { JCASSERT(0); return 0; }
+	unsigned int sb_set_blocksize(unsigned int size)
+	{
+		// Linux原代码中调用set_blocksize(sb->bdev, size), 只是做sanity check，
+		//UINT bits = blksize_bits(size);
+		m_sb_info->s_blocksize = size;
+		m_sb_info->s_blocksize_bits = blksize_bits(size);
+		return m_sb_info->s_blocksize;
+	}
+
+
+protected:
+	// ---------- dev_cache, Least Used First (LUF) policy  ------------------- 
+	// Least used block will be the first victim to be replaced when max hash collision exceeds
+	bool* m_dcache_valid; /* is the cached block valid? */
+	UINT64* m_dcache_blk; /* which block it cached */
+	uint64_t* m_dcache_lastused; /* last used ticks for cache entries */
+	char* m_dcache_buf; /* cached block data */
+	uint64_t m_dcache_usetick; /* current use tick */
+
+	uint64_t m_dcache_raccess;
+	uint64_t m_dcache_rhit;
+	uint64_t m_dcache_rmiss;
+	uint64_t m_dcache_rreplace;
+
+	bool m_dcache_exit_registered = false;
+
+	// Shadow config:
+	// Active set of the configurations. Global configuration 'dcache_config' will be transferred here when when dcache_init() is called
+	dev_cache_config_t m_dcache_config = { 0, 16, 1 };
+	bool m_dcache_initialized = false;
+
+	//<YUAN>这个有可能时常数
+	long m_dcache_relocate_offset0[16] = {
+		20, -20, 40, -40, 80, -80, 160, -160,
+		320, -320, 640, -640, 1280, -1280, 2560, -2560,
+	};
+	int m_dcache_relocate_offset[16];
+
+	//destory
+protected:
+//	void destory_super(void);
+//	void destroy_device_list(void);
+
+// == super.cpp
+protected:
+//	int f2fs_fill_super(/*super_block* sb, */const std::wstring & str_option, int silent);
+	int parse_mount_options(super_block* sb, const boost::property_tree::wptree& options, bool is_mount);
+	int read_raw_super_block(f2fs_sb_info* sbi, f2fs_super_block* & raw_super, int* valid_super_block, int* recovery);
+	bool sanity_check_area_boundary(f2fs_sb_info* sbi, CBufferHead* bh);
+	int sanity_check_raw_super(f2fs_sb_info* sbi, CBufferHead* bh);
+//	int f2fs_scan_devices(f2fs_sb_info* sbi);
+//	int f2fs_disable_checkpoint(f2fs_sb_info* sbi);
+
+	//int load_default_options(bool is_mount);
+	// 从 buffer.c __bread_gfp()移植
+	//	block为block地址，sector = block * size / sector_size. 参考"buffer.c" submit_bh_wbc()
+	CBufferHead* bread(sector_t block, size_t size);
+
+// == checkpoing.cpp
+//	int f2fs_get_valid_checkpoint(void);
+//	page* validate_checkpoint(block_t cp_addr, unsigned long long* version);
+//	int get_checkpoint_version(block_t cp_addr, f2fs_checkpoint** cp_block, page** cp_page, unsigned long long* version);
+
+// == node.cpp
+public:
+	int read_node_page(page* page, int op_flags);
+
+// == shrinker.cpp
+protected:
+//	void f2fs_join_shrinker(void);
+	//void f2fs_leave_shrinker(void);
+
+
+public:
+
+
+protected:
+	list_head m_f2fs_list;
+	CRITICAL_SECTION m_f2fs_list_lock;
+
+//static DEFINE_SPINLOCK(f2fs_list_lock);
+//static unsigned int shrinker_run_no;
+
+
+// == inode.cpp inode related
+public:
+	f2fs_inode_info* f2fs_iget(unsigned long ino);
+//	inode * iget_locked(unsigned long ino) {return m_inodes.iget_locked() }
+	int do_read_inode(inode* inode);
+protected:
+	// 读取inode page，并且根据类型，创建相应的inode对象
+	int do_create_read_inode(f2fs_inode_info * & ptr_inode, unsigned long ino);
+
+protected:
+	CInodeManager m_inodes;
+	//template <class NODE_TYPE> NODE_TYPE* GetInodeLocked(bool thp_support, unsigned long ino, address_space * mapping)
+	template <class NODE_TYPE> NODE_TYPE* GetInodeLocked(bool thp_support, unsigned long ino, address_space * mapping)
+	{
+		// 对于NODE和META类型的node, 利用f2fs_inode_info。mapping再f2fs_inode_info的创建函数中，根据ino生成。
+		JCASSERT(mapping == nullptr);
+//		NODE_TYPE* node = new NODE_TYPE(m_sb_info, mapping);
+		NODE_TYPE* node = new NODE_TYPE(m_sb_info, ino);
+
+		inode* base_node = static_cast<inode*>(node);
+		// base_node->i_mapping和mapping有且必有一个非空；
+		//JCASSERT(!base_node->i_mapping || !mapping);	// assert两者至少有一个是NULL
+		//if (mapping && !base_node->i_mapping) base_node->i_mapping = mapping;
+		//// 当两者都空是，会在后续调用中报错。
+		//JCASSERT(base_node->i_mapping);
+		base_node->i_sb = m_sb_info;
+		m_inodes.internal_iget_locked(base_node, thp_support, ino);
+		m_inodes.init_inode_mapping(base_node, NULL, thp_support);
+//		mapping->host = static_cast<inode*>(node);
+		return node;
+	}
+
+	template <class NODE_TYPE> NODE_TYPE* GetInodeLocked(bool thp_support, unsigned long ino)
+	{
+		NODE_TYPE* node = new NODE_TYPE(m_sb_info);
+		inode* base_node = static_cast<inode*>(node);
+		base_node->i_sb = m_sb_info;
+		m_inodes.internal_iget_locked(base_node, thp_support, ino);
+		m_inodes.init_inode_mapping(base_node, NULL, thp_support);
+		return node;
+	}	
+	
+	template <class NODE_TYPE> NODE_TYPE* NewInode(void)
+	{
+		NODE_TYPE* node = new NODE_TYPE(m_sb_info);
+		inode* base_node = static_cast<inode*>(node);
+		m_inodes.new_inode( base_node);
+		return node;
+	}
+//	f2fs_inode_info* _internal_new_inode(f2fs_inode_info* new_node, f2fs_inode_info* dir, umode_t mode);
+
+
+public:
+	template <class INODE_T>
+	f2fs_inode_info* f2fs_new_inode(f2fs_inode_info* dir, umode_t mode)
+	{
+		INODE_T* new_node = NewInode<INODE_T>();
+		f2fs_inode_info * node = static_cast<f2fs_inode_info*>(new_node);
+		node->m_sbi = m_sb_info;
+		int err = m_inodes.insert_inode_locked(node);
+		if (err)
+		{
+			node->make_bad_inode();
+			set_inode_flag(node, FI_FREE_NID);
+			iput(node);
+			return ERR_PTR<f2fs_inode_info>(err);
+		}
+		err = node->_internal_new_inode(dir, mode);
+		if (err)
+		{
+			iput(node);
+			return ERR_PTR<f2fs_inode_info>(err);
+		}
+		return node;
+	}
+	inode* ilookup(nid_t ino) { return m_inodes.ilookup(ino); }
+	inode* find_inode_nowait(unsigned long hashval, int (*match)(struct inode*, unsigned long, void*),
+		void* data)
+	{
+		return m_inodes.find_inode_nowait(hashval, match, data);
+	}
+
+
+
+	CBioSet m_bio_set;
+
+// ==== 全局变量局部化
+public:
+	kmem_cache* fsync_entry_slab;
+
+protected:
+	CBufferManager	m_buffers;
+
+	f2fs_sb_info	* m_sb_info=nullptr;
+	//super_block		m_super_block;
+
+	f2fs_super_block m_raw_sb;
+	f2fs_super_block* sb = &m_raw_sb;
+
+	f2fs_checkpoint* cp = nullptr;
+	f2fs_configuration m_config;
+	std::wstring m_vol_name;
+};
+
+
+class CF2fsFactory : public IFsFactory
+{
+public:
+	virtual bool CreateFileSystem(IFileSystem*& fs, const std::wstring& fs_name);
+	virtual bool CreateVirtualDisk(IVirtualDisk*& dev, const boost::property_tree::wptree& prop, bool create);
+};

@@ -1,0 +1,374 @@
+>	f2fs-lib.dll!account_page_dirtied(page * page, address_space * mapping) 行 2414	C++
+ 	f2fs-lib.dll!__set_page_dirty(page * page, address_space * mapping, int warn) 行 226	C++
+ 	f2fs-lib.dll!__set_page_dirty_nobuffers(page * page) 行 252	C++
+ 	f2fs-lib.dll!Cf2fsNodeMapping::set_node_page_dirty(page * page) 行 2145	C++
+ 	f2fs-lib.dll!set_page_dirty(page * page) 行 48	C++
+ 	f2fs-lib.dll!f2fs_new_node_page(dnode_of_data * dn, unsigned int ofs) 行 1291	C++
+ 	f2fs-lib.dll!f2fs_new_inode_page(f2fs_inode_info * inode) 行 1253	C++
+ 	f2fs-lib.dll!f2fs_inode_info::f2fs_init_inode_metadata(inode * dir, const f2fs_filename * fname, page * dpage) 行 582	C++
+ 	f2fs-lib.dll!Cf2fsDirInode::f2fs_add_regular_entry(const f2fs_filename * fname, f2fs_inode_info * node, unsigned int ino, unsigned short mode) 行 778	C++
+ 	f2fs-lib.dll!Cf2fsDirInode::f2fs_add_dentry(const f2fs_filename * fname, f2fs_inode_info * node, unsigned int ino, unsigned short mode) 行 815	C++
+ 	f2fs-lib.dll!Cf2fsDirInode::f2fs_do_add_link(const qstr * name, f2fs_inode_info * inode, unsigned int ino, unsigned short mode) 行 861	C++
+ 	f2fs-lib.dll!f2fs_add_link(dentry * entry, f2fs_inode_info * inode) 行 2831	C++
+ 	f2fs-lib.dll!Cf2fsDirInode::create(user_namespace * mnt_userns, dentry * entry, unsigned short mode, bool excl) 行 367	C++
+ 	f2fs-lib.dll!CF2fsFile::CreateChild(IFileInfo * & file, const wchar_t * fn, bool dir) 行 128	C++
+ 	f2fs-lib.dll!CF2fsFileSystem::DokanCreateFile(IFileInfo * & file, const std::wstring & path, unsigned long access_mask, unsigned long attr, IFileSystem::FsCreateDisposition disp, unsigned long share, unsigned long opt, bool isdir) 行 254	C++
+ 	dokanfs-tester.exe!CFsTesterApp::GeneralTest() 行 180	C++
+ 	dokanfs-tester.exe!CFsTesterApp::Run() 行 146	C++
+ 	dokanfs-tester.exe!jcvos::local_main(int argc, wchar_t * * argv) 行 196	C++
+ 	dokanfs-tester.exe!wmain(int argc, wchar_t * * argv) 行 41	C++
+ 	[外部代码]	
+
+MakeFS
+<TID=23660> <FUN=CJournalDevice::WriteSectors> write lba=00003000, secs=4096
+<TID=23660> <FUN=CJournalDevice::WriteSectors> write lba=00005000, secs=4096
+<TID=23660> <FUN=CJournalDevice::WriteSectors> write lba=0000B000, secs=8
+<TID=23660> <FUN=CJournalDevice::WriteSectors> write lba=0000C000, secs=8
+<TID=23660> <FUN=CJournalDevice::WriteSectors> write lba=00005000, secs=8
+<TID=23660> <FUN=CJournalDevice::WriteSectors> write lba=00008000, secs=8
+<TID=23660> <FUN=CJournalDevice::WriteSectors> write lba=00001000, secs=8
+<TID=23660> <FUN=CJournalDevice::WriteSectors> write lba=00001008, secs=8
+<TID=23660> <FUN=CJournalDevice::WriteSectors> write lba=00001010, secs=8
+<TID=23660> <FUN=CJournalDevice::WriteSectors> write lba=00001018, secs=8
+<TID=23660> <FUN=CJournalDevice::WriteSectors> write lba=00001020, secs=8
+<TID=23660> <FUN=CJournalDevice::WriteSectors> write lba=00001028, secs=8
+<TID=23660> <FUN=CJournalDevice::WriteSectors> write lba=00001FF8, secs=8
+<TID=23660> <FUN=CJournalDevice::WriteSectors> write lba=00002000, secs=8
+<TID=23660> <FUN=CJournalDevice::WriteSectors> write lba=00002028, secs=8
+<TID=23660> <FUN=CJournalDevice::WriteSectors> write lba=00000000, secs=8
+<TID=23660> <FUN=CJournalDevice::WriteSectors> write lba=00000008, secs=8
+
+
+= Mount
+
+<TID=23660> <FUN=CF2fsFileSystem::f2fs_get_valid_checkpoint> allocate raw checkpoint, size=193
+<TID=23660> <FUN=page::page> page allocated, add=0x20C854D0000
+<TID=23660> <FUN=CF2fsFileSystem::f2fs_submit_page_bio> submit bio: op=REQ_OP_READ, addr=0x200
+<TID=23660> <FUN=CF2fsFileSystem::submit_bio> submit io: op=REQ_OP_READ, sec=0x1000, len=0x8
+<TID=23660> <FUN=page::page> page allocated, add=0x20C854E0000
+<TID=23660> <FUN=CF2fsFileSystem::f2fs_submit_page_bio> submit bio: op=REQ_OP_READ, addr=0x205
+<TID=23660> <FUN=CF2fsFileSystem::submit_bio> submit io: op=REQ_OP_READ, sec=0x1028, len=0x8
+<TID=23660> <FUN=page::page> page allocated, add=0x20C854F0000
+<TID=23660> <FUN=CF2fsFileSystem::f2fs_submit_page_bio> submit bio: op=REQ_OP_READ, addr=0x400
+<TID=23660> <FUN=CF2fsFileSystem::submit_bio> submit io: op=REQ_OP_READ, sec=0x2000, len=0x8
+<TID=23660> <FUN=page::page> page allocated, add=0x20C85500000
+<TID=23660> <FUN=CF2fsFileSystem::f2fs_submit_page_bio> submit bio: op=REQ_OP_READ, addr=0x405
+<TID=23660> <FUN=CF2fsFileSystem::submit_bio> submit io: op=REQ_OP_READ, sec=0x2028, len=0x8
+<TID=23660> <FUN=CF2fsFileSystem::f2fs_scan_devices> Mount Device [ 0]: Seg=      49, Blk:       0 -     63FF
+<TID=23660> <FUN=CF2fsFileSystem::f2fs_scan_devices> IO Block Size:        4 KB
+<TID=23660> <FUN=CControlThread::Start> control thread stared, this=0000020C852C6030, data=20C852C6030, thread id = 27120
+<TID=23660> <FUN=CControlThread::Start> control thread stared, this=0000020C852E7300, data=20C852E7300, thread id = 3568
+<TID=23660> <FUN=f2fs_sb_info::build_curseg> allocal sum_blk, size=4096
+<TID=23660> <FUN=f2fs_sb_info::build_curseg> allocal sum_blk, size=4096
+<TID=23660> <FUN=f2fs_sb_info::build_curseg> allocal sum_blk, size=4096
+<TID=23660> <FUN=f2fs_sb_info::build_curseg> allocal sum_blk, size=4096
+<TID=23660> <FUN=f2fs_sb_info::build_curseg> allocal sum_blk, size=4096
+<TID=27120> <FUN=CControlThread::InternalRun> running control thread, control=0000020C852C6030, data=20C852C6030
+<TID=23660> <FUN=f2fs_sb_info::build_curseg> allocal sum_blk, size=4096
+<TID=23660> <FUN=f2fs_sb_info::build_curseg> allocal sum_blk, size=4096
+<TID=27120> <FUN=flush_cmd_control::issue_flush_thread> [TRACE IN] 
+<TID=27120> <FUN=flush_cmd_control::issue_flush_thread> waiting for issue list
+<TID=23660> <FUN=f2fs_sb_info::build_curseg> allocal sum_blk, size=4096
+<TID=3568> <FUN=CControlThread::InternalRun> running control thread, control=0000020C852E7300, data=20C852E7300
+<TID=23660> <FUN=page::page> page allocated, add=0x20C85810000
+<TID=23660> <FUN=CF2fsFileSystem::f2fs_submit_page_bio> submit bio: op=REQ_OP_READ, addr=0x201
+<TID=23660> <FUN=CF2fsFileSystem::submit_bio> submit io: op=REQ_OP_READ, sec=0x1008, len=0x8
+<TID=23660> <FUN=f2fs_sb_info::f2fs_ra_meta_pages> blk=514, page no=3 type=0
+<TID=23660> <FUN=page::page> page allocated, add=0x20C85820000
+<TID=23660> <FUN=CF2fsFileSystem::f2fs_submit_page_bio> submit bio: op=REQ_OP_READ, addr=0x202
+<TID=23660> <FUN=CF2fsFileSystem::submit_bio> submit io: op=REQ_OP_READ, sec=0x1010, len=0x8
+<TID=23660> <FUN=page::page> page allocated, add=0x20C85830000
+<TID=23660> <FUN=CF2fsFileSystem::f2fs_submit_page_bio> submit bio: op=REQ_OP_READ, addr=0x203
+<TID=23660> <FUN=CF2fsFileSystem::submit_bio> submit io: op=REQ_OP_READ, sec=0x1018, len=0x8
+<TID=23660> <FUN=page::page> page allocated, add=0x20C85840000
+<TID=23660> <FUN=CF2fsFileSystem::f2fs_submit_page_bio> submit bio: op=REQ_OP_READ, addr=0x204
+<TID=23660> <FUN=CF2fsFileSystem::submit_bio> submit io: op=REQ_OP_READ, sec=0x1020, len=0x8
+<TID=23660> <FUN=f2fs_sb_info::build_sit_entries> main segs=42, sit size=74, sit per blk=55, sit blk cnt=1
+<TID=23660> <FUN=f2fs_sb_info::f2fs_ra_meta_pages> blk=0, page no=256 type=2
+<TID=23660> <FUN=page::page> page allocated, add=0x20C85850000
+<TID=23660> <FUN=CF2fsFileSystem::f2fs_submit_page_bio> submit bio: op=REQ_OP_READ, addr=0x600
+<TID=23660> <FUN=CF2fsFileSystem::submit_bio> submit io: op=REQ_OP_READ, sec=0x3000, len=0x8
+<TID=23660> <FUN=page::page> page allocated, add=0x20C85860000
+<TID=23660> <FUN=CF2fsFileSystem::f2fs_submit_page_bio> submit bio: op=REQ_OP_READ, addr=0x3FF
+<TID=23660> <FUN=CF2fsFileSystem::submit_bio> submit io: op=REQ_OP_READ, sec=0x1FF8, len=0x8
+<TID=23660> <FUN=f2fs_nm_info::__get_nat_bitmaps> Found nat_bits in checkpoint
+<TID=23660> <FUN=f2fs_sb_info::f2fs_ra_meta_pages> blk=0, page no=8 type=1
+<TID=23660> <FUN=page::page> page allocated, add=0x20C85870000
+<TID=23660> <FUN=CF2fsFileSystem::f2fs_submit_page_bio> submit bio: op=REQ_OP_READ, addr=0xA00
+<TID=23660> <FUN=CF2fsFileSystem::submit_bio> submit io: op=REQ_OP_READ, sec=0x5000, len=0x8
+<TID=23660> <FUN=page::page> page allocated, add=0x20C85880000
+<TID=23660> <FUN=CF2fsFileSystem::f2fs_submit_page_bio> submit bio: op=REQ_OP_READ, addr=0xA01
+<TID=23660> <FUN=CF2fsFileSystem::submit_bio> submit io: op=REQ_OP_READ, sec=0x5008, len=0x8
+<TID=23660> <FUN=page::page> page allocated, add=0x20C925D0000
+<TID=23660> <FUN=CF2fsFileSystem::f2fs_submit_page_bio> submit bio: op=REQ_OP_READ, addr=0xA02
+<TID=23660> <FUN=CF2fsFileSystem::submit_bio> submit io: op=REQ_OP_READ, sec=0x5010, len=0x8
+<TID=23660> <FUN=page::page> page allocated, add=0x20C925E0000
+<TID=23660> <FUN=CF2fsFileSystem::f2fs_submit_page_bio> submit bio: op=REQ_OP_READ, addr=0xA03
+<TID=23660> <FUN=CF2fsFileSystem::submit_bio> submit io: op=REQ_OP_READ, sec=0x5018, len=0x8
+<TID=23660> <FUN=page::page> page allocated, add=0x20C925F0000
+<TID=23660> <FUN=CF2fsFileSystem::f2fs_submit_page_bio> submit bio: op=REQ_OP_READ, addr=0xA04
+<TID=23660> <FUN=CF2fsFileSystem::submit_bio> submit io: op=REQ_OP_READ, sec=0x5020, len=0x8
+<TID=23660> <FUN=page::page> page allocated, add=0x20C92600000
+<TID=23660> <FUN=CF2fsFileSystem::f2fs_submit_page_bio> submit bio: op=REQ_OP_READ, addr=0xA05
+<TID=23660> <FUN=CF2fsFileSystem::submit_bio> submit io: op=REQ_OP_READ, sec=0x5028, len=0x8
+<TID=23660> <FUN=page::page> page allocated, add=0x20C92610000
+<TID=23660> <FUN=CF2fsFileSystem::f2fs_submit_page_bio> submit bio: op=REQ_OP_READ, addr=0xA06
+<TID=23660> <FUN=CF2fsFileSystem::submit_bio> submit io: op=REQ_OP_READ, sec=0x5030, len=0x8
+<TID=23660> <FUN=page::page> page allocated, add=0x20C92620000
+<TID=23660> <FUN=CF2fsFileSystem::f2fs_submit_page_bio> submit bio: op=REQ_OP_READ, addr=0xA07
+<TID=23660> <FUN=CF2fsFileSystem::submit_bio> submit io: op=REQ_OP_READ, sec=0x5038, len=0x8
+<TID=23660> <FUN=f2fs_sb_info::f2fs_ra_meta_pages> blk=8, page no=0 type=1
+<TID=23660> <FUN=page::page> page allocated, add=0x20C92630000
+<TID=23660> <FUN=CF2fsFileSystem::f2fs_submit_page_bio> submit bio: op=REQ_OP_READ, addr=0x1600
+<TID=23660> <FUN=CF2fsFileSystem::submit_bio> submit io: op=REQ_OP_READ, sec=0xB000, len=0x8
+<TID=23660> <FUN=page::page> page allocated, add=0x20C92640000
+<TID=23660> <FUN=CF2fsFileSystem::f2fs_submit_page_bio> submit bio: op=REQ_OP_READ, addr=0x1800
+<TID=23660> <FUN=CF2fsFileSystem::submit_bio> submit io: op=REQ_OP_READ, sec=0xC000, len=0x8
+<TID=23660> <FUN=C:\Users\Jingcheng\workspace\research-filesystem\application\filesystem\linux-fs-wrapper\source\truncate.cpp> <LINE=412> [Assert] 0
+dokanfs-tester.exe 已触发了一个断点。
+
+<TID=23660> <FUN=CControlThread::Start> control thread stared, this=0000020C852E5A10, data=20C852E5A10, thread id = 17524
+<TID=23660> <FUN=CF2fsFileSystem::f2fs_fill_super> Mounted with checkpoint version = 2133
+
+- 参数
+	= blocks per seg = 0x200
+	cur_seg[type]：对于每种不同类型的node，指向当前的segment id
+
+
+- inode, page与block
+
+
+	- 获取inode的page: 输入：inode的id(page的index),输出：inode对应的page
+		page* f2fs_get_node_page(pgoff_t nid) { return __get_node_page(nid, NULL, 0); }
+			在inode的i_mapping中查找相应的index: struct page *pagecache_get_page(address_space *mapping, pgoff_t index, int fgp_flags, gfp_t gfp_mask)
+				如果page已经cache了，则返回page，否则创建空page
+		调用m_fs->read_node_page(ptr_page, flag=0) 读取page
+			NM_I(sbi)->f2fs_get_node_info(page->index, &ni): 将inode index转换为block add
+				nat_entry *f2fs_nm_info::__lookup_nat_cache(nid_t n)：
+				=> 没有在cache中找到，初始化一个f2fs_nat_entry
+				=> 	i = f2fs_lookup_journal_in_cursum(journal, NAT_JOURNAL, nid, 0)：查找journal
+				=> 通过journal->net_j.entries[i].ne
+				（*）journal在CURSEG_I(CURSEG_HOT_DATA)->journal中 <=  <TODO>学习相关结构。
+				=> cache住node_info
+				（*）node_entry为 ondisk 的结构，node_info为in memory结构
+		如果不是root，则read ahead
+	- 从page中读取inode
+		（*）f2fs_inode：ondisk inode结构，f2fs_inode_info：in memory inode结构
+		
+		
+		block地址到sec的转换：sec = block_addr*8,在f2fs_target_device中，将blk_addr转换为sector
+
+- 添加新文件
+	Cf2f2DirInode::f2fs_add_link(entry, new_inode);
+		=> Cf2f2DirInode::f2fs_add_regular_entry(fname, node, ino, mode);
+			: this=父节点，添加文件名fname，node为新文件的inode，在create中创建。
+			：ino是文件node的ino，在_internal_new_inode中调用f2fs_alloc_nid分配
+			=>计算bucket数量，（每个bucket的）block数量和 index
+			=>创建一个新的data page，保存dentry : f2fs_get_new_data_page(NULL, index=block, new_i_size=true);
+				=> 读取父目录inode的page => cache命中 <=<TODO>学习page命中的情况
+					: 从address_space中查找相应的page. 
+					: 调用 CF2fsFileSystem::read_node_page(page *page, int op_flags) 读取page，如果此时PageUptodate()的话，则直接返回LOCKED_PAGE
+
+			=>根据文件名长度计算需要几个slot，然后在dentry page中找到连续的slot
+				:如果无法找到，则增加dentry级数，
+			=>初始化new_inode的metadata
+				=>分配一个page => <TODO>
+				=>初始化ondisk inode (f2fs_inode)结构
+				=><dirty>更新了new_inode的ondisk page
+			=> f2fs_update_inode(page): 将inode的内容写入物理page
+				f2fs_inode:i_mode = f2fs_inode_info:i_mode
+			
+			=>初始化ondisk dentry => <dirty>更新dentry的ondisk page	
+				=> 计算dentry page的物理block
+					node page （inode/direct node/indirect node）=> addr_array => addr_array怎么来的？
+				root的第一个dentry page在format的时候后已经写入
+				f2fs_dir_entry：ondisk dentry结构。f2fs_dentry_block：ondisk dentry block的结构。每个dentry block 包含一些bitmap以及214个f2fs_dir_entry结构。
+				如果一个文件的文件名比较长，则占用多个dentry的位置。后续dentry结构不使用。
+
+	文件名处理：
+	
+		- 最终，文件名从fscrypt_str:name复制到 f2fs_dentry_block：filename[]中
+		
+- 查找文件
+	f2fs_dir_entry * Cf2fsDirInode::__f2fs_find_entry(const struct f2fs_filename *fname, page **res_page) 
+		: 根据文件名在this inode中找文件名
+		=> f2fs_dir_entry* f2fs_inode_info::find_in_level(unsigned int level,	const f2fs_filename* fname,	page** res_page)
+			: 在level中查找文件名
+			: 根据hash计算bidx，=> bidx为逻辑block的id (index)
+
+	
+		
+dnode_of_data：记录一个node的相关信息
+struct dnode_of_data 
+{
+
+public:
+
+	f2fs_inode_info *inode;		/* vfs inode pointer */						// inode
+	struct page *inode_page;	/* its inode page, NULL is possible */		// inode的page
+	struct page *node_page;		/* cached direct node page */				// index table所在的page（inode，direct，或者indirect）
+	nid_t nid;			/* node id of the direct node block */				
+	unsigned int ofs_in_node;	/* data offset in the node page */			// page的index
+	bool inode_page_locked;		/* inode page is locked or not */
+	bool node_changed;		/* is node block changed */
+	char cur_level;			/* level of hole node page */
+	char max_level;			/* level of current page located */
+	block_t	data_blkaddr;		/* block address of the node block */		// page对应的物理地址
+};
+	
+		
+
+
+写文件的调用堆栈
+>	f2fs-lib.dll!CF2fsFileSystem::submit_bio(bio * bb) 行 4205	C++
+ 	f2fs-lib.dll!CF2fsFileSystem::__submit_bio(bio * bio, page_type type) 行 485	C++
+ 	f2fs-lib.dll!__submit_merged_bio(f2fs_bio_info * io) 行 537	C++
+ 	f2fs-lib.dll!__f2fs_submit_merged_write(f2fs_sb_info * sbi, page_type type, temp_type temp) 行 598	C++
+ 	f2fs-lib.dll!__submit_merged_write_cond(f2fs_sb_info * sbi, inode * inode, page * page, unsigned int ino, page_type type, bool force) 行 622	C++
+ 	f2fs-lib.dll!f2fs_submit_merged_write_cond(f2fs_sb_info * sbi, inode * inode, page * page, unsigned int ino, page_type type) 行 636	C++
+ 	f2fs-lib.dll!f2fs_write_single_data_page(page * ppage, int * submitted, bio * * bio, unsigned __int64 * last_block, writeback_control * wbc, iostat_type io_type, int compr_blocks, bool allow_balance) 行 2696	C++
+		=> Call: f2fs_do_write_data_page():将fio放入sbi的write_io中，往后传递。bio被放在fio的bio中。
+ 	f2fs-lib.dll!f2fs_write_cache_pages(address_space * mapping, writeback_control * wbc, iostat_type io_type) 行 2916	C++
+		=> 生成bio,
+ 	f2fs-lib.dll!__f2fs_write_data_pages(address_space * mapping, writeback_control * wbc, iostat_type io_type) 行 3058	C++
+ 	f2fs-lib.dll!Cf2fsDataMapping::write_pages(writeback_control * wbc) 行 3091	C++
+ 	f2fs-lib.dll!address_space::do_writepages(writeback_control * wbc) 行 2319	C++
+ 	f2fs-lib.dll!address_space::__filemap_fdatawrite_range(unsigned __int64 start, unsigned __int64 end, int sync_mode) 行 424	C++
+ 	f2fs-lib.dll!address_space::__filemap_fdatawrite(int sync_mode) 行 87	C++
+ 	f2fs-lib.dll!address_space::filemap_fdatawrite() 行 438	C++
+ 	f2fs-lib.dll!f2fs_inode_info::filemap_fdatawrite() 行 178	C++
+ 	f2fs-lib.dll!f2fs_sync_dirty_inodes(f2fs_sb_info * sbi, inode_type type) 行 1108	C++
+ 	f2fs-lib.dll!block_operations(f2fs_sb_info * sbi) 行 1228	C++
+ 	f2fs-lib.dll!f2fs_sb_info::f2fs_write_checkpoint(cp_control * cpc) 行 1621	C++
+ 	f2fs-lib.dll!f2fs_sb_info::__write_checkpoint_sync() 行 1735	C++
+ 	[外部代码]	
+
+（2）
+>	f2fs-lib.dll!CF2fsFileSystem::submit_bio(bio * bb) 行 4192	C++
+ 	f2fs-lib.dll!CF2fsFileSystem::__submit_bio(bio * bio, page_type type) 行 487	C++
+ 	f2fs-lib.dll!__submit_merged_bio(f2fs_bio_info * io) 行 533	C++
+ 	f2fs-lib.dll!__f2fs_submit_merged_write(f2fs_sb_info * sbi, page_type type, temp_type temp) 行 594	C++
+ 	f2fs-lib.dll!__submit_merged_write_cond(f2fs_sb_info * sbi, inode * inode, page * page, unsigned int ino, page_type type, bool force) 行 618	C++
+ 	f2fs-lib.dll!f2fs_submit_merged_write(f2fs_sb_info * sbi, page_type type) 行 626	C++
+ 	f2fs-lib.dll!f2fs_sync_node_pages(f2fs_sb_info * sbi, writeback_control * wbc, bool do_balance, iostat_type io_type) 行 2035	C++
+		=>搜索dirty page
+		=>调用:__write_node_page():将page加入fio中，设置writeback标志
+		
+		
+ 	f2fs-lib.dll!block_operations(f2fs_sb_info * sbi) 行 1255	C++
+ 	f2fs-lib.dll!f2fs_sb_info::f2fs_write_checkpoint(cp_control * cpc) 行 1621	C++
+ 	[外部代码]	
+	
+(3)
+ 	f2fs-lib.dll!CF2fsFileSystem::submit_bio(bio * bb) 行 4194	C++
+ 	f2fs-lib.dll!CF2fsFileSystem::__submit_bio(bio * bio, page_type type) 行 488	C++
+ 	f2fs-lib.dll!__submit_merged_bio(f2fs_bio_info * io) 行 534	C++
+ 	f2fs-lib.dll!__f2fs_submit_merged_write(f2fs_sb_info * sbi, page_type type, temp_type temp) 行 595	C++
+ 	f2fs-lib.dll!__submit_merged_write_cond(f2fs_sb_info * sbi, inode * inode, page * page, unsigned int ino, page_type type, bool force) 行 619	C++
+ 	f2fs-lib.dll!f2fs_submit_merged_write(f2fs_sb_info * sbi, page_type type) 行 627	C++
+ 	f2fs-lib.dll!f2fs_sync_meta_pages(f2fs_sb_info * sbi, page_type type, long nr_to_write, iostat_type io_type) 行 450	C++
+>	f2fs-lib.dll!do_checkpoint(f2fs_sb_info * sbi, cp_control * cpc) 行 1551	C++
+ 	f2fs-lib.dll!f2fs_sb_info::f2fs_write_checkpoint(cp_control * cpc) 行 1661	C++
+ 	f2fs-lib.dll!ckpt_req_control::__write_checkpoint_sync() 行 1727	C++
+ 	[外部代码]	
+
+(4)
+>	f2fs-lib.dll!CF2fsFileSystem::submit_bio(bio * bb) 行 4194	C++
+ 	f2fs-lib.dll!CF2fsFileSystem::__submit_bio(bio * bio, page_type type) 行 488	C++
+ 	f2fs-lib.dll!__submit_merged_bio(f2fs_bio_info * io) 行 534	C++
+ 	f2fs-lib.dll!__f2fs_submit_merged_write(f2fs_sb_info * sbi, page_type type, temp_type temp) 行 595	C++
+ 	f2fs-lib.dll!__submit_merged_write_cond(f2fs_sb_info * sbi, inode * inode, page * page, unsigned int ino, page_type type, bool force) 行 619	C++
+ 	f2fs-lib.dll!f2fs_submit_merged_write(f2fs_sb_info * sbi, page_type type) 行 627	C++
+ 	f2fs-lib.dll!commit_checkpoint(f2fs_sb_info * sbi, void * src, unsigned int blk_addr) 行 1410	C++
+ 	f2fs-lib.dll!do_checkpoint(f2fs_sb_info * sbi, cp_control * cpc) 行 1564	C++
+ 	f2fs-lib.dll!f2fs_sb_info::f2fs_write_checkpoint(cp_control * cpc) 行 1661	C++
+ 	f2fs-lib.dll!ckpt_req_control::__write_checkpoint_sync() 行 1727	C++
+ 	[外部代码]	
+
+
+
+写入情况
+（1）
+f2fs_sync_dirty_inodes(DIR_INODE)
+<TID=19856> <FUN=f2fs_do_write_data_page> [IO] write date page, ino=3
+	=> each inode in sbi->m_inode_list[DIR_INODE];
+	=> filemap write range 0~max, WB_SYNC_ALL =>保存到writeback_control
+	=> address_space->write_pages()：如果是WB_SYNC_ALL则等待写入完成，如果不是WB_SYNC_ALL则返回
+	=> 选取inode中的所有dirty page
+	？如何确定sector的？
+<TID=31572> <FUN=CJournalDevice::WriteSectors> write lba=00008008, secs=8
+
+（2）
+f2fs_sync_node_pages(,WB_SYNC_ALL, FS_CP_NODE_IO)
+	=> 对于sbi->NODE_MAPPING中的所有dirty page 
+	=> 调用_write_node_page，用于合并
+		=>  f2fs_submit_mreged_write => __submit_merged_write_cond: 对不同温度的循环
+	=> 
+
+<TID=19856> <FUN=__write_node_page> [IO] write node page: index=3
+<TID=19856> <FUN=__write_node_page> [IO] write node page: index=4
+<TID=19856> <FUN=CJournalDevice::WriteSectors> write lba=0000B008, secs=8
+<TID=19856> <FUN=CJournalDevice::WriteSectors> write lba=0000C000, secs=8
+
+（3）
+do_checkpoint()
+	=> 	f2fs_sync_meta_pages(sbi, META, LONG_MAX, FS_CP_META_IO);
+<TID=19856> <FUN=do_checkpoint> pending pages for DIRTY_META 2
+<TID=19856> <FUN=CJournalDevice::WriteSectors> write lba=00002000, secs=16
+
+
+(4)
+commit_checkpoint( start_blk=0x402)
+<TID=19856> <FUN=CJournalDevice::WriteSectors> write lba=00002010, secs=8
+
+TODO：
+	比较f2fs_do_write_data_page，f2fs_submit_page_write和f2fs_submit_merged_write的区别
+
+int f2fs_write_single_data_page(page *ppage, int *submitted, struct bio **bio, sector_t *last_block, 
+	创建f2fs_io_info: fio
+	=> int f2fs_do_write_data_page(f2fs_io_info *fio)
+		=> err = f2fs_get_dnode_of_data(&dn, ppage->index, LOOKUP_NODE); 分配一个物理块，获取物理地址，dn.data_blkaddr
+		=> err = NM_I(fio->sbi)->f2fs_get_node_info(dn.nid, &ni); 获取inode的物理地址，ni.blkaddr	
+		=> 	f2fs_outplace_write_data(&dn, fio);
+			=> 	do_write_page(&sum, fio);
+				=> 	f2fs_allocate_data_block(fio->sbi, fio->page, fio->old_blkaddr,	&fio->new_blkaddr, sum, type, fio);
+					=> 	f2fs_submit_page_write(fio);
+						=> 如果mergeable，则 		__submit_merged_bio(io);
+						f2fs_io_info: fio
+	=> __submit_merged_write_cond: fio通过sbi的write_io[]传递
+
+
+	
+//write user data:
+	iov用于保存数据，用户指针
+	kiocb用于保存IO，LBA,secs等
+（1）
+	ret = __generic_file_write_iter(iocb, from);
+		// 对于所有page循环
+		status = mapping->write_begin(ffile, pos, bytes, flags, &page, &fsdata);
+		if (mapping_writably_mapped(mapping))	flush_dcache_page(page);
+		// 将数据从 i （用户数据）复制到page（内核数据）
+		copied = iov_iter_copy_from_user_atomic(page, i, offset, bytes);
+		flush_dcache_page(page);
+		status = mapping->write_end(ffile, pos, bytes, copied,	page, fsdata);
+			=> set_page_dirty()
+				=> set_node_page_dirty()
+					__set_page_dirty_nobuffers(page);
+					f2fs_update_dirty_page(inode, page): 将inode添加到dirty list
+						将page添加到inode的dirty page中，然后在f2fs_sync_dirty_inode()中处理
+			=> f2fs_i_size_write(inode, pos + copied);
+
+	ret = generic_write_sync(iocb, ret);
+
+
+
+
+查找文件
+	1: 从level计算bucket id,		static unsigned int dir_buckets(unsigned int level, int dir_level)
+	2: 从bucket id计算 block id		static unsigned int bucket_blocks(unsigned int level)
+	3：根据hash以及block id计算bidx	dir_block_index(level, i_dir_level,  le32_to_cpu(fname->hash) % nbucket);
+		这个block应该是在
+
+
+
+
