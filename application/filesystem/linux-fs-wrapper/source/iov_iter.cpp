@@ -503,7 +503,7 @@ int iov_iter_fault_in_readable(iov_iter *i, size_t bytes)
 {
 	size_t skip = i->iov_offset;
 	const iovec *iov;
-	int err;
+//	int err;
 	iovec v;
 
 	if (iter_is_iovec(i)) 

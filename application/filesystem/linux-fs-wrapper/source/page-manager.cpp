@@ -176,7 +176,7 @@ page* grab_cache_page(address_space* mapping, pgoff_t index)
 inline int page::put_page_testzero(void)
 {
 //	VM_BUG_ON_PAGE(page_ref_count(page) == 0, page);
-	LOG_DEBUG(L"page=%p, add=%p, type=%s, index=%d, ref=%d", this, virtual_add, m_type.c_str(), index, _refcount);
+	LOG_DEBUG_(1, L"page=%p, add=%p, type=%s, index=%d, ref=%d", this, virtual_add, m_type.c_str(), index, _refcount);
 	JCASSERT(atomic_read(&_refcount) > 0);
 //	return page_ref_dec_and_test(page);
 	return atomic_dec_and_test(&_refcount);
@@ -191,7 +191,7 @@ void page::put_page(void)
 	//	put_devmap_managed_page(page);
 	//	return;
 	//}
-	LOG_DEBUG(L"page=0x%llX, add=0x%llX, ref=%d", this, virtual_add, _refcount);
+	LOG_DEBUG(L"page=0x%p, add=0x%p, ref=%d, dirty=%d", this, virtual_add, _refcount, PageDirty(this));
 	int ref = put_page_testzero();
 	if (ref == 0)	__put_page();
 	//if (atomic_dec_and_test(&page->_refcount) == 0)
@@ -301,18 +301,10 @@ int clear_page_dirty_for_io(page* ppage)
 		 *  (b) we tell the low-level filesystem to mark the whole page dirty if it was dirty in a pagetable. Only to then
 		 *  (c) clean the page again and return 1 to cause the writeback.
 		 * This way we avoid all nasty races with the dirty bit in multiple places and clearing them concurrently from different threads.
-		 *
-		 * Note! Normally the "set_page_dirty(page)" has no effect on the actual dirty bit - since that will already
-		   usually be set. But we need the side effects, and it can help us avoid races.
-		 *
-		 * We basically use the page "master dirty bit" as a serialization point for all the different threads doing
-		   their things.*/
-#if 0
+		 * Note! Normally the "set_page_dirty(page)" has no effect on the actual dirty bit - since that will already usually be set. But we need the side effects, and it can help us avoid races.
+		 * We basically use the page "master dirty bit" as a serialization point for all the different threads doing their things.*/
 		if (page_mkclean(ppage)) 	set_page_dirty(ppage);
-#endif
-		/* We carefully synchronise fault handlers against installing a dirty pte and marking the page dirty at this
-		   point.  We do this by having them hold the page lock while dirtying the page, and pages are always locked
-		   coming in here, so we get the desired exclusion.	 */
+		/* We carefully synchronise fault handlers against installing a dirty pte and marking the page dirty at this point.  We do this by having them hold the page lock while dirtying the page, and pages are always locked coming in here, so we get the desired exclusion.	 */
 		wb = unlocked_inode_to_wb_begin(inode, &cookie);
 		if (TestClearPageDirty(ppage))
 		{
@@ -625,3 +617,66 @@ void free_unref_page_list(list_head* list)
 //	local_irq_restore(flags);
 #endif
 }
+
+/*
+ * Return true if this page is mapped into pagetables.
+ * For compound page it returns true if any subpage of compound page is mapped.
+ */
+//bool page_mapped(struct page* page)
+bool page::page_mapped(void)
+{
+	return (atomic_read(&_mapcount) >= 0);
+	//int i;
+
+	//if (likely(!PageCompound(this)))	return atomic_read(&this->_mapcount) >= 0;
+	//this = compound_head(this);
+	//if (atomic_read(compound_mapcount_ptr(this)) >= 0)
+	//	return true;
+	//if (PageHuge(this))
+	//	return false;
+	//for (i = 0; i < compound_nr(this); i++) {
+	//	if (atomic_read(&this[i]._mapcount) >= 0)
+	//		return true;
+	//}
+	//return false;
+}
+//EXPORT_SYMBOL(page_mapped);
+
+/*
+ * This cancels just the dirty bit on the kernel page itself, it does NOT
+ * actually remove dirty bits on any mmap's that may be around. It also
+ * leaves the page tagged dirty, so any sync activity will still find it on
+ * the dirty lists, and in particular, clear_page_dirty_for_io() will still
+ * look at the dirty bits in the VM.
+ *
+ * Doing this should *normally* only ever be done when a page is truncated,
+ * and is not actually mapped anywhere at all. However, fs/buffer.c does
+ * this when it notices that somebody has cleaned out all the buffers on a
+ * page without actually doing it through the VM. Can you say "ext3 is
+ * horribly ugly"? Thought you could.
+ */
+//void __cancel_dirty_page(struct page* page)
+void page::cancel_dirty_page(void)
+{
+	if (PageDirty(this))
+	{
+		address_space* mapping = page_mapping(this);
+
+		if (mapping_can_writeback(mapping)) {
+			struct inode* inode = mapping->host;
+			bdi_writeback* wb;
+			wb_lock_cookie cookie = {};
+
+			lock_page_memcg(this);
+			wb = unlocked_inode_to_wb_begin(inode, &cookie);
+			if (TestClearPageDirty(this))
+				account_page_cleaned(this, mapping, wb);
+			unlocked_inode_to_wb_end(inode, &cookie);
+			unlock_page_memcg(this);
+		}
+		else {
+			ClearPageDirty(this);
+		}
+	}
+}
+//EXPORT_SYMBOL(__cancel_dirty_page);

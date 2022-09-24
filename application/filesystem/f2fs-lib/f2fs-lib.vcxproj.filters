@@ -111,6 +111,9 @@
     <ClCompile Include="source\lru.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="source\unit_test.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="source\framework.h">
@@ -180,6 +183,9 @@
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="source\file.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="source\unit_test.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>

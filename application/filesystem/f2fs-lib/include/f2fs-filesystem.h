@@ -14,6 +14,7 @@ class CF2fsFile : public IFileInfo
 {
 public:
 	CF2fsFile(void):m_dentry(NULL), m_inode(NULL), m_fs(NULL) {};
+	~CF2fsFile(void);
 	void Init(dentry* de, inode* node, CF2fsFileSystem * fs, UINT32 mode);
 public:
 	virtual void Cleanup(void) { }
@@ -25,21 +26,22 @@ public:
 	virtual bool UnlockFile(LONGLONG offset, LONGLONG len) {UNSUPPORT_1(bool);}
 	virtual bool EnumerateFiles(EnumFileListener* listener) const {UNSUPPORT_1(bool);}
 
-	virtual bool GetFileInformation(LPBY_HANDLE_FILE_INFORMATION fileinfo) const {UNSUPPORT_1(bool);}
-	virtual std::wstring GetFileName(void) const { JCASSERT(0); return L""; }
+	virtual bool GetFileInformation(LPBY_HANDLE_FILE_INFORMATION fileinfo) const;
+	virtual std::wstring GetFileName(void) const;
 
 	virtual bool DokanGetFileSecurity(SECURITY_INFORMATION psinfo, PSECURITY_DESCRIPTOR psdesc, ULONG& buf_size) {UNSUPPORT_1(bool);}
 	virtual bool DokanSetFileSecurity(PSECURITY_INFORMATION psinfo, PSECURITY_DESCRIPTOR psdesc, ULONG buf_size) {UNSUPPORT_1(bool);}
 	// for dir only
-	virtual bool IsDirectory(void) const {UNSUPPORT_1(bool);}
+	virtual bool IsDirectory(void) const {	return m_inode->is_dir();	}
+
 	virtual bool SetAllocationSize(LONGLONG size);
 	virtual bool SetEndOfFile(LONGLONG);
-	virtual void DokanSetFileAttributes(DWORD attr) { UNSUPPORT_0; }
+	virtual void DokanSetFileAttributes(DWORD attr);
 
-	virtual void SetFileTime(const FILETIME* ct, const FILETIME* at, const FILETIME* mt) { UNSUPPORT_0; }
+	virtual void SetFileTime(const FILETIME* ct, const FILETIME* at, const FILETIME* mt);
 	virtual bool FlushFile(void);
 
-	virtual void GetParent(IFileInfo*& parent) { UNSUPPORT_0; }
+	virtual void GetParent(IFileInfo*& parent);
 
 	// 删除所有给文件分配的空间。如果是目录，删除目录下的所有文件。
 	virtual void ClearData(void) { UNSUPPORT_0; }
@@ -47,6 +49,13 @@ public:
 	virtual bool OpenChild(IFileInfo*& file, const wchar_t* fn, UINT32 mode) const;
 	virtual bool OpenChildEx(IFileInfo*& file, const wchar_t* fn, size_t len);
 	virtual bool CreateChild(IFileInfo*& file, const wchar_t* fn, bool dir, UINT32 mode);
+
+public:
+	friend class CF2fsFileSystem;
+protected:
+	bool _OpenChildEx(CF2fsFile*& file, const wchar_t* fn, size_t len);
+	void _DeleteChild(CF2fsFile* child);
+	bool _OpenChild(CF2fsFile*& file, const wchar_t* fn, UINT32 mode) const;
 
 protected:
 	dentry* m_dentry;
@@ -82,12 +91,8 @@ public:
 	// fsck，检查文件系统，返回检查结果
 	virtual FsCheckResult FileSystemCheck(IVirtualDisk* dev, bool repair) { JCASSERT(0); return CheckNoError; }
 
-	virtual bool DokanGetDiskSpace(ULONGLONG& free_bytes, ULONGLONG& total_bytes, ULONGLONG& total_free_bytes) { JCASSERT(0); return 0; }
-	virtual bool GetVolumnInfo(std::wstring& vol_name, DWORD& sn, DWORD& max_fn_len, DWORD& fs_flag,
-		std::wstring& fs_name)
-	{
-		JCASSERT(0); return 0;
-	}
+	virtual bool DokanGetDiskSpace(ULONGLONG& free_bytes, ULONGLONG& total_bytes, ULONGLONG& total_free_bytes);
+	virtual bool GetVolumnInfo(std::wstring& vol_name, DWORD& sn, DWORD& max_fn_len, DWORD& fs_flag, std::wstring& fs_name);
 
 	// file attribute (attr) and create disposition (disp) is in user mode 
 	virtual bool DokanCreateFile(IFileInfo*& file, const std::wstring& fn, ACCESS_MASK access_mask,
@@ -95,17 +100,21 @@ public:
 	virtual bool MakeDir(const std::wstring& dir) { JCASSERT(0); return 0; }
 	//virtual bool OpenFile(IFileInfo * & file, UINT32 f_inode) = 0;
 
-	virtual bool DokanDeleteFile(const std::wstring& fn, IFileInfo* file, bool isdir) { JCASSERT(0); return 0; }
+	virtual bool DokanDeleteFile(const std::wstring& fn, IFileInfo* file, bool isdir);
 	//virtual void FindFiles(void) = 0;
 	virtual void FindStreams(void) { JCASSERT(0); }
 	virtual bool DokanMoveFile(const std::wstring& src_fn, const std::wstring& dst_fn, bool replace, IFileInfo* file) { JCASSERT(0); return 0; }
 
 	virtual bool HardLink(const std::wstring& src, const std::wstring& dst) { JCASSERT(0); return 0; }
 	virtual bool Unlink(const std::wstring& fn) { JCASSERT(0); return 0; }
-	virtual bool Sync(void) { JCASSERT(0); return 0; }
+	virtual bool Sync(void);
 
 public:
 	virtual bool GetRoot(IFileInfo* &root);
+
+protected:
+	bool OpenParent(CF2fsFile*& dir, const std::wstring & path, std::wstring &fn);
+	bool _GetRoot(CF2fsFile*& root);
 
 	// other functions
 public:
@@ -197,7 +206,7 @@ public:
 protected:
 	__u32 f2fs_inode_chksum(struct f2fs_node* node);
 
-	inline int write_inode(struct f2fs_node* inode, UINT64 blkaddr)
+	inline int write_inode(f2fs_node* inode, UINT64 blkaddr)
 	{
 		if (m_config.feature & cpu_to_le32(F2FS_FEATURE_INODE_CHKSUM))
 			inode->i._u._s.i_inode_checksum = cpu_to_le32(f2fs_inode_chksum(inode));
@@ -272,11 +281,11 @@ public:
 	// 模拟Linux Block IO
 	void submit_bio(bio* bb);
 	inline void __submit_bio(bio* bio, enum page_type type);
-	bio* __bio_alloc(f2fs_io_info* fio, int npages);
+//	bio* __bio_alloc(f2fs_io_info* fio, int npages);
 	int __blkdev_issue_discard(block_device * , sector_t lba, sector_t len, gfp_t gfp_mask, int flag, bio **);
 // == data.cpp
 public:
-	int f2fs_submit_page_bio(f2fs_io_info* fio);
+//	int f2fs_submit_page_bio(f2fs_io_info* fio);
 	bio* f2fs_grab_read_bio(inode* inode, block_t blkaddr, unsigned nr_pages, unsigned op_flag, pgoff_t first_idx, bool for_write);
 
 	//int sync_filesystem(void) { JCASSERT(0); return 0; }
@@ -327,9 +336,9 @@ protected:
 protected:
 //	int f2fs_fill_super(/*super_block* sb, */const std::wstring & str_option, int silent);
 	int parse_mount_options(super_block* sb, const boost::property_tree::wptree& options, bool is_mount);
-	int read_raw_super_block(f2fs_sb_info* sbi, f2fs_super_block* & raw_super, int* valid_super_block, int* recovery);
-	bool sanity_check_area_boundary(f2fs_sb_info* sbi, CBufferHead* bh);
-	int sanity_check_raw_super(f2fs_sb_info* sbi, CBufferHead* bh);
+	//int read_raw_super_block(f2fs_sb_info* sbi, f2fs_super_block* & raw_super, int* valid_super_block, int* recovery);
+//	bool sanity_check_area_boundary(f2fs_sb_info* sbi, CBufferHead* bh);
+//	int sanity_check_raw_super(f2fs_sb_info* sbi, CBufferHead* bh);
 //	int f2fs_scan_devices(f2fs_sb_info* sbi);
 //	int f2fs_disable_checkpoint(f2fs_sb_info* sbi);
 
@@ -345,7 +354,7 @@ protected:
 
 // == node.cpp
 public:
-	int read_node_page(page* page, int op_flags);
+//	int read_node_page(page* page, int op_flags);
 
 // == shrinker.cpp
 protected:
@@ -366,12 +375,12 @@ protected:
 
 // == inode.cpp inode related
 public:
-	f2fs_inode_info* f2fs_iget(unsigned long ino);
+//	f2fs_inode_info* f2fs_iget(unsigned long ino);
 //	inode * iget_locked(unsigned long ino) {return m_inodes.iget_locked() }
 	int do_read_inode(inode* inode);
 protected:
 	// 读取inode page，并且根据类型，创建相应的inode对象
-	int do_create_read_inode(f2fs_inode_info * & ptr_inode, unsigned long ino);
+	//int do_create_read_inode(f2fs_inode_info * & ptr_inode, unsigned long ino);
 
 protected:
 	CInodeManager m_inodes;
@@ -380,7 +389,6 @@ protected:
 	{
 		// 对于NODE和META类型的node, 利用f2fs_inode_info。mapping再f2fs_inode_info的创建函数中，根据ino生成。
 		JCASSERT(mapping == nullptr);
-//		NODE_TYPE* node = new NODE_TYPE(m_sb_info, mapping);
 		NODE_TYPE* node = new NODE_TYPE(m_sb_info, ino);
 
 		inode* base_node = static_cast<inode*>(node);

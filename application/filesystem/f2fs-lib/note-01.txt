@@ -363,6 +363,70 @@ int f2fs_write_single_data_page(page *ppage, int *submitted, struct bio **bio, s
 
 
 
+>	f2fs-lib.dll!f2fs_submit_page_write(f2fs_io_info * fio) 行 960	C++
+		=>is_sbi_flag_set(SBI_IS_SHUTDOWN) == false && f2fs_is_checkpoint_ready() == true
+		终止，返回f2fs_write_single_data_page() 继续执行。
+ 	f2fs-lib.dll!do_write_page(f2fs_summary * sum, f2fs_io_info * fio) 行 2843	C++
+ 	f2fs-lib.dll!f2fs_outplace_write_data(dnode_of_data * dn, f2fs_io_info * fio) 行 2894	C++
+ 	f2fs-lib.dll!f2fs_do_write_data_page(f2fs_io_info * fio) 行 2574	C++
+ 	f2fs-lib.dll!f2fs_write_single_data_page(page * ppage, int * submitted, bio * * bio, unsigned __int64 * last_block, writeback_control * wbc, iostat_type io_type, int compr_blocks, bool allow_balance) 行 2678	C++
+ 	f2fs-lib.dll!f2fs_write_cache_pages(address_space * mapping, writeback_control * wbc, iostat_type io_type) 行 2928	C++
+ 	f2fs-lib.dll!__f2fs_write_data_pages(address_space * mapping, writeback_control * wbc, iostat_type io_type) 行 3069	C++
+ 	f2fs-lib.dll!Cf2fsDataMapping::write_pages(writeback_control * wbc) 行 3103	C++
+ 	f2fs-lib.dll!address_space::do_writepages(writeback_control * wbc) 行 2312	C++
+ 	f2fs-lib.dll!address_space::__filemap_fdatawrite_range(unsigned __int64 start, unsigned __int64 end, int sync_mode) 行 412	C++
+ 	f2fs-lib.dll!file_write_and_wait_range(file * ffile, unsigned __int64 lstart, unsigned __int64 lend) 行 772	C++
+ 	f2fs-lib.dll!f2fs_inode_info::f2fs_do_sync_file(file * ffile, unsigned __int64 start, unsigned __int64 end, int datasync, bool atomic) 行 284	C++
+ 	f2fs-lib.dll!f2fs_inode_info::fsync(file * ffile, unsigned __int64 start, unsigned __int64 end, int datasync) 行 379	C++
+ 	f2fs-lib.dll!CF2fsFile::CloseFile() 行 28	C++
+ 	dokanfs-tester.exe!CFsTesterApp::GeneralTest() 行 192	C++
+ 	dokanfs-tester.exe!CFsTesterApp::Run() 行 147	C++
+ 	dokanfs-tester.exe!jcvos::local_main(int argc, wchar_t * * argv) 行 196	C++
+ 	dokanfs-tester.exe!wmain(int argc, wchar_t * * argv) 行 42	C++
+ 	[外部代码]	
+
+
+>	f2fs-lib.dll!CF2fsFileSystem::submit_bio(bio * bb) 行 4251	C++
+ 	f2fs-lib.dll!CF2fsFileSystem::__submit_bio(bio * bio, page_type type) 行 493	C++
+ 	f2fs-lib.dll!__submit_merged_bio(f2fs_bio_info * io) 行 541	C++
+ 	f2fs-lib.dll!__f2fs_submit_merged_write(f2fs_sb_info * sbi, page_type type, temp_type temp) 行 602	C++
+ 	f2fs-lib.dll!__submit_merged_write_cond(f2fs_sb_info * sbi, inode * inode, page * page, unsigned int ino, page_type type, bool force) 行 627	C++
+ 	f2fs-lib.dll!f2fs_submit_merged_write_cond(f2fs_sb_info * sbi, inode * inode, page * page, unsigned int ino, page_type type) 行 641	C++
+ 	f2fs-lib.dll!f2fs_write_single_data_page(page * ppage, int * submitted, bio * * bio, unsigned __int64 * last_block, writeback_control * wbc, iostat_type io_type, int compr_blocks, bool allow_balance) 行 2709	C++
+ 	f2fs-lib.dll!f2fs_write_cache_pages(address_space * mapping, writeback_control * wbc, iostat_type io_type) 行 2928	C++
+ 	f2fs-lib.dll!__f2fs_write_data_pages(address_space * mapping, writeback_control * wbc, iostat_type io_type) 行 3069	C++
+ 	f2fs-lib.dll!Cf2fsDataMapping::write_pages(writeback_control * wbc) 行 3103	C++
+ 	f2fs-lib.dll!address_space::do_writepages(writeback_control * wbc) 行 2312	C++
+ 	f2fs-lib.dll!address_space::__filemap_fdatawrite_range(unsigned __int64 start, unsigned __int64 end, int sync_mode) 行 412	C++
+ 	f2fs-lib.dll!file_write_and_wait_range(file * ffile, unsigned __int64 lstart, unsigned __int64 lend) 行 772	C++
+ 	f2fs-lib.dll!f2fs_inode_info::f2fs_do_sync_file(file * ffile, unsigned __int64 start, unsigned __int64 end, int datasync, bool atomic) 行 284	C++
+ 	f2fs-lib.dll!f2fs_inode_info::fsync(file * ffile, unsigned __int64 start, unsigned __int64 end, int datasync) 行 379	C++
+ 	f2fs-lib.dll!CF2fsFile::CloseFile() 行 28	C++
+ 	dokanfs-tester.exe!CFsTesterApp::GeneralTest() 行 192	C++
+ 	dokanfs-tester.exe!CFsTesterApp::Run() 行 147	C++
+ 	dokanfs-tester.exe!jcvos::local_main(int argc, wchar_t * * argv) 行 196	C++
+ 	dokanfs-tester.exe!wmain(int argc, wchar_t * * argv) 行 42	C++
+ 	[外部代码]	
+
+
+// read user page
+ 	f2fs-lib.dll!f2fs_read_single_page(f2fs_inode_info * inode, page * ppage, unsigned int nr_pages, f2fs_map_blocks * map, bio * * bio_ret, unsigned __int64 * last_block_in_bio, bool is_readahead) 行 2058	C++
+>	f2fs-lib.dll!f2fs_mpage_readpages(f2fs_inode_info * inode, readahead_control * rac, page * page) 行 2283	C++
+ 	f2fs-lib.dll!Cf2fsDataMapping::read_page(file * file, page * page) 行 2333	C++
+ 	f2fs-lib.dll!filemap_read_page(file * ffile, address_space * mapping, page * ppage) 行 2582	C++
+ 	f2fs-lib.dll!filemap_create_page(file * pfile, address_space * mapping, unsigned long index, pagevec * pvec) 行 2665	C++
+ 	f2fs-lib.dll!filemap_get_pages(kiocb * iocb, iov_iter * iter, pagevec * pvec) 行 2711	C++
+ 	f2fs-lib.dll!filemap_read(kiocb * iocb, iov_iter * iter, __int64 already_read) 行 2785	C++
+ 	f2fs-lib.dll!generic_file_read_iter(kiocb * iocb, iov_iter * iter) 行 2919	C++
+ 	f2fs-lib.dll!Cf2fsFileNode::read_iter(kiocb * iocb, iov_iter * iter) 行 4209	C++
+ 	f2fs-lib.dll!CF2fsFile::DokanReadFile(void * buf, unsigned long len, unsigned long & read, __int64 offset) 行 53	C++
+ 	dokanfs-tester.exe!CFsTesterApp::GeneralTest() 行 203	C++
+ 	dokanfs-tester.exe!CFsTesterApp::Run() 行 147	C++
+ 	dokanfs-tester.exe!jcvos::local_main(int argc, wchar_t * * argv) 行 196	C++
+ 	dokanfs-tester.exe!wmain(int argc, wchar_t * * argv) 行 42	C++
+ 	[外部代码]	
+
+
 查找文件
 	1: 从level计算bucket id,		static unsigned int dir_buckets(unsigned int level, int dir_level)
 	2: 从bucket id计算 block id		static unsigned int bucket_blocks(unsigned int level)
@@ -371,4 +435,25 @@ int f2fs_write_single_data_page(page *ppage, int *submitted, struct bio **bio, s
 
 
 
+****
+如何判断io能否merge。
+io_is_mergeable(bio, io, fio, last_blkaddr, cur_blkaddr)
+	- 输入的bio对齐，且剩余大小不足时，不合并
+	- page_is_mergeable(bio, last_blkaddr, cur_blkaddr)
+		- bio的size>max_io_bytes的话：不可合并
+		- last_blkaddr和cur_blkaddr不衔接：不可合并
+	- io_type_is_mergeable(io, fio)
+		- IO的操作（读、写）或者flag不同时：不可合并
+		
+由此可见：
+	（1）数据结构：bio是linux底层对IO的描述的一个数据结构
+			f2fs_bio_info：f2fs对bio的封装，包含一些用户线程同步以及合并io的信息。
+			f2fs_io_info：f2fs的单个io表述
+	（2）f2fs_bio_info同时也作为文件系统与底层IO之间的一个缓冲。用于吸收同类型的连续地址的io
+			f2fs向f2fs_bio_info添加io是同步的。合并以后的bio以异步方式发送给os
+			但是f2fs合并io时，并不改变原有的io顺序，仅检查前一个io能否合并。这一点对于LSF来说不是大问题。
+			但是有可能在不同的page类型/温度之间，由于io能否合并导致的io先后顺序问题。
+			
+		
 
+	

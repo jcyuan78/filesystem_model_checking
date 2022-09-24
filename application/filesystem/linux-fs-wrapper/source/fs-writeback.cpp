@@ -34,14 +34,12 @@
 //#include "../include/memcontrol.h"
 #include "internal.h"
 
-/*
- * 4MB minimal write chunk size
- */
+LOCAL_LOGGER_ENABLE(L"linux.fswriteback", LOGGER_LEVEL_DEBUGINFO);
+
+/* 4MB minimal write chunk size */
 #define MIN_WRITEBACK_PAGES	(4096UL >> (PAGE_SHIFT - 10))
 
-/*
- * Passed into wb_writeback(), essentially a subset of writeback_control
- */
+/* Passed into wb_writeback(), essentially a subset of writeback_control */
 struct wb_writeback_work {
 	long nr_pages;
 	struct super_block *sb;
@@ -1165,7 +1163,7 @@ void sb_mark_inode_writeback(struct inode *inode)
 void sb_clear_inode_writeback(struct inode *inode)
 {
 	struct super_block *sb = inode->i_sb;
-	unsigned long flags;
+//	unsigned long flags;
 
 	if (!list_empty(&inode->i_wb_list)) {
 		spin_lock_irqsave(&sb->s_inode_wblist_lock, flags);
@@ -1527,8 +1525,12 @@ static int writeback_single_inode(inode *iinode, writeback_control *wbc)
 	int ret = 0;
 
 	spin_lock(&iinode->i_lock);
-	if (!atomic_read(&iinode->i_count)) { WARN_ON(!/*(iinode->i_state & (I_WILL_FREE | I_FREEING))*/iinode->TestState(I_WILL_FREE | I_FREEING)); }
-	else { WARN_ON(/*iinode->i_state & I_WILL_FREE*/iinode->TestState(I_WILL_FREE)); }
+	LOG_DEBUG(L"inode[%d], count=%d, state = %X,", iinode->i_ino, iinode->i_count, iinode->TestState(0xFFFFFFFF));
+	if (!atomic_read(&iinode->i_count)) 
+	{
+		WARN_ON(!iinode->TestState(I_WILL_FREE | I_FREEING)); 
+	}
+	else { WARN_ON(iinode->TestState(I_WILL_FREE)); }
 
 	address_space* mapping = iinode->get_mapping();
 	if (/*iinode->i_state & I_SYNC*/iinode->TestState(I_SYNC)) 

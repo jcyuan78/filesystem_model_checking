@@ -76,6 +76,7 @@ static bool chgrp_ok(struct user_namespace *mnt_userns,
 		return true;
 	return false;
 }
+#endif //<TODO>
 
 /**
  * setattr_prepare - check if attribute changes to a dentry are allowed
@@ -83,11 +84,7 @@ static bool chgrp_ok(struct user_namespace *mnt_userns,
  * @dentry:	dentry to check
  * @attr:	attributes to change
  *
- * Check if we are allowed to change the attributes contained in @attr
- * in the given dentry.  This includes the normal unix access permission
- * checks, as well as checks for rlimits and others. The function also clears
- * SGID bit from mode if user is not allowed to set it. Also file capabilities
- * and IMA extended attributes are cleared if ATTR_KILL_PRIV is set.
+ * Check if we are allowed to change the attributes contained in @attr in the given dentry.  This includes the normal unix access permission checks, as well as checks for rlimits and others. The function also clears SGID bit from mode if user is not allowed to set it. Also file capabilities and IMA extended attributes are cleared if ATTR_KILL_PRIV is set.
  *
  * If the inode has been found through an idmapped mount the user namespace of
  * the vfsmount must be passed through @mnt_userns. This function will then
@@ -98,66 +95,55 @@ static bool chgrp_ok(struct user_namespace *mnt_userns,
  * Should be called as the first thing in ->setattr implementations,
  * possibly after taking additional locks.
  */
-int setattr_prepare(struct user_namespace *mnt_userns, struct dentry *dentry,
-		    struct iattr *attr)
+int setattr_prepare(user_namespace *mnt_userns, dentry *ddentry, iattr *attr)
 {
-	struct inode *inode = d_inode(dentry);
+	inode *iinode = d_inode(ddentry);
 	unsigned int ia_valid = attr->ia_valid;
 
-	/*
-	 * First check size constraints.  These can't be overriden using
-	 * ATTR_FORCE.
-	 */
-	if (ia_valid & ATTR_SIZE) {
-		int error = inode_newsize_ok(inode, attr->ia_size);
-		if (error)
-			return error;
+	/* First check size constraints.  These can't be overriden using ATTR_FORCE. */
+	if (ia_valid & ATTR_SIZE)
+	{
+		int error = inode_newsize_ok(iinode, attr->ia_size);
+		if (error)	return error;
 	}
 
 	/* If force is set do it anyway. */
-	if (ia_valid & ATTR_FORCE)
-		goto kill_priv;
+	if (ia_valid & ATTR_FORCE)	goto kill_priv;
 
-	/* Make sure a caller can chown. */
-	if ((ia_valid & ATTR_UID) && !chown_ok(mnt_userns, inode, attr->ia_uid))
-		return -EPERM;
-
-	/* Make sure caller can chgrp. */
-	if ((ia_valid & ATTR_GID) && !chgrp_ok(mnt_userns, inode, attr->ia_gid))
-		return -EPERM;
+	///* Make sure a caller can chown. */
+	//if ((ia_valid & ATTR_UID) && !chown_ok(mnt_userns, iinode, attr->ia_uid))		return -EPERM;
+	///* Make sure caller can chgrp. */
+	//if ((ia_valid & ATTR_GID) && !chgrp_ok(mnt_userns, iinode, attr->ia_gid))		return -EPERM;
 
 	/* Make sure a caller can chmod. */
-	if (ia_valid & ATTR_MODE) {
-		if (!inode_owner_or_capable(mnt_userns, inode))
-			return -EPERM;
+	if (ia_valid & ATTR_MODE) 
+	{
+		if (!inode_owner_or_capable(mnt_userns, iinode))		return -EPERM;
 		/* Also check the setgid bit! */
-               if (!in_group_p((ia_valid & ATTR_GID) ? attr->ia_gid :
-                                i_gid_into_mnt(mnt_userns, inode)) &&
-                    !capable_wrt_inode_uidgid(mnt_userns, inode, CAP_FSETID))
-			attr->ia_mode &= ~S_ISGID;
+        //if (!in_group_p((ia_valid & ATTR_GID) ? attr->ia_gid : i_gid_into_mnt(mnt_userns, iinode)) &&
+        //            !capable_wrt_inode_uidgid(mnt_userns, iinode, CAP_FSETID))
+		attr->ia_mode &= ~S_ISGID;
 	}
 
 	/* Check for setting the inode time. */
-	if (ia_valid & (ATTR_MTIME_SET | ATTR_ATIME_SET | ATTR_TIMES_SET)) {
-		if (!inode_owner_or_capable(mnt_userns, inode))
-			return -EPERM;
+	if (ia_valid & (ATTR_MTIME_SET | ATTR_ATIME_SET | ATTR_TIMES_SET))
+	{
+		if (!inode_owner_or_capable(mnt_userns, iinode))			return -EPERM;
 	}
 
 kill_priv:
 	/* User has permission for the change */
-	if (ia_valid & ATTR_KILL_PRIV) {
-		int error;
-
-		error = security_inode_killpriv(mnt_userns, dentry);
-		if (error)
-			return error;
+	if (ia_valid & ATTR_KILL_PRIV) 
+	{
+		//int error;
+		//error = security_inode_killpriv(mnt_userns, ddentry);
+		//if (error)		return error;
 	}
 
 	return 0;
 }
-EXPORT_SYMBOL(setattr_prepare);
+//EXPORT_SYMBOL(setattr_prepare);
 
-#endif //TODO
 
 /* inode_newsize_ok - may this inode be truncated to a given size
  * @inode:	the inode to be truncated
@@ -179,8 +165,7 @@ int inode_newsize_ok(const inode *iinode, loff_t offset)
 	} 
 	else
 	{
-		/* truncation of in-use swapfiles is disallowed - it would cause subsequent swapout to scribble on the 
-		   now-freed blocks. */
+		/* truncation of in-use swapfiles is disallowed - it would cause subsequent swapout to scribble on the now-freed blocks. */
 		if (IS_SWAPFILE(iinode))		return -ETXTBSY;
 	}
 
@@ -192,7 +177,6 @@ out_big:
 }
 //EXPORT_SYMBOL(inode_newsize_ok);
 
-#if 0 //TODO
 
 /**
  * setattr_copy - copy simple metadata updates into the generic inode
@@ -221,31 +205,29 @@ out_big:
  * that for "simple" filesystems, the struct inode is the inode storage.
  * The caller is free to mark the inode dirty afterwards if needed.
  */
-void setattr_copy(struct user_namespace *mnt_userns, struct inode *inode,
-		  const struct iattr *attr)
+void setattr_copy(user_namespace *mnt_userns, inode *iinode,  const iattr *attr)
 {
 	unsigned int ia_valid = attr->ia_valid;
 
-	if (ia_valid & ATTR_UID)
-		inode->i_uid = attr->ia_uid;
-	if (ia_valid & ATTR_GID)
-		inode->i_gid = attr->ia_gid;
+	//if (ia_valid & ATTR_UID)	iinode->i_uid = attr->ia_uid;
+	//if (ia_valid & ATTR_GID)	iinode->i_gid = attr->ia_gid;
 	if (ia_valid & ATTR_ATIME)
-		inode->i_atime = attr->ia_atime;
+		iinode->i_atime = attr->ia_atime;
 	if (ia_valid & ATTR_MTIME)
-		inode->i_mtime = attr->ia_mtime;
+		iinode->i_mtime = attr->ia_mtime;
 	if (ia_valid & ATTR_CTIME)
-		inode->i_ctime = attr->ia_ctime;
-	if (ia_valid & ATTR_MODE) {
+		iinode->i_ctime = attr->ia_ctime;
+	if (ia_valid & ATTR_MODE) 
+	{
 		umode_t mode = attr->ia_mode;
-		kgid_t kgid = i_gid_into_mnt(mnt_userns, inode);
-		if (!in_group_p(kgid) &&
-		    !capable_wrt_inode_uidgid(mnt_userns, inode, CAP_FSETID))
-			mode &= ~S_ISGID;
-		inode->i_mode = mode;
+		//kgid_t kgid = i_gid_into_mnt(mnt_userns, iinode);
+		//if (!in_group_p(kgid) && !capable_wrt_inode_uidgid(mnt_userns, iinode, CAP_FSETID))
+		//	mode &= ~S_ISGID;
+		iinode->i_mode = mode;
 	}
 }
-EXPORT_SYMBOL(setattr_copy);
+//EXPORT_SYMBOL(setattr_copy);
+#if 0 //TODO
 
 /**
  * notify_change - modify attributes of a filesytem object

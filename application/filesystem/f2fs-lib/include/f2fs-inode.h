@@ -28,6 +28,9 @@ protected:
 // virtual members
 public:
 	virtual int fsync(file*, loff_t start, loff_t end, int datasync);
+	virtual int release_file(file* filp);
+	virtual int setattr(user_namespace*, dentry*, iattr*);
+	virtual int getattr(user_namespace*, const path*, kstat*, u32, unsigned int);
 
 
 public:
@@ -95,6 +98,7 @@ public:
 
 
 public:
+	inline bool is_dir(void) const {	return S_ISDIR(i_mode);	}
 //	inline void SetMapping(address_space* mapping) { JCASSERT(mapping && !i_mapping); i_mapping = mapping; }
 	inline void get_inline_info(f2fs_inode* ri)
 	{
@@ -135,9 +139,12 @@ public:
 	/*__mark_inode_dirty expects inodes to be hashed.  Since we don't want special inodes in the fileset inode space, 
 	  we make them appear hashed, but do not put on any lists.  hlist_del() will work fine and require no locking. */
 	inline void inode_fake_hash(void) 	{ hlist_add_fake(&i_hash); }
-	loff_t GetFileSize(void) const { return i_size; }
+	inline loff_t GetFileSize(void) const { return i_size; }
+	inline DWORD GetFileSizeHi(void) const { return HIDWORD(i_size); }
+	inline DWORD GetFileSizeLo(void) const { return LODWORD(i_size); }
+	DWORD GetFileAttribute(void) const;
+	void SetFileAttribute(DWORD attr);
 
-	
 // ==== linux/fs.h ====
 	inline void inode_lock(void) { down_write(&i_rwsem); }
 
@@ -243,6 +250,8 @@ public:
 // ==== extent_cache.cpp ====
 	void f2fs_update_extent_tree_range(pgoff_t fofs, block_t blkaddr, unsigned int len);
 
+// ==== super.cpp ====
+	int f2fs_inode_dirtied(bool sync);
 
 
 // ==== 由于改变inode::i_mapping的访问规则，添加必要的访问函数
@@ -286,9 +295,9 @@ public:
 	virtual int readlink(dentry*, char __user*, int)UNSUPPORT_1(int);
 	virtual int create(user_namespace*, dentry*, umode_t, bool);
 	virtual int link(dentry*, /*struct inode*,*/ dentry*)UNSUPPORT_1(int);
-	virtual int unlink(/*struct inode*, */ dentry*)UNSUPPORT_1(int);
+	virtual int unlink(dentry*);
 	virtual int symlink(user_namespace*, /*struct inode*, */dentry*, const char*)UNSUPPORT_1(int);
-	virtual int mkdir(user_namespace*, /*struct inode*, */dentry*, umode_t)UNSUPPORT_1(int);
+	virtual int mkdir(user_namespace*, /*struct inode*, */dentry*, umode_t);
 	virtual int rmdir(/*struct inode*, */dentry*)UNSUPPORT_1(int);
 	virtual int mknod(user_namespace*, /*struct inode*, */dentry*, umode_t, dev_t)UNSUPPORT_1(int);
 	virtual int rename(user_namespace*, /*struct inode*, */dentry*, inode*, dentry*, unsigned int)UNSUPPORT_1(int);
@@ -359,7 +368,7 @@ public:
 class Cf2fsFileNode : public f2fs_inode_info
 {
 public:
-	Cf2fsFileNode(const f2fs_inode_info& src) : f2fs_inode_info(src) {}
+	Cf2fsFileNode(const f2fs_inode_info& src) : f2fs_inode_info(src) 	{}
 	Cf2fsFileNode(f2fs_sb_info* sbi);
 	virtual ~Cf2fsFileNode(void) {}
 
@@ -378,7 +387,7 @@ public:
 	virtual int rmdir(/*struct inode*, */dentry*)UNSUPPORT_1(int);
 	virtual int mknod(user_namespace*, /*struct inode*, */dentry*, umode_t, dev_t)UNSUPPORT_1(int);
 	virtual int rename(user_namespace*, /*struct inode*, */dentry*, inode*, dentry*, unsigned int)UNSUPPORT_1(int);
-	virtual int setattr(user_namespace*, dentry*, iattr*)UNSUPPORT_1(int);
+//	virtual int setattr(user_namespace*, dentry*, iattr*)UNSUPPORT_1(int);
 	virtual int getattr(user_namespace*, const path*, kstat*, u32, unsigned int)UNSUPPORT_1(int);
 	virtual ssize_t listxattr(dentry*, char*, size_t)UNSUPPORT_1(size_t);
 	virtual int fiemap(/*struct inode*, */fiemap_extent_info*, u64 start, u64 len)UNSUPPORT_1(int);
@@ -395,7 +404,6 @@ public:
 	virtual ssize_t read_iter(kiocb*, iov_iter*);
 	virtual ssize_t write_iter(kiocb*, iov_iter*);
 
-	virtual int release_file(file* filp);
 	virtual long fallocate(int mode, loff_t offset, loff_t len);
 //	.llseek = f2fs_llseek,
 

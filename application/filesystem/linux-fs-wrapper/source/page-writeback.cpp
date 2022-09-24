@@ -2410,23 +2410,21 @@ void account_page_dirtied(page *ppage, address_space *mapping)
 }
 
 
-#if 0 //TODO
 
-/*
- * Helper function for deaccounting dirty page without writeback.
+/* Helper function for deaccounting dirty page without writeback.
  *
- * Caller must hold lock_page_memcg().
- */
-void account_page_cleaned(struct page *page, struct address_space *mapping,
-			  struct bdi_writeback *wb)
+ * Caller must hold lock_page_memcg(). */
+void account_page_cleaned(page *ppage, address_space *mapping, bdi_writeback *wb)
 {
-	if (mapping_can_writeback(mapping)) {
-		dec_lruvec_page_state(page, NR_FILE_DIRTY);
-		dec_zone_page_state(page, NR_ZONE_WRITE_PENDING);
+	if (mapping_can_writeback(mapping))
+	{
+		dec_lruvec_page_state(ppage, NR_FILE_DIRTY);
+//<TODO>		dec_zone_page_state(ppage, NR_ZONE_WRITE_PENDING);
 		dec_wb_stat(wb, WB_RECLAIMABLE);
-		task_io_account_cancelled_write(PAGE_SIZE);
+		//task_io_account_cancelled_write(PAGE_SIZE);
 	}
 }
+#if 0 //TODO
 
 /*
  * For address_spaces which do not use buffers.  Just tag the page as dirty in

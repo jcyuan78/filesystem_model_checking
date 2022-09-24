@@ -28,7 +28,7 @@ static void __check_sit_bitmap(struct f2fs_sb_info* sbi, block_t start, block_t 
 	while (blk < end)
 	{
 		segno = GET_SEGNO(sbi, blk);
-		sentry = get_seg_entry(sbi, segno);
+		sentry = sbi->get_seg_entry( segno);
 		offset = GET_BLKOFF_FROM_SEG0(sbi, blk);
 
 		if (end < START_BLOCK(sbi, segno + 1))

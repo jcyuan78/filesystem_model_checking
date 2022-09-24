@@ -68,6 +68,7 @@ public:
 	inode* iget_locked(bool thp_support, unsigned long ino) { JCASSERT(0); return NULL; };
 	void iget_failed(inode* node);
 	void init_inode_mapping(inode* node, address_space* mapping, bool thp_support);
+	// 将inode插入到hash table中
 	int insert_inode_locked(inode* node);
 	void internal_iget_locked(inode* ptr, bool thp_support, unsigned long ino);
 	void new_inode(inode* node);

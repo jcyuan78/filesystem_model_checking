@@ -45,8 +45,8 @@ public:
 	virtual int rmdir(/*struct inode*, */dentry*)UNSUPPORT_1(int);
 	virtual int mknod(user_namespace*, /*struct inode*, */dentry*, umode_t, dev_t)UNSUPPORT_1(int);
 	virtual int rename(user_namespace*, /*struct inode*, */dentry*, inode*, dentry*, unsigned int)UNSUPPORT_1(int);
-	virtual int setattr(user_namespace*, dentry*, iattr*)UNSUPPORT_1(int);
-	virtual int getattr(user_namespace*, const path*, kstat*, u32, unsigned int)UNSUPPORT_1(int);
+	virtual int setattr(user_namespace*, dentry*, iattr*) = 0;
+	virtual int getattr(user_namespace*, const path*, kstat*, u32, unsigned int) = 0;
 	virtual ssize_t listxattr(dentry*, char*, size_t)UNSUPPORT_1(size_t);
 	virtual int fiemap(/*struct inode*, */fiemap_extent_info*, u64 start, u64 len)UNSUPPORT_1(int);
 	virtual int update_time(/*struct inode*, */timespec64*, int)UNSUPPORT_1(int);
@@ -73,8 +73,8 @@ public:
 	unsigned long mmap_supported_flags;
 	virtual int open(inode*, file*) { UNSUPPORT_1(int); }
 	virtual int flush(file*, fl_owner_t id) { UNSUPPORT_1(int); }
-	virtual int release_file(inode*, file*) { UNSUPPORT_1(int); }
-	virtual int fsync(file*, loff_t start, loff_t end, int datasync) { UNSUPPORT_1(int); }
+	virtual int release_file(file*) = 0;
+	virtual int fsync(file*, loff_t start, loff_t end, int datasync) = 0;
 	virtual int fasync(int, file*, int) { UNSUPPORT_1(int); }
 	virtual int lock(file*, int, file_lock*) { UNSUPPORT_1(int); }
 	virtual ssize_t sendpage(file*, page*, int, size_t, loff_t*, int) { UNSUPPORT_1(ssize_t); };

@@ -77,3 +77,58 @@ page::~page(void)
 #endif
 	VirtualFree(virtual_add, PAGE_SIZE, MEM_RELEASE);
 }
+
+/**
+ * block_invalidatepage - invalidate part or all of a buffer-backed page
+ *
+ * @page: the page which is affected
+ * @offset: start of the range to invalidate
+ * @length: length of the range to invalidate
+ *
+ * block_invalidatepage() is called when all or part of the page has become invalidated by a truncate operation.
+ *
+ * block_invalidatepage() does not have to release all buffers, but it must ensure that no dirty buffer is left outside @offset and that no I/O is underway against any of the blocks which are outside the truncation point.  Because the caller is about to free (and possibly reuse) those blocks on-disk.
+ */
+//void block_invalidatepage(struct page* page, unsigned int offset, unsigned int length)
+void address_space::invalidate_page(page* ppage, unsigned int offset, unsigned int length)
+{
+//	struct buffer_head* head, * bh, * next;
+	unsigned int curr_off = 0;
+	unsigned int stop = length + offset;
+
+	BUG_ON(!PageLocked(ppage));
+	if (!ppage->page_has_buffers())
+		goto out;
+
+#if 0
+	/* Check for overflow */
+	BUG_ON(stop > PAGE_SIZE || stop < length);
+
+	head = ppage->page_buffers();
+	bh = head;
+	do 
+	{
+		unsigned int next_off = curr_off + bh->b_size;
+		next = bh->b_this_page;
+
+		/* Are we still fully in range ? */
+		if (next_off > stop)
+			goto out;
+
+		/* is this block fully invalidated? */
+		if (offset <= curr_off)
+			discard_buffer(bh);
+		curr_off = next_off;
+		bh = next;
+	} while (bh != head);
+
+	/* We release buffers only if the entire page is being invalidated. The get_block cached value has been unconditionally invalidated, so real IO is not possible anymore.	 */
+	if (length == PAGE_SIZE)
+		try_to_release_page(ppage, 0);
+#else
+	JCASSERT(0);
+#endif
+
+out:
+	return;
+}

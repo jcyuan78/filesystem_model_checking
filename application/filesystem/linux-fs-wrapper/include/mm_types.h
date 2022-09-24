@@ -32,6 +32,7 @@ class address_space;
 struct mem_cgroup;
 
 
+
 /* Each physical page in the system has a struct page associated with it to keep track of whatever it is we are using the page for at the moment. Note that we have no way to track which tasks are using a page, though if it is a pagecache page, rmap structures can tell us who is mapping it.
  *
  * If you allocate the page using alloc_pages(), you can use some of the space in struct page for your own purposes. The five words in the main union are available, except for bit 0 of the first word which must be kept clear.  Many users use this word to store a pointer to an object which is guaranteed to be aligned.  If you use the same storage as page->mapping, you must restore it to NULL before freeing the page.
@@ -58,6 +59,16 @@ public:
 	void set_mark(xa_mark_t mark) { set_bit(mark, &m_mark); }
 	bool is_marked(xa_mark_t mark) { return test_bit(mark, &m_mark); }
 	void clear_mark(xa_mark_t mark) { clear_bit(mark, &m_mark); }
+	/** page_has_private - Determine if page has private stuff
+	 * @page: The page to be checked
+	 * Determine if a page has private stuff, indicating that release routines should be invoked upon it. */
+	inline int page_has_private(void);
+	bool page_mapped(void);
+	inline void unmap_mapping_page(void) { }	// for MMU support only
+	void cancel_dirty_page(void);
+	inline bool page_has_buffers(void);
+//	inline buffer_head* page_buffers(void) {/*BUG_ON(!PagePrivate(page));	*/		return ((buffer_head*)private_data);	}
+
 protected:
 	UINT32 m_mark =0;
 public:
@@ -162,6 +173,7 @@ public:
 
 public:
 	inline void ref_add(int count) { atomic_add(count, &_refcount); }
+	inline void ref_sub(int count) { atomic_sub(count, &_refcount); }
 	inline atomic_t ref_count(void) { return atomic_read(&_refcount); }
 
 	inline void get_page(void) 
@@ -1119,6 +1131,10 @@ enum pageflags
 
 //<YUAN> 源代码在page-flags.h中，262行，通过#define Page##uname()的方式实现
 
+#define PAGE_FLAGS_PRIVATE		(1UL << PG_private | 1UL << PG_private_2)
+inline int page::page_has_private(void)	{	return !!(flags & PAGE_FLAGS_PRIVATE); }
+
+
 // read data to page
 
 //-- Active
@@ -1134,6 +1150,7 @@ inline void ClearPageChecked(page* pp) { clear_bit(PG_checked, &pp->flags); }
 
 //-- Dirty
 inline bool PageDirty(page* pp) { return test_bit(PG_dirty, &pp->flags); }
+inline void ClearPageDirty(page* pp) { clear_bit(PG_dirty, &pp->flags); }
 inline bool TestSetPageDirty(page* pp) { return test_and_set_bit(PG_dirty, &pp->flags); }
 inline bool TestClearPageDirty(page* pp) { return test_and_clear_bit(PG_dirty, &pp->flags); }
 //-- Error
@@ -1158,6 +1175,8 @@ inline void __ClearPageLocked(page* pp) { clear_bit(PG_locked, &pp->flags); }
 inline bool PageLRU(page* pp) { return test_bit(PG_lru, &pp->flags); }
 inline void SetPageLRU(page* pp) { set_bit(PG_lru, &pp->flags); }
 inline void ClearPageLRU(page* pp) { clear_bit(PG_lru, &pp->flags); }
+
+inline void ClearPageMappedToDisk(page* pp) { clear_bit(PG_mappedtodisk, &pp->flags); }
 
 
 inline bool PageSwapCache(page* pp) { return test_bit(PG_swapcache, &pp->flags); }
@@ -1185,6 +1204,8 @@ inline bool PageReadahead(page* pp) { return test_bit(PG_reclaim, &pp->flags); }
 inline void SetPageReadahead(page* pp) {	set_bit(PG_reclaim, &pp->flags); }
 inline void ClearPageReadahead(page* pp) { clear_bit(PG_reclaim, &pp->flags); }
 
+inline bool PageSwapBacked(page* pp) { return test_bit(PG_swapbacked, &pp->flags); }
+
 inline void __SetPageReferenced(page* pp) { set_bit(PG_referenced, &pp->flags); }
 
 //-- Unevictable
@@ -1209,6 +1230,8 @@ int __set_page_dirty_nobuffers(struct page* page);
 
 int clear_page_dirty_for_io(struct page* page);
 int set_page_writeback(page* pp);
+
+inline bool page::page_has_buffers(void) { return PagePrivate(this); }
 
 
 //<YUAN> from gfp.h
@@ -1666,8 +1689,11 @@ static inline unsigned long thp_size(struct page* page)
 	return PAGE_SIZE << thp_order(page);
 }
 
-void truncate_pagecache(struct inode* inode, loff_t newsize);
+void truncate_pagecache(inode* iinode, loff_t newsize);
 void truncate_inode_pages_final(address_space* mapping);
+void truncate_setsize(inode* iinode, loff_t newsize);
+void pagecache_isize_extended(inode* iinode, loff_t from, loff_t to);
+inline int page_mkclean(page* ppage) {	return 0;}
 
 
 /**
@@ -1732,3 +1758,6 @@ static inline unsigned long page_size(struct page* page)
 {
 	return PAGE_SIZE << compound_order(page);
 }
+
+void account_page_cleaned(page* page, address_space* mapping, struct bdi_writeback* wb);
+

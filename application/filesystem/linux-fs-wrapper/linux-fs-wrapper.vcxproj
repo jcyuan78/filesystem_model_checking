@@ -28,6 +28,7 @@
     <ClInclude Include="include\blk_types.h" />
     <ClInclude Include="include\buffer-manager.h" />
     <ClInclude Include="include\buffer_head.h" />
+    <ClInclude Include="include\cleancache.h" />
     <ClInclude Include="include\dcache.h" />
     <ClInclude Include="include\delayed_call.h" />
     <ClInclude Include="include\falloc.h" />
@@ -62,6 +63,7 @@
     <ClCompile Include="source\attr.cpp" />
     <ClCompile Include="source\bio-set.cpp" />
     <ClCompile Include="source\buffer-manager.cpp" />
+    <ClCompile Include="source\cleancache.cpp" />
     <ClCompile Include="source\dcache.cpp" />
     <ClCompile Include="source\filemap.cpp" />
     <ClCompile Include="source\fs-writeback.cpp" />

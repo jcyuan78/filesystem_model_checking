@@ -5,6 +5,10 @@
 #include "../include/f2fs-filesystem.h"
 #include <boost/property_tree/json_parser.hpp>
 #include "f2fs/segment.h"
+
+#ifdef _DEBUG
+#include "unit_test.h"
+#endif
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // == file system
 
@@ -138,6 +142,7 @@ void CF2fsFileSystem::Unmount(void)
 	{
 		m_sb_info->kill_f2fs_super();
 		delete m_sb_info;
+		m_sb_info = nullptr;
 	}
 
 	Disconnect();
@@ -145,6 +150,10 @@ void CF2fsFileSystem::Unmount(void)
 
 bool CF2fsFileSystem::MakeFileSystem(IVirtualDisk* dev, UINT32 volume_size, const std::wstring& volume_name, const std::wstring & options)
 {
+#ifdef _DEBUG
+	int err = run_unit_test();
+	if (err != 0) THROW_ERROR(ERR_APP, L"failed in unit test, code=%d", err);
+#endif
 	LOG_STACK_TRACE();
 	bool br = true;
 //	struct f2fs_configuration config;
@@ -173,6 +182,54 @@ bool CF2fsFileSystem::MakeFileSystem(IVirtualDisk* dev, UINT32 volume_size, cons
 	return br;
 }
 
+bool CF2fsFileSystem::DokanGetDiskSpace(ULONGLONG& free_bytes, ULONGLONG& total_bytes, ULONGLONG& total_free_bytes)
+{
+	UINT64 block_count = le64_to_cpu(m_sb_info->raw_super->block_count);
+	UINT32 block_size = le32_to_cpu(m_sb_info->raw_super->log_blocksize);
+
+	total_bytes = block_count * block_size;
+	free_bytes = total_bytes - total_bytes / 10;	//(90% 总容量)
+	total_free_bytes = free_bytes;
+
+	return true;
+}
+
+bool CF2fsFileSystem::GetVolumnInfo(std::wstring& vol_name, DWORD& sn, DWORD& max_fn_len, DWORD& fs_flag, std::wstring& fs_name)
+{
+	vol_name = m_sb_info->raw_super->volume_name;
+	BYTE* uuid = m_sb_info->raw_super->uuid;
+	sn = MAKELONG(MAKEWORD(uuid[3], uuid[2]), MAKEWORD(uuid[1], uuid[0]));
+	max_fn_len = 256;
+
+	fs_name = L"f2fs";
+
+	fs_flag = 0 | FILE_CASE_SENSITIVE_SEARCH | FILE_UNICODE_ON_DISK;
+	//FILE_CASE_PRESERVED_NAMES		//0x00000002	//	The specified volume supports preserved case of file names when it places a name on disk.
+	//FILE_CASE_SENSITIVE_SEARCH	//0x00000001	//	The specified volume supports case-sensitive file names.
+	//FILE_DAX_VOLUME				//0x20000000	//	The specified volume is a direct access(DAX) volume. Note  This flag was introduced in Windows 10, version 1607.
+	//FILE_FILE_COMPRESSION			//0x00000010	//	The specified volume supports file - based compression.
+	//FILE_NAMED_STREAMS			//0x00040000	//	The specified volume supports named streams.
+	//FILE_PERSISTENT_ACLS			//0x00000008	//	The specified volume preserves and enforces access control lists(ACL).For example, the NTFS file system preservesand enforces ACLs, and the FAT file system does not.
+	//FILE_READ_ONLY_VOLUME			//0x00080000	//	The specified volume is read - only.
+	//FILE_SEQUENTIAL_WRITE_ONCE	//0x00100000	//	The specified volume supports a single sequential write.
+	//FILE_SUPPORTS_ENCRYPTION		//0x00020000	//	The specified volume supports the Encrypted File System(EFS).For more information, see File Encryption.
+	//FILE_SUPPORTS_EXTENDED_ATTRIBUTES	//	0x00800000	//	The specified volume supports extended attributes.An extended attribute is a piece of application - specific metadata that an application can associate with a file and is not part of the file's data. 
+	//FILE_SUPPORTS_HARD_LINKS		//0x00400000	//	The specified volume supports hard links.For more information, see Hard Linksand Junctions.	
+	//FILE_SUPPORTS_OBJECT_IDS		//0x00010000	//	The specified volume supports object identifiers.
+	//FILE_SUPPORTS_OPEN_BY_FILE_ID	//0x01000000	//	The file system supports open by FileID.For more information, see FILE_ID_BOTH_DIR_INFO.
+	//FILE_SUPPORTS_REPARSE_POINTS	//0x00000080	//	The specified volume supports reparse points. //	ReFS : ReFS supports reparse points but does not index them so FindFirstVolumeMountPoint and FindNextVolumeMountPoint will not function as expected.
+	//FILE_SUPPORTS_SPARSE_FILES	//0x00000040	//	The specified volume supports sparse files.
+	//FILE_SUPPORTS_TRANSACTIONS	//0x00200000	//	The specified volume supports transactions.For more information, see About KTM.
+	//FILE_SUPPORTS_USN_JOURNAL		//0x02000000	//	The specified volume supports update sequence number(USN) journals.For more information, see Change Journal Records.
+
+	//FILE_UNICODE_ON_DISK			//0x00000004	//	The specified volume supports Unicode in file names as they appear on disk.
+	//FILE_VOLUME_IS_COMPRESSED		//0x00008000	//	The specified volume is a compressed volume, for example, a DoubleSpace volume.
+	//FILE_VOLUME_QUOTAS			//0x00000020	//	The specified volume supports disk quotas.
+	//FILE_SUPPORTS_BLOCK_REFCOUNTING	//0x08000000	//	The specified volume supports sharing logical clusters between files on the same volume.The file system reallocates on writes to shared clusters.Indicates that FSCTL_DUPLICATE_EXTENTS_TO_FILE is a supported operation.
+
+	return true;
+}
+
 bool CF2fsFileSystem::DokanCreateFile(IFileInfo*& file, const std::wstring& path, ACCESS_MASK access_mask, DWORD attr, FsCreateDisposition disp, ULONG share, ULONG opt, bool isdir)
 {
 	LOG_STACK_TRACE();
@@ -199,44 +256,62 @@ bool CF2fsFileSystem::DokanCreateFile(IFileInfo*& file, const std::wstring& path
 
 
 	// 路径解析：得到父节点路径：str_path, 目标文件名：str_fn;
-	size_t path_len = path.size();
-	jcvos::auto_array<wchar_t> _str_path(path_len + 1);
-	wchar_t* str_path = (wchar_t*)_str_path;
-	wcscpy_s(str_path, path_len + 1, path.c_str());
+	//size_t path_len = path.size();
+	//jcvos::auto_array<wchar_t> _str_path(path_len + 1);
+	//wchar_t* str_path = (wchar_t*)_str_path;
+	//wcscpy_s(str_path, path_len + 1, path.c_str());
 
-	wchar_t* str_fn;
-//	jcvos::auto_interface<IFileInfo> parent_dir;
-	wchar_t* ch = str_path + path_len - 1;
-	while (*ch != DIR_SEPARATOR && ch >= str_path) ch--;
-	str_fn = ch + 1;	// 排除根目录的"\"
-	size_t fn_len = path_len - (str_fn - str_path);
-	size_t parent_len = ch - str_path;
-	LOG_DEBUG(L"parent=%s, parent len=%zd, file name = %s, length = %zd", ch, parent_len, str_fn, fn_len);
+	//wchar_t* str_fn;
+	//wchar_t* ch = str_path + path_len - 1;
+	//while (*ch != DIR_SEPARATOR && ch >= str_path) ch--;
+	//str_fn = ch + 1;	// 排除根目录的"\"
+	//size_t fn_len = path_len - (str_fn - str_path);
+	//size_t parent_len = ch - str_path;
+	//LOG_DEBUG(L"parent=%s, parent len=%zd, file name = %s, length = %zd", ch, parent_len, str_fn, fn_len);
 
 
 	// TODO: 使用file缓存
-	jcvos::auto_interface<IFileInfo> root_dir;
-	jcvos::auto_interface<IFileInfo> parent_dir;
+//	jcvos::auto_interface<CF2fsFile> root_dir;
+	jcvos::auto_interface<CF2fsFile> parent_dir;
 	jcvos::auto_interface<IFileInfo> _file;
-	bool br = GetRoot(root_dir);
-	if (!br || !root_dir) THROW_ERROR(ERR_APP, L"root does not exist");
+	//bool br = _GetRoot(root_dir);
+	//if (!br || !root_dir) THROW_ERROR(ERR_APP, L"root does not exist");
 
-	if (parent_len == 0)
-	{
-		parent_dir = root_dir;
-		root_dir->AddRef();
-	}
-	else
-	{
-		br = root_dir->OpenChildEx(parent_dir, str_path, parent_len);
-		if (!br || !parent_dir || !parent_dir->IsDirectory())
+	//if (parent_len == 0)
+	//{
+	//	parent_dir = root_dir;
+	//	root_dir->AddRef();
+	//}
+	//else
+	//{
+	//	br = root_dir->OpenChildEx(parent_dir, str_path, parent_len);
+	//	if (!br || !parent_dir || !parent_dir->IsDirectory())
+	//	{
+	//		LOG_ERROR(L"[err] cannot find parent path %s, or non directory", str_path);
+	//		return false;
+	//	}
+	//}
+
+	std::wstring str_fn;
+	bool br = OpenParent(parent_dir, path, str_fn);
+	if (!br || parent_dir == nullptr) THROW_ERROR(ERR_APP, L"parent dir of %s does not exist", path.c_str());
+
+	if (str_fn.empty())
+	{	// 打开根目录
+		if (disp == OPEN_ALWAYS || disp == OPEN_EXISTING)
 		{
-			LOG_ERROR(L"[err] cannot find parent path %s, or non directory", str_path);
+			parent_dir.detach(file);
+			return true;
+		}
+		else
+		{
+			LOG_ERROR(L"[err] cannot create root dir");
 			return false;
 		}
+
 	}
 
-	br = parent_dir->OpenChild(_file, str_fn, file_mode);
+	br = parent_dir->OpenChild(_file, str_fn.c_str(), file_mode);
 	switch (disp)
 	{
 	case CREATE_NEW:
@@ -270,7 +345,7 @@ bool CF2fsFileSystem::DokanCreateFile(IFileInfo*& file, const std::wstring& path
 		break;
 	}
 
-	br = parent_dir->CreateChild(_file, str_fn, isdir, file_mode);
+	br = parent_dir->CreateChild(_file, str_fn.c_str(), isdir, file_mode);
 	if (!br || !_file)
 	{
 		LOG_ERROR(L"[err] failed on creating new file %s", path.c_str());
@@ -278,105 +353,112 @@ bool CF2fsFileSystem::DokanCreateFile(IFileInfo*& file, const std::wstring& path
 	}
 	_file.detach(file);
 	return true;
+}
 
+bool CF2fsFileSystem::DokanDeleteFile(const std::wstring& full_path, IFileInfo* file, bool isdir)
+{
+	// 如果是dir，检查是否为空
+//	CF2fsFile* f2fs_file = nullptr;
+//	if (!file)
+//	{	// find file by fn
+//		jcvos::auto_interface<IFileInfo> ff;
+//		bool br = DokanCreateFile(ff, fn, GENERIC_READ | GENERIC_WRITE, 0, IFileSystem::FS_OPEN_EXISTING, 0, 0, isdir);
+//		// file not found
+//		if (!br || !ff)
+//		{
+//			LOG_ERROR(L"[err] file or dir (%s) is not found", fn.c_str());
+//			return false;
+//		}
+//		ff.detach<CF2fsFile>(f2fs_file);	JCASSERT(f2fs_file);
+////		ff->CloseFile();
+//	}
+//	else
+//	{
+//		f2fs_file = dynamic_cast<CF2fsFile*>(file);		JCASSERT(f2fs_file);
+//		f2fs_file->AddRef();
+//	}
 
-/*
-	// 尝试打开文件，如果成功，返回文件，否则返回父目录
-	if (ch == str_path)
-	{	// parent is root
-		LOG_DEBUG(L"parent is root");
-		GetRoot(parent_dir);
-	}
-	else
-	{
-		size_t parent_len = ch - str_path;
-		*ch = 0;
-		LOG_DEBUG(L"open parent %s, length=%d", ch, parent_len);
-		bool br = OpenFileDir(parent_dir, str_path, parent_len);
-		if (!br || !parent_dir)
-		{
-			LOG_ERROR(L"[err] parent dir %s is not exist", ch);
-			return false;
-		}
-		JCASSERT(parent_dir->IsDirectory());
-	}
+	// 打开父节点，
+	jcvos::auto_interface<CF2fsFile> parent_dir;
+	std::wstring fn;
+	OpenParent(parent_dir, full_path, fn);
 
-	// try to open file
-	br = false;
-	jcvos::auto_interface<IFileInfo> _file;
-	if (*str_fn == 0)	// file = parent
-	{
-		br = true;
-		_file = parent_dir;
-		_file->AddRef();
-	}
-	else { br = parent_dir->OpenChild(_file, str_fn); }
+	// 打开文件
+	jcvos::auto_interface<CF2fsFile> cur_file;
+	parent_dir->_OpenChild(cur_file, fn.c_str(), 0);
 
-	if (br && _file)
-	{	// 打开成功
-		LOG_DEBUG(L"open file success");
-		// <TODO> 处理文件读些属性
-		//if (access_mask & GENERIC_READ) _file->m_file.flags |= FILE_READ;
-		//if (access_mask & GENERIC_WRITE) _file->m_file.flags |= FILE_WRITE;
+	// 调用unlink
+	parent_dir->_DeleteChild(cur_file);
 
-		//if (disp == CREATE_NEW)
-		//{
-		//	LOG_ERROR(L"[err] file %s existed with create new", path.c_str());
-		//	return false;
-		//}
+//	f2fs_file->Release();
+	return true;
 
-		switch (disp)
-		{
-		case CREATE_NEW:
-			LOG_ERROR(L"[err] file %s existed with create new", path.c_str());
-			br = false;
-			break;
+}
 
-		case OPEN_ALWAYS:	br = true; break;
-		case OPEN_EXISTING:	br = true; break;
-		case CREATE_ALWAYS:
-			// <TODO> clear file
-			br = true;
-			break;
-		case TRUNCATE_EXISTING:
-			// <TODO> clear file
-			br = true;
-			break;
-		default:
-			LOG_ERROR(L"[err] unknow disp=%d", disp);
-			br = false;
-			break;
-		}
-		if (br)		_file.detach(file);
-		return br;
-	}
-	else
-	{	// 没有找到文件
-		LOG_NOTICE(L"file: %s is not found", path.c_str());
-		if ((disp == OPEN_EXISTING) || (disp == TRUNCATE_EXISTING)) return false;
-		//		Lock();
-		bool br = parent_dir->CreateChild(_file, str_fn, isdir);
-		if (br && _file)
-		{
-			br = true;
-			//if (access_mask & GENERIC_READ) _file->m_file.flags |= FILE_READ;
-			//if (access_mask & GENERIC_WRITE) _file->m_file.flags |= FILE_WRITE;
-		}
-		//		Unlock();
-		_file.detach(file);
-		return br;
-	}
-*/
-	//	LOG_DEBUG_(2, L"root cluster=%d", m_root_dir->GetStartCluster());
-	return br;
+bool CF2fsFileSystem::Sync(void)
+{
+	LOG_STACK_TRACE();
+	int err = m_sb_info->sync_fs(true);
+	if (err) LOG_ERROR(L"[err] failed on sync fs, code=%d", err);
+	return err==0;
 }
 
 bool CF2fsFileSystem::GetRoot(IFileInfo*& root)
 {
-	CF2fsFile* root_dir = jcvos::CDynamicInstance<CF2fsFile>::Create();
-	if (!root_dir) THROW_ERROR(ERR_MEM, L"failed on creating root file");
-	root_dir->Init(m_sb_info->s_root, NULL, this, FMODE_READ | FMODE_WRITE);
+	JCASSERT(root == nullptr);
+	CF2fsFile* root_dir= nullptr;
+	bool br = _GetRoot(root_dir);
 	root = static_cast<IFileInfo*>(root_dir);
+	return br;
+}
+
+bool CF2fsFileSystem::_GetRoot(CF2fsFile*& root)
+{
+	root = jcvos::CDynamicInstance<CF2fsFile>::Create();
+	if (!root) THROW_ERROR(ERR_MEM, L"failed on creating root file");
+	root->Init(m_sb_info->s_root, NULL, this, FMODE_READ | FMODE_WRITE);
+	return true;
+}
+
+bool CF2fsFileSystem::OpenParent(CF2fsFile*& dir, const std::wstring& path, std::wstring& fn)
+{
+	// 路径解析：得到父节点路径：str_path, 目标文件名：str_fn;
+	size_t path_len = path.size();
+	jcvos::auto_array<wchar_t> _str_path(path_len + 1);
+	wchar_t* str_path = (wchar_t*)_str_path;
+	wcscpy_s(str_path, path_len + 1, path.c_str());
+
+	wchar_t* str_fn;
+	//	jcvos::auto_interface<IFileInfo> parent_dir;
+	wchar_t* ch = str_path + path_len - 1;
+	while (*ch != DIR_SEPARATOR && ch >= str_path) ch--;
+	str_fn = ch + 1;	// 排除根目录的"\"
+	size_t fn_len = path_len - (str_fn - str_path);		// 不包含斜杠
+	size_t parent_len = ch - str_path;					// 包含斜杠
+	LOG_DEBUG(L"parent=%s, parent len=%zd, file name = %s, length = %zd", ch, parent_len, str_fn, fn_len);
+
+	fn = str_fn;
+
+	jcvos::auto_interface<CF2fsFile> root_dir;
+//	jcvos::auto_interface<IFileInfo> parent_dir;
+//	jcvos::auto_interface<IFileInfo> _file;
+	bool br = _GetRoot(root_dir);
+	if (!br || !root_dir) THROW_ERROR(ERR_APP, L"root does not exist");
+
+	if (parent_len == 0)
+	{
+		dir = root_dir;
+		root_dir->AddRef();
+	}
+	else
+	{
+		br = root_dir->_OpenChildEx(dir, str_path, parent_len);
+		if (!br || !dir || !dir->IsDirectory())
+		{
+			LOG_ERROR(L"[err] cannot find parent path %s, or non directory", str_path);
+			return false;
+		}
+	}
 	return true;
 }
 
@@ -513,10 +595,10 @@ void f2fs_sb_info::dec_valid_block_count(struct inode* inode, block_t count)
 	f2fs_i_blocks_write(F2FS_I(inode), count, false, true);
 }
 
-bio* f2fs_sb_info::__bio_alloc(f2fs_io_info* fio, int npages)
-{
-	return m_fs->__bio_alloc(fio, npages);
-}
+//bio* f2fs_sb_info::__bio_alloc(f2fs_io_info* fio, int npages)
+//{
+//	return m_fs->__bio_alloc(fio, npages);
+//}
 
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

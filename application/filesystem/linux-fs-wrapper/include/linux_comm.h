@@ -120,10 +120,10 @@ template <typename T1>
 size_t BITS_PER_T(T1 v = 0) { return sizeof(T1) * BITS_PER_BYTE; }
 
 #define BITS_PER_TYPE(type)	(sizeof(type) * BITS_PER_BYTE)
-#define BITS_TO_LONGS(nr)	round_up<long>(nr, BITS_PER_LONG)
-#define BITS_TO_U64(nr)		round_up<UINT64>(nr, BITS_PER_TYPE(u64))
-#define BITS_TO_U32(nr)		round_up<UINT32>(nr, BITS_PER_TYPE(u32))
-#define BITS_TO_BYTES(nr)	round_up<char>(nr, BITS_PER_TYPE(char))
+#define BITS_TO_LONGS(nr)	DIV_ROUND_UP<long>(nr, BITS_PER_LONG)
+#define BITS_TO_U64(nr)		DIV_ROUND_UP<UINT64>(nr, BITS_PER_TYPE(u64))
+#define BITS_TO_U32(nr)		DIV_ROUND_UP<UINT32>(nr, BITS_PER_TYPE(u32))
+#define BITS_TO_BYTES(nr)	DIV_ROUND_UP<char>(nr, BITS_PER_TYPE(char))
 /* PAGE_SHIFT determines the page size */
 #define PAGE_SHIFT		12
 #define PAGE_SIZE		(1 << PAGE_SHIFT)
@@ -247,17 +247,33 @@ unsigned int radix_tree_gang_lookup(const radix_tree_root* root, T** results, un
 
 // ==== defination
 // 原定义在linux的 stat.h中。且一下数值以8禁止表示
-//#define S_IFMT   0x0170000
-#define S_IFSOCK 0x0140000
-#define S_IFLNK	 0x0120000
-//#define S_IFREG  0x0100000
-#define S_IFBLK  0x0060000
-//#define S_IFDIR  0x0040000
-//#define S_IFCHR  0x0020000
-#define S_IFIFO  0x0010000
-#define S_ISUID  0x0004000
-#define S_ISGID  0x0002000
-#define S_ISVTX  0x0001000
+//#define _S_IFMT   0xF000 // File type mask
+#define S_IFSOCK	0xC000
+#define S_IFLNK		0xA000
+//#define _S_IFREG  0x8000 // Regular
+#define S_IFBLK		0x6000
+//#define _S_IFDIR  0x4000 // Directory
+//#define _S_IFCHR  0x2000 // Character special
+#define S_IFIFO		0x1000	// Pipe
+#define S_ISUID		0x0800
+#define S_ISGID		0x0400
+#define S_ISVTX		0x0200
+//#define _S_IREAD  0x0100 // Read permission, owner
+//#define _S_IWRITE 0x0080 // Write permission, owner
+//#define _S_IEXEC  0x0040 // Execute/search permission, owner
+
+//			8进制		16进制
+//S_IFMT	0170000		F000
+//S_IFSOCK	0140000		C000
+//S_IFLNK	0120000		A000
+//S_IFREG	0100000		8000
+//S_IFBLK	0060000		6000
+//S_IFDIR	0040000		4000
+//S_IFCHR	0020000		2000
+//S_IFIFO	0010000		1000	
+//S_ISUID	0004000		0800
+//S_ISGID	0002000		0400
+//S_ISVTX	0001000		0200
 
 #define S_ISLNK(m)	(((m) & S_IFMT) == S_IFLNK)
 #define S_ISREG(m)	(((m) & S_IFMT) == S_IFREG)

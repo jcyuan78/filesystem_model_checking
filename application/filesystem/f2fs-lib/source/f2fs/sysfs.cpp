@@ -915,7 +915,7 @@ static int __maybe_unused segment_info_seq_show(struct seq_file *seq,
 		"segment_type(0:HD, 1:WD, 2:CD, 3:HN, 4:WN, 5:CN)\n");
 
 	for (i = 0; i < total_segs; i++) {
-		struct seg_entry *se = get_seg_entry(sbi, i);
+		struct seg_entry *se = sbi->get_seg_entry( i);
 
 		if ((i % 10) == 0)
 			seq_printf(seq, "%-10d", i);
@@ -942,7 +942,7 @@ static int __maybe_unused segment_bits_seq_show(struct seq_file *seq,
 		"segment_type(0:HD, 1:WD, 2:CD, 3:HN, 4:WN, 5:CN)\n");
 
 	for (i = 0; i < total_segs; i++) {
-		struct seg_entry *se = get_seg_entry(sbi, i);
+		struct seg_entry *se = sbi->get_seg_entry( i);
 
 		seq_printf(seq, "%-10d", i);
 		seq_printf(seq, "%d|%-3u|", se->type, se->valid_blocks);
@@ -1143,11 +1143,11 @@ put_sb_kobj:
 #endif
 }
 
-#if 0
-
-void f2fs_unregister_sysfs(struct f2fs_sb_info *sbi)
+void f2fs_unregister_sysfs(f2fs_sb_info *sbi)
 {
-	if (sbi->s_proc) {
+#if 0
+	if (sbi->s_proc) 
+	{
 		remove_proc_entry("iostat_info", sbi->s_proc);
 		remove_proc_entry("segment_info", sbi->s_proc);
 		remove_proc_entry("segment_bits", sbi->s_proc);
@@ -1162,6 +1162,6 @@ void f2fs_unregister_sysfs(struct f2fs_sb_info *sbi)
 	kobject_del(&sbi->s_kobj);
 	kobject_put(&sbi->s_kobj);
 	wait_for_completion(&sbi->s_kobj_unregister);
+#endif
 }
 
-#endif

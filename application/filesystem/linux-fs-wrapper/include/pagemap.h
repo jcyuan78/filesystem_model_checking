@@ -131,16 +131,17 @@ static inline void filemap_nr_thps_inc(struct address_space *mapping)
 	WARN_ON_ONCE(1);
 #endif
 }
-
-static inline void filemap_nr_thps_dec(struct address_space *mapping)
+#endif //<TODO>
+static inline void filemap_nr_thps_dec(address_space *mapping)
 {
 #ifdef CONFIG_READ_ONLY_THP_FOR_FS
 	if (!mapping_thp_support(mapping))
 		atomic_dec(&mapping->nr_thps);
 #else
-	WARN_ON_ONCE(1);
+//	WARN_ON_ONCE(1);
 #endif
 }
+#if 0 //<TODO>
 
 void release_pages(struct page **pages, int nr);
 

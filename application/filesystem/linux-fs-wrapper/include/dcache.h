@@ -18,6 +18,7 @@
 //#include <linux/stringhash.h>
 //#include <linux/wait.h>
 #include <string>
+#include <list>
 
 struct path;
 struct vfsmount;
@@ -50,6 +51,11 @@ struct qstr
 	//qstr(unsigned char* n, u32 l) { name = (char*)(n); _u._s.len = l; }
 	qstr(const qstr& src) :name(src.name), hash(src.hash), hash_len(src.hash_len) {}
 	qstr(const char* n, size_t l) : name(n), hash(0), hash_len(0) {}
+	qstr(const wchar_t* n, size_t l) : hash(0), hash_len(0)
+	{
+		if (l == 0) l = wcslen(n);
+		jcvos::UnicodeToUtf8(name, n, l);
+	}
 	qstr(const std::wstring& n) : hash(0), hash_len(0)
 	{
 		jcvos::UnicodeToUtf8(name, n);
@@ -104,6 +110,8 @@ struct inode;
 struct super_block;
 struct dentry_operations;
 
+class CDentryManager;
+
 struct dentry
 {
 	/* RCU lookup touched fields */
@@ -129,27 +137,66 @@ struct dentry
 //		wait_queue_head_t* d_wait;	/* in-lookup ones only */
 //#endif
 //	};
+
+	// lru队列移动到f2fs_super_info中
 //	list_head d_lru;
-	struct list_head d_child;	/* child of parent list */
-	struct list_head d_subdirs;	/* our children */
+	list_head d_child;	/* child of parent list */
+	list_head d_subdirs;	/* our children */
 	/* d_alias and d_rcu can share memory */
 	union
 	{
-		struct hlist_node d_alias;	/* inode alias list */
-		struct hlist_bl_node d_in_lookup_hash;	/* only for in-lookup ones */
-#if 0 //<TODO>
-		struct rcu_head d_rcu;
-#endif
+		hlist_node d_alias;	/* inode alias list */
+		hlist_bl_node d_in_lookup_hash;	/* only for in-lookup ones */
+		// not support rcu
+//		rcu_head d_rcu;
 	} d_u;
+
+public:
+//	friend class CDentryManager;
+//protected:
+	CDentryManager* m_manager;
 };
+
+#define _STATIC_DENTRY_BUF
+
+// 用于dentry的内存分配，管理和缓存
+//	基本思想：启动时预分配一定适量的dentry，避免频繁使用new/delete。需要的时候从free list中分配
+class CDentryManager
+{
+public:
+	CDentryManager(size_t init_size);
+	~CDentryManager(void);
+
+protected:
+	dentry* __d_alloc(super_block* sb, const qstr* name);
+	void free(dentry* ddentry);
+	void lock() {};
+	void unlock() {};
+public:
+	friend dentry* d_alloc(dentry* parent, const qstr& name);
+	friend void dentry_free(dentry* ddentry);
+//	dentry* d_alloc_anon(super_block* sb);
+	dentry* d_make_root(inode* root_inode);
+
+
+protected:
+#ifdef _STATIC_DENTRY_BUF
+	// 预先申请足够的dentry的缓存，仅从预申请缓存中分配
+	dentry* m_buf;
+#else
+	// 按需申请dentry缓存，释放的缓存放回m_free_list中
+
+#endif
+	size_t m_buf_size;	// 总共申请的缓存数量
+	std::list<dentry*> m_free_list;
+};
+
 //__randomize_layout;
 
-/*
- * dentry->d_lock spinlock nesting subclasses:
+/* dentry->d_lock spinlock nesting subclasses:
  *
  * 0: normal
- * 1: nested
- */
+ * 1: nested */
 enum dentry_d_lock_class
 {
 	DENTRY_D_LOCK_NORMAL, /* implicitly used by plain spin_lock() APIs. */
@@ -174,13 +221,10 @@ struct dentry_operations
 };
 //____cacheline_aligned;
 
-/*
- * Locking rules for dentry_operations callbacks are to be found in
+/* Locking rules for dentry_operations callbacks are to be found in
  * Documentation/filesystems/locking.rst. Keep it updated!
  *
- * FUrther descriptions are found in Documentation/filesystems/vfs.rst.
- * Keep it updated too!
- */
+ * FUrther descriptions are found in Documentation/filesystems/vfs.rst. Keep it updated too! */
 
 /* d_flags entries */
 #define DCACHE_OP_HASH			0x00000001
@@ -247,9 +291,7 @@ struct dentry_operations
 
 extern seqlock_t rename_lock;
 
-/*
- * These are the low-level FS interfaces to the dcache..
- */
+/* These are the low-level FS interfaces to the dcache.. */
 void d_instantiate(struct dentry*, struct inode*);
 void d_instantiate_new(struct dentry *, struct inode *);
 #if 0
@@ -263,6 +305,7 @@ extern void d_delete(struct dentry *);
 inline void d_set_d_op(struct dentry *dentry, const struct dentry_operations *op){}
 /* allocate/de-allocate */
 extern dentry * d_alloc(dentry *, const qstr &);
+
 #if 0
 extern struct dentry * d_alloc_anon(struct super_block *);
 extern struct dentry * d_alloc_parallel(struct dentry *, const struct qstr *, wait_queue_head_t *);
@@ -276,14 +319,12 @@ extern struct dentry * d_obtain_alias(struct inode *);
 extern struct dentry * d_obtain_root(struct inode *);
 #endif
 void shrink_dcache_sb(super_block*);
-#if 0
-extern void shrink_dcache_parent(struct dentry *);
-extern void shrink_dcache_for_umount(struct super_block *);
-extern void d_invalidate(struct dentry *);
-#endif
+extern void shrink_dcache_parent(dentry *);
+extern void shrink_dcache_for_umount(super_block *);
+extern void d_invalidate(dentry *);
 
 /* only used at mount-time */
-dentry* d_make_root(inode*);
+//dentry* d_make_root(inode*);
 
 /* <clickety>-<click> the ramfs-type tree */
 extern void d_genocide(struct dentry *);

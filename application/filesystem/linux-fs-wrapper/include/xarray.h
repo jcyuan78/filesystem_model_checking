@@ -1157,9 +1157,6 @@ struct xa_node {
 	};
 };
 
-#if 0 //TODO
-#endif //<TODO>
-
 void xa_dump(const struct xarray *);
 void xa_dump_node(const struct xa_node *);
 

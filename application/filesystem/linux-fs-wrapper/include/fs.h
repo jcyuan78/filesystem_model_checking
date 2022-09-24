@@ -223,30 +223,22 @@ typedef int (dio_iodone_t)(struct kiocb *iocb, loff_t offset, ssize_t bytes, voi
 #define WHITEOUT_MODE 0
 #define WHITEOUT_DEV 0
 
-/*
- * This is the Inode Attributes structure, used for notify_change().  It
- * uses the above definitions as flags, to know which values have changed.
- * Also, in this manner, a Filesystem can look at only the values it cares
- * about.  Basically, these are the attributes that the VFS layer can
- * request to change from the FS layer.
+/* This is the Inode Attributes structure, used for notify_change().  It uses the above definitions as flags, to know which values have changed. Also, in this manner, a Filesystem can look at only the values it cares about.  Basically, these are the attributes that the VFS layer can request to change from the FS layer.
  *
- * Derek Atkins <warlord@MIT.EDU> 94-10-20
- */
-struct iattr {
+ * Derek Atkins <warlord@MIT.EDU> 94-10-20 */
+struct iattr 
+{
 	unsigned int	ia_valid;
-	umode_t		ia_mode;
+	umode_t			ia_mode;
 	//kuid_t		ia_uid;
 	//kgid_t		ia_gid;
 	loff_t		ia_size;
-#if 0 //TOOD
+#if 1 //TOOD
 	timespec64 ia_atime;
 	timespec64 ia_mtime;
 	timespec64 ia_ctime;
 #endif
-	/* Not an attribute, but an auxiliary info for filesystems wanting to
-	 * implement an ftruncate() like method.  NOTE: filesystem should
-	 * check for (ia_valid & ATTR_FILE), and not for (ia_file != NULL).
-	 */
+	/* Not an attribute, but an auxiliary info for filesystems wanting to implement an ftruncate() like method.  NOTE: filesystem should check for (ia_valid & ATTR_FILE), and not for (ia_file != NULL).	 */
 	struct file	*ia_file;
 };
 
@@ -1502,11 +1494,11 @@ struct super_block
 public:
 	virtual inode* alloc_inode(super_block* sb) { return NULL; }
 	virtual void	destroy_inode(inode*) {}
-	virtual void	free_inode(struct inode*) {}
+	virtual void	free_inode(inode*) {}
 
-	virtual void	dirty_inode(struct inode*, int flags) {}
-	virtual int		write_inode(struct inode*, struct writeback_control* wbc) { return 0; }
-	virtual int		drop_inode(struct inode*) { return 0; };
+	virtual void	dirty_inode(inode*, int flags) = 0;
+	virtual int		write_inode(inode*, writeback_control* wbc) = 0;
+	virtual int		drop_inode(struct inode*) = 0;
 	virtual void	evict_inode(struct inode*) {};
 	virtual void	put_super(void) {};
 	virtual int		sync_fs(int wait) { return 0; };
@@ -1975,8 +1967,7 @@ static inline bool sb_start_intwrite_trylock(struct super_block *sb)
 }
 #endif
 
-bool inode_owner_or_capable(struct user_namespace *mnt_userns,
-			    const struct inode *inode);
+bool inode_owner_or_capable(user_namespace *mnt_userns, const inode *);
 
 /*
  * VFS helper functions..
@@ -2191,10 +2182,8 @@ struct inode_operations
 		umode_t create_mode);
 	int (*tmpfile) (struct user_namespace*, struct inode*,
 		struct dentry*, umode_t);
-	int (*set_acl)(struct user_namespace*, struct inode*,
-		struct posix_acl*, int);
-	int (*fileattr_set)(struct user_namespace* mnt_userns,
-		struct dentry* dentry, struct fileattr* fa);
+	int (*set_acl)(struct user_namespace*, struct inode*, struct posix_acl*, int);
+	int (*fileattr_set)(struct user_namespace* mnt_userns, struct dentry* dentry, struct fileattr* fa);
 	int (*fileattr_get)(struct dentry* dentry, struct fileattr* fa);
 };
 //____cacheline_aligned;
@@ -3329,9 +3318,8 @@ extern int sb_min_blocksize(struct super_block *, int);
 extern int generic_file_mmap(struct file *, struct vm_area_struct *);
 extern int generic_file_readonly_mmap(struct file *, struct vm_area_struct *);
 //<TODO> need to implement
-inline ssize_t generic_write_checks(struct kiocb*, struct iov_iter*) { return 1; }
-extern int generic_write_check_limits(struct file *file, loff_t pos,
-		loff_t *count);
+inline ssize_t generic_write_checks(kiocb*, iov_iter*) { return 1; }
+extern int generic_write_check_limits(file *file, loff_t pos, loff_t *count);
 extern int generic_file_rw_checks(struct file *file_in, struct file *file_out);
 ssize_t filemap_read(struct kiocb *iocb, struct iov_iter *to,
 		ssize_t already_read);
@@ -4303,3 +4291,8 @@ int file_write_and_wait_range(struct file* file, loff_t lstart, loff_t lend);
 //<YUAN> need to implement, in mm/memcontrol.c
 inline void lock_page_memcg(page* pp) {};
 inline void unlock_page_memcg(page* pp) {};
+
+inline void zero_user_segment(page* pp, unsigned start, unsigned end)
+{
+	memset(page_address<BYTE>(pp) + start, 0, end - start);
+}

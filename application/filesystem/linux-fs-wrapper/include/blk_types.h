@@ -610,16 +610,15 @@ inline void __bio_add_page(bio* bio, page* page, unsigned int len, unsigned int 
 	//	bio_set_flag(bio, BIO_WORKINGSET);
 }
 
-/**
- *	bio_add_page	-	attempt to add page(s) to bio
+
+/*	bio_add_page	-	attempt to add page(s) to bio
  *	@bio: destination bio
  *	@page: start page to add
  *	@len: vec entry length, may cross pages
  *	@offset: vec entry offset relative to @page, may cross pages
  *
- *	Attempt to add page(s) to the bio_vec maplist. This will only fail	if either bio->bi_vcnt == bio->bi_max_vecs or
-	it's a cloned bio.
- */
+ *	Attempt to add page(s) to the bio_vec maplist. This will only fail	if either bio->bi_vcnt == bio->bi_max_vecs or it's a cloned bio. */
+// offset表示在page bio_vec在page中的偏移量
 inline int bio_add_page(bio* bio, page* page, unsigned int len, unsigned int offset)
 {
 	bool same_page = false;

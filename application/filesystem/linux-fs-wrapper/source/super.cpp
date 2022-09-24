@@ -1792,7 +1792,7 @@ EXPORT_SYMBOL(thaw_super);
 
 static int wb_init(bdi_writeback* wb, backing_dev_info* bdi, gfp_t gfp)
 {
-	int i, err;
+	int /*i, */err;
 
 	memset(wb, 0, sizeof(bdi_writeback));
 
@@ -1827,10 +1827,10 @@ static int wb_init(bdi_writeback* wb, backing_dev_info* bdi, gfp_t gfp)
 
 	return 0;
 
-out_destroy_stat:
+//out_destroy_stat:
 	//while (i--)	percpu_counter_destroy(&wb->stat[i]);
 	//fprop_local_destroy_percpu(&wb->completions);
-out_put_bdi:
+//out_put_bdi:
 	//if (wb != &bdi->wb)	bdi_put(bdi);
 	return err;
 }

@@ -41,7 +41,7 @@ public:
 	//bool is_running(void) { return (f2fs_issue_flush_thread && m_run); }
 	virtual DWORD Run(void) { return issue_flush_thread(); }
 	int f2fs_issue_flush(nid_t ino);
-	void f2fs_destroy_flush_cmd_control(bool free);
+//	void f2fs_destroy_flush_cmd_control(bool free);
 	atomic_t atomic_read_queued(void) { return atomic_read(&queued_flush); }
 
 protected:
@@ -128,4 +128,6 @@ protected:
 	void destroy_free_segmap(void);
 
 	void destroy_sit_info(void);
+	void f2fs_destroy_flush_cmd_control(bool free);
+
 };

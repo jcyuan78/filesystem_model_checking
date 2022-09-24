@@ -268,48 +268,46 @@ static struct inode *alloc_inode(struct super_block *sb)
 }
 #endif //<TODO>
 
-void __destroy_inode(struct inode *inode)
+void __destroy_inode(inode *iinode)
 {
-	BUG_ON(inode_has_buffers(inode));
-	inode_detach_wb(inode);
-#if 0
-	security_inode_free(inode);
-	fsnotify_inode_delete(inode);
-#else
-	JCASSERT(0);
+	BUG_ON(inode_has_buffers(iinode));
+	inode_detach_wb(iinode);
+#if 0	//<NOT SUPPORT>
+	security_inode_free(iinode);
+	fsnotify_inode_delete(iinode);
 #endif
-	locks_free_lock_context(inode);
-	if (!inode->i_nlink) {
-		WARN_ON(atomic_long_read(&inode->i_sb->s_remove_count) == 0);
-		atomic_long_dec(&inode->i_sb->s_remove_count);
+	locks_free_lock_context(iinode);
+	if (!iinode->i_nlink) {
+		WARN_ON(atomic_long_read(&iinode->i_sb->s_remove_count) == 0);
+		atomic_long_dec(&iinode->i_sb->s_remove_count);
 	}
 
 #ifdef CONFIG_FS_POSIX_ACL
-	if (inode->i_acl && !is_uncached_acl(inode->i_acl))
-		posix_acl_release(inode->i_acl);
-	if (inode->i_default_acl && !is_uncached_acl(inode->i_default_acl))
-		posix_acl_release(inode->i_default_acl);
+	if (iinode->i_acl && !is_uncached_acl(iinode->i_acl))
+		posix_acl_release(iinode->i_acl);
+	if (iinode->i_default_acl && !is_uncached_acl(iinode->i_default_acl))
+		posix_acl_release(iinode->i_default_acl);
 #endif
 //	this_cpu_dec(nr_inodes);
 }
 //EXPORT_SYMBOL(__destroy_inode);
 
-static void destroy_inode(struct inode *inode)
+static void destroy_inode(inode *iinode)
 {
-//	const struct super_operations *ops = inode->i_sb->s_op;
+//	const struct super_operations *ops = iinode->i_sb->s_op;
 
-	BUG_ON(!list_empty(&inode->i_lru));
-	__destroy_inode(inode);
+	BUG_ON(!list_empty(&iinode->i_lru));
+	__destroy_inode(iinode);
 	//if (ops->destroy_inode) {
-	//	ops->destroy_inode(inode);
+	//	ops->destroy_inode(iinode);
 	//	if (!ops->free_inode)
 	//		return;
 	//}
-	inode->i_sb->destroy_inode(inode);
-	inode->i_sb->free_inode(inode);
+	iinode->i_sb->destroy_inode(iinode);
+	iinode->i_sb->free_inode(iinode);
 
-	//inode->free_inode = ops->free_inode;
-	//call_rcu(&inode->i_rcu, i_callback);
+	//iinode->free_inode = ops->free_inode;
+	//call_rcu(&iinode->i_rcu, i_callback);
 }
 
 /**
@@ -543,22 +541,21 @@ void __remove_inode_hash(struct inode *inode)
 }
 //EXPORT_SYMBOL(__remove_inode_hash);
 
-void clear_inode(struct inode *inode)
+void clear_inode(inode *iinode)
 {
 	/* We have to cycle the i_pages lock here because reclaim can be in the process of removing the last page (in __delete_from_page_cache()) and we must not free the mapping under it. */
-	address_space* mapping = inode->get_mapping();
+	address_space* mapping = iinode->get_mapping();
 	auto * xa = &(mapping->i_pages);
 	xa_lock_irq(xa);
 	BUG_ON(mapping->nrpages);
-	/* Almost always, mapping_empty(&inode->i_data) here; but there are two known and long-standing ways in which nodes may get left behind (when deep radix-tree node allocation failed partway; or when THP collapse_file() failed). Until those two known cases are cleaned up, or a cleanup function is called here, do not BUG_ON(!mapping_empty), nor even WARN_ON(!mapping_empty). */
+	/* Almost always, mapping_empty(&iinode->i_data) here; but there are two known and long-standing ways in which nodes may get left behind (when deep radix-tree node allocation failed partway; or when THP collapse_file() failed). Until those two known cases are cleaned up, or a cleanup function is called here, do not BUG_ON(!mapping_empty), nor even WARN_ON(!mapping_empty). */
 	xa_unlock_irq(xa);
 	BUG_ON(!list_empty(&mapping->private_list));
-	BUG_ON(!/*(inode->i_state & I_FREEING)*/inode->TestState(I_FREEING));
-	BUG_ON(/*inode->i_state & I_CLEAR*/inode->TestState(I_CLEAR));
-	BUG_ON(!list_empty(&inode->i_wb_list));
+	BUG_ON(!iinode->TestState(I_FREEING));
+	BUG_ON(iinode->TestState(I_CLEAR));
+	BUG_ON(!list_empty(&iinode->i_wb_list));
 	/* don't need i_lock here, no concurrent mods to i_state */
-//	inode->i_state = I_FREEING | I_CLEAR;
-	inode->SetState(I_FREEING | I_CLEAR);
+	iinode->SetState(I_FREEING | I_CLEAR);
 }
 //EXPORT_SYMBOL(clear_inode);
 
@@ -630,7 +627,7 @@ void evict_inodes(super_block *sb)
 	inode *iinode, *next;
 	LIST_HEAD(dispose);
 
-again:
+//again:
 	spin_lock(&sb->s_inode_list_lock);
 	list_for_each_entry_safe(inode, iinode, next, &sb->s_inodes, i_sb_list)
 	{
@@ -2199,7 +2196,6 @@ void inode_init_owner(user_namespace *mnt_userns, inode *inode, const struct ino
 }
 //EXPORT_SYMBOL(inode_init_owner);
 
-#if 0 //TODO
 
 /**
  * inode_owner_or_capable - check current task permissions to inode
@@ -2215,23 +2211,21 @@ void inode_init_owner(user_namespace *mnt_userns, inode *inode, const struct ino
  * On non-idmapped mounts or if permission checking is to be performed on the
  * raw inode simply passs init_user_ns.
  */
-bool inode_owner_or_capable(struct user_namespace *mnt_userns,
-			    const struct inode *inode)
+bool inode_owner_or_capable(user_namespace *mnt_userns, const struct inode *iinode)
 {
-	kuid_t i_uid;
-	struct user_namespace *ns;
+	//kuid_t i_uid;
+	//struct user_namespace *ns;
 
-	i_uid = i_uid_into_mnt(mnt_userns, inode);
-	if (uid_eq(current_fsuid(), i_uid))
-		return true;
+	//i_uid = i_uid_into_mnt(mnt_userns, iinode);
+	//if (uid_eq(current_fsuid(), i_uid))
+	//	return true;
 
-	ns = current_user_ns();
-	if (kuid_has_mapping(ns, i_uid) && ns_capable(ns, CAP_FOWNER))
-		return true;
+	//ns = current_user_ns();
+	//if (kuid_has_mapping(ns, i_uid) && ns_capable(ns, CAP_FOWNER))
+	//	return true;
 	return false;
 }
-EXPORT_SYMBOL(inode_owner_or_capable);
-#endif
+//EXPORT_SYMBOL(inode_owner_or_capable);
 
 /*
  * Direct i/o helper functions

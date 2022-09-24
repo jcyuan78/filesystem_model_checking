@@ -29,7 +29,7 @@ enum count_type
 
 class CF2fsFileSystem;
 struct f2fs_nm_info;
-
+struct seg_entry;
 
 
 struct f2fs_sb_info : public super_block
@@ -72,11 +72,16 @@ public:
 //	virtual void	destroy_inode(inode*) {}
 	virtual void	free_inode(inode*);
 
-	virtual void	dirty_inode(struct inode*, int flags);
-	virtual int		write_inode(struct inode*, struct writeback_control* wbc) { return 0; }
-	virtual int		drop_inode(struct inode*) { return 0; };
+	virtual void	dirty_inode(inode*, int flags);
+	virtual int		write_inode(inode* iinode, writeback_control* wbc)
+	{
+		f2fs_inode_info* fi = F2FS_I(iinode);
+		return fi->f2fs_write_inode(wbc);
+	}
+
+	virtual int		drop_inode(inode*) { JCASSERT(0);  return 0; };
 	virtual void	evict_inode(inode*);
-	virtual void	put_super(struct super_block*) {};
+	virtual void	put_super(void);
 	virtual int		sync_fs(int wait);
 //	virtual int		freeze_super(struct super_block*) { return 0; };
 	virtual int		freeze_fs(struct super_block*) { return 0; };
@@ -103,7 +108,7 @@ public:
 
 //	super_block* sb;						/* pointer to VFS super block */
 	struct proc_dir_entry* s_proc = NULL;			/* proc entry */
-	struct f2fs_super_block* raw_super = NULL;		/* raw super block pointer */
+	f2fs_super_block* raw_super = NULL;		/* raw super block pointer */
 	rw_semaphore  sb_lock;		/* lock for raw super block */
 	int valid_super_block = 0;					/* valid super block no */
 	unsigned long s_flag = 0;					/* flags for sbi */
@@ -237,6 +242,7 @@ public:
 	/* migration granularity of garbage collection, unit: segment */
 	unsigned int migration_granularity = 0;
 
+
 	//== lists
 protected:
 	std::list<f2fs_inode_info*> m_inode_list[NR_INODE_TYPE];
@@ -311,7 +317,7 @@ public:
 #endif
 
 	/* For shrinker support */
-	struct list_head s_list;
+	list_head s_list;
 	int s_ndevs = 0;				/* number of devices */
 	f2fs_dev_info* devs = NULL;		/* for device list */
 	unsigned int dirty_device = 0;		/* for checkpoint data flush */
@@ -345,6 +351,22 @@ public:
 	u32 compr_new_inode;
 #endif
 
+protected:
+	CDentryManager m_dentry_buf;
+	std::list<dentry*> m_dentry_lru;
+
+// inline fucntions
+public:
+	/* 0, 1(node nid), 2(meta nid) are reserved node id */
+	//#define F2FS_RESERVED_NODE_NUM		3
+
+	inline UINT F2FS_ROOT_INO(void) const	{return root_ino_num;}
+	inline UINT F2FS_NODE_INO(void) const	{return node_ino_num;}
+	inline UINT F2FS_META_INO(void) const	{return meta_ino_num;}
+	friend bool __is_cp_guaranteed(page* page);
+	friend count_type __read_io_type(page* page);
+
+
 // f2fs member functions
 // ==== super.cpp ====
 public:
@@ -355,11 +377,18 @@ public:
 	int f2fs_fill_super(const std::wstring& str_option, int silent);
 	// ”√”⁄unmount
 	void kill_f2fs_super(void);
+	int inc_valid_node_count(f2fs_inode_info* inode, bool is_inode);
+	void dec_valid_node_count(f2fs_inode_info* iinode, bool is_inode);
+
 protected:
 	void destory_super(void);
 	void destroy_device_list(void);
 	int f2fs_scan_devices(void);
 	int f2fs_disable_checkpoint(void);
+	void destroy_percpu_info(void);
+	int read_raw_super_block(f2fs_super_block*& raw_super, int* valid_super_block, int* recovery);
+	int sanity_check_raw_super(CBufferHead* bh);
+	bool sanity_check_area_boundary(CBufferHead* bh);
 
 
 // ==== gc.cpp ====
@@ -374,10 +403,25 @@ public:
 	bool f2fs_is_valid_blkaddr(block_t blkaddr, int type);
 	page* __get_meta_page(pgoff_t index, bool is_meta);
 	int f2fs_get_valid_checkpoint(void);
+	long f2fs_sync_meta_pages(enum page_type type, long nr_to_write, enum iostat_type io_type);
+	void f2fs_add_orphan_inode(f2fs_inode_info* iinode);
+
+
 protected:
 	page* validate_checkpoint(block_t cp_addr, unsigned long long* version);
 	int get_checkpoint_version(block_t cp_addr, f2fs_checkpoint** cp_block, page** cp_page, unsigned long long* version);
+	int do_checkpoint(cp_control* cpc);
+	void commit_checkpoint(void* src, block_t blk_addr);
+	int __f2fs_write_meta_page(page* ppage, writeback_control* wbc, enum iostat_type io_type);
+	void __add_ino_entry(nid_t ino, unsigned int devidx, int type);
 
+		friend void f2fs_add_ino_entry(f2fs_sb_info* sbi, nid_t ino, int type);
+		friend void f2fs_set_dirty_device(f2fs_sb_info* sbi, nid_t ino, unsigned int devidx, int type);
+	page* f2fs_get_meta_page(pgoff_t index);
+		friend page* get_current_sit_page(f2fs_sb_info* sbi, unsigned int segno);
+		friend int f2fs_recover_orphan_inodes(f2fs_sb_info* sbi);
+		friend int f2fs_nm_info::f2fs_get_node_info(nid_t nid, /*out*/ node_info* ni);
+		friend int f2fs_nm_info::__get_nat_bitmaps(void);
 
 public:
 	//void __checkpoint_and_complete_reqs(void);
@@ -388,7 +432,19 @@ public:
 	void f2fs_leave_shrinker(void);
 
 
-// ==== segment ====
+// ==== segment.cpp ====
+protected:
+	void f2fs_destroy_segment_manager(void);
+	int read_compacted_summaries(void);
+	int read_normal_summaries(int type);
+	page* get_current_sit_page(unsigned int segno);
+	inline pgoff_t current_sit_addr(unsigned int start);
+	page* get_next_sit_page(unsigned int start);
+	void add_sits_in_set(void);
+	void remove_sits_in_journal(void);
+	inline void check_seg_range(unsigned int segno);
+	inline void get_sit_bitmap(void* dst_addr);
+
 public:
 	int f2fs_build_segment_manager(void);
 	int f2fs_create_flush_cmd_control(void);
@@ -406,14 +462,10 @@ public:
 	unsigned int free_segments(void);
 	int overprovision_segments(void);
 	unsigned int prefree_segments(void);
+	void f2fs_balance_fs(bool need);
+	void f2fs_do_write_meta_page(page* ppage, enum iostat_type io_type);
+	void f2fs_flush_sit_entries(cp_control* cpc);
 
-protected:
-	void f2fs_destroy_segment_manager(void);
-
-
-
-
-public:
 	int submit_flush_wait(nid_t ino);
 	int __submit_flush_wait(block_device* bdev);
 	int create_discard_cmd_control(void);
@@ -444,9 +496,26 @@ public:
 
 	virtual void	dentry_list_lru_del(dentry* dd) { m_dentry_lru.remove(dd); }
 	virtual void	dentry_list_lru_add(dentry* dd)	{	m_dentry_lru.push_back(dd);	}
+	inline seg_entry* get_seg_entry(unsigned int segno);
+
+
+// ==== data.cpp ====
+public:
+	void f2fs_submit_page_write(f2fs_io_info* fio);
+	int f2fs_submit_page_bio(f2fs_io_info* fio);
+	IVirtualDisk* f2fs_target_device(block_t blk_addr, bio* bio);
+
+	friend static int add_ipu_page(f2fs_io_info* fio, bio** bio, page* page);
+	friend int f2fs_merge_page_bio(f2fs_io_info* fio);
+	friend static int f2fs_read_single_page(f2fs_inode_info* inode, page* ppage, unsigned nr_pages,
+		struct f2fs_map_blocks* map, bio** bio_ret, sector_t* last_block_in_bio, bool is_readahead);
 
 protected:
-	std::list<dentry*> m_dentry_lru;
+	bool io_is_mergeable(bio* bio, f2fs_bio_info* io, f2fs_io_info* fio, block_t last_blkaddr, block_t cur_blkaddr);
+	bool page_is_mergeable(bio* bio, block_t last_blkaddr, block_t cur_blkaddr);
+
+
+protected:
 
 // ==== node.cpp ====
 public:
@@ -455,18 +524,27 @@ public:
 	//<YUAN> nid£∫inode number
 	page* f2fs_get_node_page(pgoff_t nid) { return __get_node_page(nid, NULL, 0); }
 	bool f2fs_in_warm_node_list(page*);
+	int read_node_page(page* page, int op_flags);
+
 
 protected:
 //	int init_node_manager(void);
 	int init_free_nid_cache(void);
 	void load_free_nid_bitmap(void);
 	page* __get_node_page(pgoff_t nid, page* parent, int start);
+	void f2fs_destroy_node_manager(void);
 
 
 // ==== inode.cpp ====
+protected:
+	int do_create_read_inode(f2fs_inode_info*& out_inode, unsigned long ino);
+
 public:
 	f2fs_inode_info* f2fs_iget(nid_t ino);
-	int f2fs_submit_page_bio(f2fs_io_info* fio);
+	f2fs_inode_info* f2fs_iget_retry(unsigned long ino);
+
+//	f2fs_inode_info* f2fs_iget(unsigned long ino);
+//	int f2fs_submit_page_bio(f2fs_io_info* fio);
 
 
 // ==== inline functions ====

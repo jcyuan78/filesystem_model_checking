@@ -225,6 +225,50 @@ inline void lockref_get(lockref* ll)
 	spin_unlock(&ll->lock);
 }
 
+/* lockref_put_or_lock - decrements count unless count <= 1 before decrement
+ * @lockref: pointer to lockref structure
+ * Return: 1 if count updated successfully or 0 if count <= 1 and lock taken */
+inline int lockref_put_or_lock(lockref* ll)
+{
+	//CMPXCHG_LOOP( new.count--;
+	//if (old.count <= 1)
+	//	break;
+	//,
+	//	return 1;
+	//);
+
+	spin_lock(&ll->lock);
+	if (ll->count <= 1)		return 0;
+	ll->count--;
+	spin_unlock(&ll->lock);
+	return 1;
+}
+
+/* lockref_put_return - Decrement reference count if possible
+ * @lockref: pointer to lockref structure
+ *
+ * Decrement the reference count and return the new value.
+ * If the lockref was dead or locked, return an error. */
+inline int lockref_put_return(lockref* ll)
+{
+#if 0
+	CMPXCHG_LOOP(
+		new.count--;
+	if (old.count <= 0)
+		return -1;
+	,
+		return new.count;
+	);
+#endif
+	int old;
+	spin_lock(&ll->lock);
+	old = ll->count--;
+	spin_unlock(&ll->lock);
+	if (old <= 0) return 1;
+	else return ll->count;
+}
+
+
 // ==== per cpu count ====
 //<YUAN>简化per cpu count设计，将其是为atomic
 struct percpu_counter
@@ -238,10 +282,9 @@ inline void percpu_counter_sub(percpu_counter* c, INT64 v) { InterlockedAdd64(&c
 inline void percpu_counter_inc(percpu_counter* c) { InterlockedIncrement64(&c->count); }
 inline void percpu_counter_dec(percpu_counter* c) { InterlockedDecrement64(&c->count); }
 inline void percpu_counter_set(percpu_counter* c, INT64 v)	{ InterlockedExchange64(&c->count, v); }
-inline s64  percpu_counter_sum_positive(percpu_counter* c) {
-	s64 cc = c->count; return max(cc, 0);
-}
+inline s64  percpu_counter_sum_positive(percpu_counter* c) { s64 cc = c->count; return max(cc, 0); }
 
+inline void percpu_counter_destroy(percpu_counter* c) {}
 
 
 template <class T> 
@@ -250,7 +293,9 @@ class auto_lock
 public:
 	template <class LOCKER_T>
 	auto_lock(LOCKER_T& locker) : m_locker(locker) { m_locker.lock(); };
-	~auto_lock(void) { m_locker.unlock(); }
+	~auto_lock(void) { if (!m_keep_lock) m_locker.unlock(); }
+	void keep_lock(void) { m_keep_lock = true; }		// 不要自动unlock
 protected:
 	T m_locker;
+	bool m_keep_lock = false;
 };

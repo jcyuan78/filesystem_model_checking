@@ -375,16 +375,9 @@ static inline int fscrypt_set_context(struct inode *inode, void *fs_data)
 struct fscrypt_dummy_policy {
 };
 
-static inline void fscrypt_show_test_dummy_encryption(struct seq_file *seq,
-						      char sep,
-						      struct super_block *sb)
-{
-}
+static inline void fscrypt_show_test_dummy_encryption(seq_file *seq, char sep, super_block *sb) {}
 
-static inline void
-fscrypt_free_dummy_policy(struct fscrypt_dummy_policy *dummy_policy)
-{
-}
+static inline void fscrypt_free_dummy_policy(fscrypt_dummy_policy *dummy_policy) {}
 
 /* keyring.c */
 static inline void fscrypt_sb_free(struct super_block *sb)
@@ -808,8 +801,7 @@ static inline int fscrypt_prepare_readdir(struct inode *dir)
  * Return: 0 on success, -ENOKEY if the key is missing, or another -errno code
  * if a problem occurred while setting up the encryption key.
  */
-static inline int fscrypt_prepare_setattr(struct dentry *dentry,
-					  struct iattr *attr)
+static inline int fscrypt_prepare_setattr(struct dentry *dentry, struct iattr *attr)
 {
 	if (IS_ENCRYPTED(d_inode(dentry)))
 		return __fscrypt_prepare_setattr(dentry, attr);

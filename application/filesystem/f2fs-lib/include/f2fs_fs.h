@@ -713,9 +713,9 @@ enum
 
 /* 0, 1(node nid), 2(meta nid) are reserved node id */
 #define F2FS_RESERVED_NODE_NUM		3
-#define F2FS_ROOT_INO(sbi)	(sbi->root_ino_num)
-#define F2FS_NODE_INO(sbi)	(sbi->node_ino_num)
-#define F2FS_META_INO(sbi)	(sbi->meta_ino_num)
+//#define F2FS_ROOT_INO(sbi)	(sbi->root_ino_num)
+//#define F2FS_NODE_INO(sbi)	(sbi->node_ino_num)
+//#define F2FS_META_INO(sbi)	(sbi->meta_ino_num)
 
 #define F2FS_MAX_QUOTAS		3
 #define QUOTA_DATA(i)		(2)
@@ -1135,11 +1135,9 @@ struct f2fs_nat_block
 						SIT_ENTRY_PER_BLOCK)) * \
 						c.blks_per_seg / 8)
 
-/*
- * Note that f2fs_sit_entry->vblocks has the following bit-field information.
+/* Note that f2fs_sit_entry->vblocks has the following bit-field information.
  * [15:10] : allocation type such as CURSEG_XXXX_TYPE
- * [9:0] : valid block count
- */
+ * [9:0] : valid block count */
 #define SIT_VBLOCKS_SHIFT	10
 #define SIT_VBLOCKS_MASK	((1 << SIT_VBLOCKS_SHIFT) - 1)
 #define GET_SIT_VBLOCKS(raw_sit)				\
@@ -1148,6 +1146,7 @@ struct f2fs_nat_block
 	((le16_to_cpu((raw_sit)->vblocks) & ~SIT_VBLOCKS_MASK)	\
 	 >> SIT_VBLOCKS_SHIFT)
 
+// 一个segment的状况。一个segment包含512 blocks，这些block中，有多少有效block，以及有效block的bitmap
 struct f2fs_sit_entry 
 {
 	__le16 vblocks;							/* reference above */
@@ -1155,8 +1154,10 @@ struct f2fs_sit_entry
 	__le64 mtime;							/* segment age for cleaning */
 } ;
 
-struct f2fs_sit_block {
-	struct f2fs_sit_entry entries[SIT_ENTRY_PER_BLOCK];
+// 一个sit block管理的segment数量
+struct f2fs_sit_block 
+{
+	f2fs_sit_entry entries[SIT_ENTRY_PER_BLOCK];
 } ;
 
 /*
@@ -1202,16 +1203,11 @@ struct summary_footer {
 	__le32 check_sum;		/* summary checksum */
 } ;
 
-#define SUM_JOURNAL_SIZE	(F2FS_BLKSIZE - SUM_FOOTER_SIZE -\
-				SUM_ENTRIES_SIZE)
-#define NAT_JOURNAL_ENTRIES	((SUM_JOURNAL_SIZE - 2) /\
-				sizeof(struct nat_journal_entry))
-#define NAT_JOURNAL_RESERVED	((SUM_JOURNAL_SIZE - 2) %\
-				sizeof(struct nat_journal_entry))
-#define SIT_JOURNAL_ENTRIES	((SUM_JOURNAL_SIZE - 2) /\
-				sizeof(struct sit_journal_entry))
-#define SIT_JOURNAL_RESERVED	((SUM_JOURNAL_SIZE - 2) %\
-				sizeof(struct sit_journal_entry))
+#define SUM_JOURNAL_SIZE		(F2FS_BLKSIZE - SUM_FOOTER_SIZE - SUM_ENTRIES_SIZE)
+#define NAT_JOURNAL_ENTRIES		((SUM_JOURNAL_SIZE - 2) / sizeof(nat_journal_entry))
+#define NAT_JOURNAL_RESERVED	((SUM_JOURNAL_SIZE - 2) % sizeof(nat_journal_entry))
+#define SIT_JOURNAL_ENTRIES		((SUM_JOURNAL_SIZE - 2) / sizeof(sit_journal_entry))
+#define SIT_JOURNAL_RESERVED	((SUM_JOURNAL_SIZE - 2) % sizeof(sit_journal_entry))
 
 /*
  * Reserved area should make size of f2fs_extra_info equals to
@@ -1270,9 +1266,9 @@ struct f2fs_journal {
 /* 4KB-sized summary block structure */
 struct f2fs_summary_block 
 {
-	struct f2fs_summary entries[ENTRIES_IN_SUM];
-	struct f2fs_journal journal;
-	struct summary_footer footer;
+	f2fs_summary entries[ENTRIES_IN_SUM];
+	f2fs_journal journal;
+	summary_footer footer;
 } ;
 
 /*
@@ -1607,7 +1603,7 @@ static inline double get_best_overprovision(struct f2fs_super_block *sb)
 
 	for (; candidate <= end; candidate += diff) 
 	{
-#ifdef _DEBUG
+#if 0 //<DEBUG>
 		UINT sec_count = get_sb(section_count);
 		wprintf_s(L"[debug] usable_main_segs=%d, section_count=%d, DIV_ROUND_UP=%d\n", usable_main_segs, sec_count, DIV_ROUND_UP(usable_main_segs, sec_count));
 #endif

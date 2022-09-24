@@ -28,7 +28,7 @@ CInodeManager::~CInodeManager(void)
 	{
 		for (auto it = m_inode_hash[ii].begin(); it != m_inode_hash[ii].end(); ++it)
 		{
-			if (*it) delete (*it);
+//			if (*it) delete (*it);
 		}
 		m_inode_hash->clear();
 	}
@@ -139,39 +139,47 @@ void CInodeManager::init_inode_mapping(inode* ptr_node, address_space* , bool th
 	mapping->writeback_index = 0;
 }
 
-int CInodeManager::insert_inode_locked(inode* node)
+// 将inode放入hash表中，以inode ino为索引
+int CInodeManager::insert_inode_locked(inode* iinode)
 {
-	struct super_block* sb = node->i_sb;
-	unsigned long ino = node->i_ino;
+	struct super_block* sb = iinode->i_sb;
+	unsigned long ino = iinode->i_ino;
 //	struct hlist_head* head = inode_hashtable + hash(ino);
-	inode_hash_list& hash_head = m_inode_hash[hash(ino)];
+	UINT32 hash_val = hash(ino);
+	inode_hash_list& hash_head = m_inode_hash[hash_val];
+	LOG_DEBUG(L"insert inode: ino=%d, hash=%d", ino, hash_val);
 
 	while (1)
 	{
 		inode* old = NULL;
 		{	auto_lock<CriticalSection> section(m_inode_hash_lock);
 			//spin_lock(&inode_hash_lock);
+			// 源代码用hlist实现。在hlist的循环中，以old作为循环变量，当old为null时，循环结束。
+			// 改用iterlater作为循环变量的话，当没有找到而循环结束时，需要将old设为null。
 //			hlist_for_each_entry(old, head, i_hash)
 			for (auto it=hash_head.begin(); it!=hash_head.end(); ++it)
 			{
-				old = *it;
-				if (old->i_ino != ino || old->i_sb != sb)			continue;
-//				if (old->i_sb != sb)			continue;
-				spin_lock(&old->i_lock);
-				if (old->i_state & (I_FREEING | I_WILL_FREE))
+//				old = *it;
+				inode* node = *it;
+				if (node->i_ino != ino || node->i_sb != sb)			continue;
+//				if (node->i_sb != sb)			continue;
+				spin_lock(&node->i_lock);
+				if (node->i_state & (I_FREEING | I_WILL_FREE))
 				{
-					spin_unlock(&old->i_lock);
+					spin_unlock(&node->i_lock);
 					continue;
 				}
-				break;		// 找到对应的inode
+				// 找到对应的inode
+				old = *it;
+				break;		
 			}
 			if (likely(!old))
 			{	// hash table中没有找到inode，将node插入hash tab
-				spin_lock(&node->i_lock);
-				node->i_state |= I_NEW | I_CREATING;
-				hash_head.push_back(node);
-//				hlist_add_head_rcu(&node->i_hash, head);
-				spin_unlock(&node->i_lock);
+				spin_lock(&iinode->i_lock);
+				iinode->i_state |= I_NEW | I_CREATING;
+				hash_head.push_back(iinode);
+//				hlist_add_head_rcu(&iinode->i_hash, head);
+				spin_unlock(&iinode->i_lock);
 //				spin_unlock(&inode_hash_lock);
 				return 0;
 			}
@@ -198,11 +206,11 @@ int CInodeManager::insert_inode_locked(inode* node)
 /* iget_failed - Mark an under-construction inode as dead and release it
  * @inode: The inode to discard
  * Mark an under-construction inode as dead and release it.	 */
-void CInodeManager::iget_failed(inode* node)
+void CInodeManager::iget_failed(inode* iinode)
 {
-	node->make_bad_inode();
-	unlock_new_inode(node);
-	iput(node);
+	iinode->make_bad_inode();
+	unlock_new_inode(iinode);
+	iput(iinode);
 }
 
 inode* CInodeManager::find_inode_fast(inode_hash_list& head, unsigned long ino)
@@ -326,6 +334,7 @@ int CInodeManager::inode_init_always(bool thp_support, inode* ptr_node)
 void iput(inode* iinode)
 {
 	if (!iinode)	return;
+	JCASSERT(iinode->i_count > 0);
 	BUG_ON(/*iinode->i_state & I_CLEAR*/iinode->TestState(I_CLEAR));
 retry:
 	if (atomic_dec_and_lock(&iinode->i_count, &iinode->i_lock))

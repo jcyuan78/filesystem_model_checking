@@ -93,6 +93,8 @@ public:
 	atomic_t atomic_read_cmd_count(void) { return atomic_read(&discard_cmd_cnt); }
 public:
 	friend struct f2fs_sm_info;
+	friend struct f2fs_sb_info;
+
 protected:
 	void destroy_discard_cmd_control(void);
 //	void f2fs_stop_discard_thread(void);

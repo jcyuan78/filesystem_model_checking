@@ -34,9 +34,10 @@ LOG_CLASS_SIZE(f2fs_inode);
 void f2fs_inode_info::f2fs_mark_inode_dirty_sync(bool sync)
 {
 	if (is_inode_flag_set(FI_NEW_INODE))	return;
-	if (f2fs_inode_dirtied(this, sync))		return;
+	if (f2fs_inode_dirtied(sync))		return;
 	mark_inode_dirty_sync(this);
 }
+
 
 void f2fs_set_inode_flags(inode *inode)
 {
@@ -165,8 +166,6 @@ static bool f2fs_enable_inode_chksum(f2fs_sb_info *sbi, struct page *page)
 
 	return true;
 }
-#if 0
-#endif
 
 //static __u32 f2fs_inode_chksum(struct f2fs_sb_info *sbi, struct page *page)
 //{
@@ -492,10 +491,12 @@ int CF2fsFileSystem::do_read_inode(inode *ptr_inode)
 	return 0;
 }
 
-int CF2fsFileSystem::do_create_read_inode(f2fs_inode_info*& out_inode, unsigned long ino)
+//static int do_read_inode(struct inode* inode)
+
+int f2fs_sb_info::do_create_read_inode(f2fs_inode_info*& out_inode, unsigned long ino)
 {
+//	LOG_STACK_TRACE();
 	JCASSERT(out_inode == 0);
-	f2fs_sb_info* sbi = m_sb_info;
 	f2fs_inode_info* fi = NULL;
 	page* node_page;
 	f2fs_inode* ri;
@@ -503,22 +504,23 @@ int CF2fsFileSystem::do_create_read_inode(f2fs_inode_info*& out_inode, unsigned 
 	int err;
 
 	/* Check if ino is within scope */
-	if (f2fs_check_nid_range(sbi, ino))	return -EINVAL;
+	if (f2fs_check_nid_range(this, ino))	return -EINVAL;
 
 	// 从inode获取相关page => 获取f2fs_inode_inf，可能在此函数中，实际读取inode
-	node_page = sbi->f2fs_get_node_page(ino);
+	node_page = f2fs_get_node_page(ino);
 	if (IS_ERR(node_page))	return (int)PTR_ERR(node_page);
 	// node_page的地址及f2fs_inode（raw_inode)
 	ri = F2FS_INODE(node_page);
 	umode_t mode = le16_to_cpu(ri->i_mode);
 
-	bool thp_support = m_sb_info->s_type->fs_flags & FS_THP_SUPPORT;
+	bool thp_support = s_type->fs_flags & FS_THP_SUPPORT;
 
 	address_space* mapping = NULL;
 
 	if (S_ISREG(mode))
 	{
-		fi = static_cast <f2fs_inode_info*>(GetInodeLocked<Cf2fsFileNode>(thp_support, ino));
+		fi = static_cast <f2fs_inode_info*>(m_fs->GetInodeLocked<Cf2fsFileNode>(thp_support, ino));
+		LOG_DEBUG_(-1, L"create file node, ino=%d, size lock=%d", ino, fi->i_size_lock.LockCount);
 		// mapping在Cf2fsDirInode中处理
 		//inode->i_op = &f2fs_file_inode_operations;
 		//inode->i_fop = &f2fs_file_operations;
@@ -526,12 +528,12 @@ int CF2fsFileSystem::do_create_read_inode(f2fs_inode_info*& out_inode, unsigned 
 	}
 	else if (S_ISDIR(mode))
 	{
-		fi = static_cast<f2fs_inode_info*>(GetInodeLocked<Cf2fsDirInode>(thp_support, ino));
+		fi = static_cast<f2fs_inode_info*>(m_fs->GetInodeLocked<Cf2fsDirInode>(thp_support, ino));
 		// mapping在Cf2fsDirInode中处理
 	}
 	else if (S_ISLNK(mode))
 	{
-		fi = static_cast<f2fs_inode_info*>(GetInodeLocked<Cf2fsSymbLink>(thp_support, ino));
+		fi = static_cast<f2fs_inode_info*>(m_fs->GetInodeLocked<Cf2fsSymbLink>(thp_support, ino));
 		//if (file_is_encrypt(inode))			inode->i_op = &f2fs_encrypted_symlink_inode_operations;
 		//else								inode->i_op = &f2fs_symlink_inode_operations;
 		//inode_nohighmem(ptr_inode);
@@ -549,8 +551,6 @@ int CF2fsFileSystem::do_create_read_inode(f2fs_inode_info*& out_inode, unsigned 
 		return 1;
 	}
 
-
-//	inode * ptr_inode = static_cast<inode*>(fi);
 	f2fs_inode_info* ptr_inode = fi;
 	out_inode = ptr_inode;
 
@@ -582,12 +582,11 @@ int CF2fsFileSystem::do_create_read_inode(f2fs_inode_info*& out_inode, unsigned 
 	fi->i_dir_level = ri->i_dir_level;
 
 	f2fs_init_extent_tree(ptr_inode, node_page);
-
 	get_inline_info(ptr_inode, ri);
 
 	fi->i_extra_isize = f2fs_has_extra_attr(ptr_inode) ? le16_to_cpu(ri->_u._s.i_extra_isize) : 0;
 
-	if (f2fs_sb_has_flexible_inline_xattr(sbi))
+	if (f2fs_sb_has_flexible_inline_xattr(this))
 	{
 		fi->i_inline_xattr_size = le16_to_cpu(ri->_u._s.i_inline_xattr_size);
 	}
@@ -606,10 +605,8 @@ int CF2fsFileSystem::do_create_read_inode(f2fs_inode_info*& out_inode, unsigned 
 		f2fs_put_page(node_page, 1);
 		return -EFSCORRUPTED;
 	}
-
 	/* check data exist */
 	if (f2fs_has_inline_data(ptr_inode) && !f2fs_exist_data(ptr_inode))		__recover_inline_status(ptr_inode, node_page);
-
 	/* try to recover cold bit for non-dir inode */
 	if (!S_ISDIR(ptr_inode->i_mode) && !is_cold_node(node_page))
 	{
@@ -623,7 +620,7 @@ int CF2fsFileSystem::do_create_read_inode(f2fs_inode_info*& out_inode, unsigned 
 
 	if (S_ISREG(ptr_inode->i_mode))
 	{
-		err = __written_first_block(sbi, ri);
+		err = __written_first_block(this, ri);
 		if (err < 0)
 		{
 			f2fs_put_page(node_page, 1);
@@ -632,19 +629,19 @@ int CF2fsFileSystem::do_create_read_inode(f2fs_inode_info*& out_inode, unsigned 
 		if (!err)	set_inode_flag(ptr_inode, FI_FIRST_BLOCK_WRITTEN);
 	}
 
-	if (!f2fs_need_inode_block_update(sbi, ptr_inode->i_ino))		fi->last_disk_size = ptr_inode->i_size;
+	if (!f2fs_need_inode_block_update(this, ptr_inode->i_ino))		fi->last_disk_size = ptr_inode->i_size;
 
 	if (fi->i_flags & F2FS_PROJINHERIT_FL)
 		set_inode_flag(ptr_inode, FI_PROJ_INHERIT);
 
-	if (f2fs_has_extra_attr(ptr_inode) && f2fs_sb_has_project_quota(sbi) && F2FS_FITS_IN_INODE(ri, fi->i_extra_isize, _u._s.i_projid))
+	if (f2fs_has_extra_attr(ptr_inode) && f2fs_sb_has_project_quota(this) && F2FS_FITS_IN_INODE(ri, fi->i_extra_isize, _u._s.i_projid))
 		projid = (projid_t)le32_to_cpu(ri->_u._s.i_projid);
 	else	projid = F2FS_DEF_PROJID;
 #if 0
 	fi->_u._s.i_projid = make_kprojid(&init_user_ns, i_projid);
 #endif
 
-	if (f2fs_has_extra_attr(ptr_inode) && f2fs_sb_has_inode_crtime(sbi) && F2FS_FITS_IN_INODE(ri, fi->i_extra_isize, _u._s.i_crtime))
+	if (f2fs_has_extra_attr(ptr_inode) && f2fs_sb_has_inode_crtime(this) && F2FS_FITS_IN_INODE(ri, fi->i_extra_isize, _u._s.i_crtime))
 	{
 #ifdef DOTIME
 		fi->i_crtime.tv_sec = le64_to_cpu(ri->i_crtime);
@@ -652,7 +649,7 @@ int CF2fsFileSystem::do_create_read_inode(f2fs_inode_info*& out_inode, unsigned 
 #endif
 	}
 
-	if (f2fs_has_extra_attr(ptr_inode) && f2fs_sb_has_compression(sbi) && (fi->i_flags & F2FS_COMPR_FL))
+	if (f2fs_has_extra_attr(ptr_inode) && f2fs_sb_has_compression(this) && (fi->i_flags & F2FS_COMPR_FL))
 	{
 #if 0 //COMPRESSION
 		if (F2FS_FITS_IN_INODE(ri, fi->i_extra_isize, i_log_cluster_size))
@@ -673,13 +670,11 @@ int CF2fsFileSystem::do_create_read_inode(f2fs_inode_info*& out_inode, unsigned 
 	F2FS_I(ptr_inode)->i_disk_time[3] = F2FS_I(ptr_inode)->i_crtime;
 #endif
 	f2fs_put_page(node_page, 1);
-
 	stat_inc_inline_xattr(ptr_inode);
 	stat_inc_inline_inode(ptr_inode);
 	stat_inc_inline_dir(ptr_inode);
 	stat_inc_compr_inode(ptr_inode);
 	stat_add_compr_blocks(ptr_inode, atomic_read(&fi->i_compr_blocks));
-
 
 	return 0;
 }
@@ -709,20 +704,20 @@ inode * CF2fsFileSystem::f2fs_iget(unsigned long ino)
 //		trace_f2fs_iget(ptr_inode);
 		return ptr_inode;
 	}
-	if (ino == F2FS_NODE_INO(sbi) || ino == F2FS_META_INO(sbi))		goto make_now;
+	if (ino == sbi->F2FS_NODE_INO() || ino == sbi->F2FS_META_INO())		goto make_now;
 
 	ret = do_read_inode(ptr_inode);
 	if (ret)		goto bad_inode;
 
 make_now:
-	if (ino == F2FS_NODE_INO(sbi)) 
+	if (ino == sbi->F2FS_NODE_INO()) 
 	{
 //		inode->i_mapping->a_ops = &f2fs_node_aops;
 		//mapping_set_gfp_mask(inode->i_mapping, GFP_NOFS);
 		mapping = new Cf2fsNodeMapping;
 		typed_inode = ptr_inode;
 	}
-	else if (ino == F2FS_META_INO(sbi)) 
+	else if (ino == sbi->F2FS_META_INO()) 
 	{
 //		inode->i_mapping->a_ops = &f2fs_meta_aops;
 		//mapping_set_gfp_mask(inode->i_mapping, GFP_NOFS);
@@ -785,32 +780,18 @@ bad_inode:
 
 #else
 
-f2fs_inode_info* f2fs_sb_info::f2fs_iget(nid_t ino) 
+f2fs_inode_info* f2fs_sb_info::f2fs_iget(nid_t ino)
 {
-	return m_fs->f2fs_iget(ino); 
-}
-
-
-f2fs_inode_info* CF2fsFileSystem::f2fs_iget(unsigned long ino)
-{
-	f2fs_sb_info* sbi = m_sb_info;
+//	LOG_STACK_TRACE();
 	f2fs_inode_info * new_node = NULL;
 	// 用于虚函数实现，针对不同的类型，创建不同的inode对象
 //	inode* typed_inode = NULL;
 	int ret = 0;
 
-	if (ino == F2FS_NODE_INO(sbi) || ino == F2FS_META_INO(sbi))
+	if (ino == F2FS_NODE_INO() || ino == F2FS_META_INO())
 	{
-		//address_space* mapping = NULL;
-		//if (ino == F2FS_NODE_INO(sbi)) 				mapping = new Cf2fsNodeMapping(nullptr);
-		//else if (ino == F2FS_META_INO(sbi)) 		mapping = new Cf2fsMetaMapping(nullptr);
-
-//		new_node = GetInodeLocked<f2fs_inode_info>((m_sb_info->s_type->fs_flags & FS_THP_SUPPORT), ino, mapping);
-		new_node = GetInodeLocked<f2fs_inode_info>((m_sb_info->s_type->fs_flags & FS_THP_SUPPORT), ino, nullptr);
-//		new_node = static_cast<inode*>(fi);
-		//		new_node->i_sb = &m_sb;	//在GetInodeLocked中实现
+		new_node = m_fs->GetInodeLocked<f2fs_inode_info>((s_type->fs_flags & FS_THP_SUPPORT), ino, nullptr);
 		if (!(new_node->TestState(I_NEW))) { return new_node; }
-		//		fi->SetMapping(mapping);
 	}
 	else
 	{
@@ -820,13 +801,14 @@ f2fs_inode_info* CF2fsFileSystem::f2fs_iget(unsigned long ino)
 //			return new_node;
 //		}
 		// （2）如果不存在，创建并且读取
+		LOG_DEBUG(L"read inode by ino=%d", ino);
 		ret = do_create_read_inode(new_node, ino);
 		if (ret)		goto bad_inode;
 	}
 
 //make_now:
 	if (0) {}
-	else if (ino == F2FS_NODE_INO(sbi) || ino == F2FS_META_INO(sbi))	{	}
+	else if (ino == F2FS_NODE_INO() || ino == F2FS_META_INO())	{	}
 	else if (S_ISREG(new_node->i_mode))	{	}
 	else if (S_ISDIR(new_node->i_mode))
 	{
@@ -849,8 +831,9 @@ f2fs_inode_info* CF2fsFileSystem::f2fs_iget(unsigned long ino)
 		ret = -EIO;
 		goto bad_inode;
 	}
+
 	//<YUAN>
-//	m_inodes.init_inode_mapping(new_node, mapping, (m_sb_info->s_type->fs_flags & FS_THP_SUPPORT));
+//	m_inodes.init_inode_mapping(new_node, mapping, (this->s_type->fs_flags & FS_THP_SUPPORT));
 	f2fs_set_inode_flags(new_node);
 	unlock_new_inode(new_node);
 	//trace_f2fs_iget(inode);
@@ -858,26 +841,29 @@ f2fs_inode_info* CF2fsFileSystem::f2fs_iget(unsigned long ino)
 
 bad_inode:
 	f2fs_inode_synced(new_node);
-	m_inodes.iget_failed(new_node);
+	m_fs->m_inodes.iget_failed(new_node);
 	//trace_f2fs_iget_exit(inode, ret);
 	return ERR_PTR<f2fs_inode_info>(ret);
 }
 
 #endif
 
-struct inode *f2fs_iget_retry(struct super_block *sb, unsigned long ino)
+f2fs_inode_info* f2fs_sb_info::f2fs_iget_retry(unsigned long ino)
 {
-	struct inode *inode;
+	f2fs_inode_info*iinode;
 retry:
-	inode = F2FS_SB(sb)->m_fs->f2fs_iget(ino);
-	if (IS_ERR(inode)) {
-		if (PTR_ERR(inode) == -ENOMEM) {
+	iinode = f2fs_iget(ino);
+	if (IS_ERR(iinode)) 
+	{
+		if (PTR_ERR(iinode) == -ENOMEM) 
+		{
 			//congestion_wait(BLK_RW_ASYNC, DEFAULT_IO_TIMEOUT);
+			JCASSERT(0);
 			Sleep(20);
 			goto retry;
 		}
 	}
-	return inode;
+	return iinode;
 }
 
 //void f2fs_update_inode(struct inode *inode, struct page *node_page)
@@ -1010,7 +996,7 @@ int f2fs_inode_info::f2fs_write_inode(writeback_control *wbc)
 {
 //	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
 
-	if (i_ino == F2FS_NODE_INO(m_sbi) || i_ino == F2FS_META_INO(m_sbi))
+	if (i_ino == m_sbi->F2FS_NODE_INO() || i_ino == m_sbi->F2FS_META_INO())
 		return 0;
 
 	/* atime could be updated without dirtying f2fs inode in lazytime mode */
@@ -1023,9 +1009,31 @@ int f2fs_inode_info::f2fs_write_inode(writeback_control *wbc)
 	/* We need to balance fs here to prevent from producing dirty node pages during the urgent cleaning time when running out of free sections. */
 	f2fs_update_inode_page();
 	if (wbc && wbc->nr_to_write)
-		f2fs_balance_fs(m_sbi, true);
+		m_sbi->f2fs_balance_fs( true);
 	return 0;
 }
+
+//int f2fs_sb_info::write_inode(inode* ii, writeback_control* wbc)
+//{
+//	//	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
+//	f2fs_inode_info* iinode = F2FS_I(ii);
+//
+//	if (iinode->i_ino == F2FS_NODE_INO() || iinode->i_ino == F2FS_META_INO())
+//		return 0;
+//
+//	/* atime could be updated without dirtying f2fs inode in lazytime mode */
+//	if (f2fs_is_time_consistent(iinode) && !iinode->is_inode_flag_set(FI_DIRTY_INODE))
+//		return 0;
+//
+//	if (!f2fs_is_checkpoint_ready())
+//		return -ENOSPC;
+//
+//	/* We need to balance fs here to prevent from producing dirty node pages during the urgent cleaning time when running out of free sections. */
+//	iinode->f2fs_update_inode_page();
+//	if (wbc && wbc->nr_to_write)	f2fs_balance_fs(true);
+//	return 0;
+//}
+
 
 /* Called at the last iput() if i_nlink is zero */
 //void f2fs_evict_inode(struct inode *inode)	
@@ -1044,7 +1052,7 @@ void f2fs_sb_info::evict_inode(inode* iinode)
 	address_space* mapping = iinode->get_mapping();
 	truncate_inode_pages_final(mapping);
 
-	if (iinode->i_ino == F2FS_NODE_INO(this) || iinode->i_ino == F2FS_META_INO(this))
+	if (iinode->i_ino == F2FS_NODE_INO() || iinode->i_ino == F2FS_META_INO())
 		goto out_clear;
 
 	f2fs_bug_on(this, get_dirty_pages(iinode));
@@ -1147,47 +1155,50 @@ out_clear:
 /* caller should call f2fs_lock_op() */
 void f2fs_handle_failed_inode(inode *node)
 {
-	struct f2fs_sb_info *sbi = F2FS_I_SB(node);
-	struct node_info ni;
+	f2fs_sb_info *sbi = F2FS_I_SB(node);
+	node_info ni;
 	int err;
 
+	f2fs_inode_info* iinode = F2FS_I(node);
+
 	/* clear nlink of inode in order to release resource of inode immediately.	 */
-	clear_nlink(node);
+	clear_nlink(iinode);
 
 	/* we must call this to avoid inode being remained as dirty, resulting in a panic when flushing dirty inodes in
 	   gdirty_list. */
-	F2FS_I(node)->f2fs_update_inode_page();
-	f2fs_inode_synced(node);
+	iinode->f2fs_update_inode_page();
+	f2fs_inode_synced(iinode);
 
 	/* don't make bad inode, since it becomes a regular file. */
-	unlock_new_inode(node);
+	unlock_new_inode(iinode);
 
 	/* Note: we should add inode to orphan list before f2fs_unlock_op() so we can prevent losing this orphan when
 	   encoutering checkpoint and following suddenly power-off.	 */
-	err = NM_I(sbi)->f2fs_get_node_info( node->i_ino, &ni);
-	if (err) {
+	err = NM_I(sbi)->f2fs_get_node_info( iinode->i_ino, &ni);
+	if (err) 
+	{
 		sbi->set_sbi_flag(SBI_NEED_FSCK);
 		LOG_WARNING(L"May loss orphan inode, run fsck to fix.");
 		goto out;
 	}
 
-	if (ni.blk_addr != NULL_ADDR) {
+	if (ni.blk_addr != NULL_ADDR) 
+	{
 		err = f2fs_acquire_orphan_inode(sbi);
-		if (err) {
+		if (err) 
+		{
 			sbi->set_sbi_flag(SBI_NEED_FSCK);
 			LOG_WARNING(L"Too many orphan inodes, run fsck to fix.");
-		} else {
-			f2fs_add_orphan_inode(node);
-		}
+		} 
+		else {	sbi->f2fs_add_orphan_inode(iinode);	}
 		sbi->nm_info->f2fs_alloc_nid_done(node->i_ino);
 	} 
-	else {	F2FS_I(node)->set_inode_flag( FI_FREE_NID);	}
+	else {	iinode->set_inode_flag( FI_FREE_NID);	}
 
 out:
 	sbi->f2fs_unlock_op();
-
 	/* iput will drop the inode object */
-	iput(node);
+	iput(iinode);
 }
 
 

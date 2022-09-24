@@ -49,12 +49,11 @@ public:
 	virtual int write_page(page* page, writeback_control* wbc) = 0;
 	virtual int write_pages(/*address_space* mapping,*/ writeback_control* wbc) = 0;
 	virtual int set_node_page_dirty(page* page) = 0;
-	virtual void invalidate_page(page* page, unsigned int offset, unsigned int length) = 0;
+	// default = block_invalidatepage()
+	virtual void invalidate_page(page* ppage, unsigned int offset, unsigned int length);
 	virtual int release_page(page* page, gfp_t wait) = 0;
-	virtual int migrate_page(/*address_space* mapping,*/ page* newpage, page* page, enum migrate_mode mode)
-	{
-		UNSUPPORT_1(int);
-	}
+	virtual void freepage(page*) UNSUPPORT_0;
+	virtual int migrate_page(page* newpage, page* page, enum migrate_mode mode)	UNSUPPORT_1(int);
 	virtual int read_page(file* file, struct page* page) = 0;
 	/* Reads in the requested pages. Unlike ->readpage(), this is PURELY used for read-ahead!. */
 	virtual bool support_readpages(void) { return false; }
@@ -72,6 +71,9 @@ public:
 
 	virtual bool support_is_paritially_uptodate() { return false; }
 	virtual int is_partially_uptodate(struct page*, unsigned long, unsigned long) { UNSUPPORT_1(int); }
+
+public:
+	void unmap_mapping_pages(pgoff_t start, pgoff_t nr, bool even_cows) {};		// for MMU only
 
 // ==== fs.h ====
 public:

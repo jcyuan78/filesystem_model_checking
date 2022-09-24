@@ -40,7 +40,7 @@
 //#include "../include/cpuset.h"
 //#include "../include/hugetlb.h"
 //#include "../include/memcontrol.h"
-//#include "../include/cleancache.h"
+#include "../include/cleancache.h"
 //#include "../include/shmem_fs.h"
 //#include "../include/rmap.h"
 //#include "../include/delayacct.h"
@@ -159,169 +159,156 @@ static void page_cache_delete(address_space *mapping,  page *pp, void *shadow)
 }
 
 
-static void unaccount_page_cache_page(address_space *mapping, struct page *page)
+static void unaccount_page_cache_page(address_space* mapping, page* ppage)
 {
-#if 0
+#if 1
 	int nr;
 
 	/* if we're uptodate, flush out into the cleancache, otherwise invalidate any existing cleancache entries.  We can't leave stale data around in the cleancache once our page is gone	 */
-	if (PageUptodate(page) && PageMappedToDisk(page))		cleancache_put_page(page);
-	else		cleancache_invalidate_page(mapping, page);
+	if (PageUptodate(ppage) && PageMappedToDisk(ppage))		cleancache_put_page(ppage);
+	else		cleancache_invalidate_page(mapping, ppage);
 
-	VM_BUG_ON_PAGE(PageTail(page), page);
-	VM_BUG_ON_PAGE(page_mapped(page), page);
-	if (!IS_ENABLED(CONFIG_DEBUG_VM) && unlikely(page_mapped(page))) 
+	//	VM_BUG_ON_PAGE(PageTail(ppage), ppage);
+	//	VM_BUG_ON_PAGE(ppage->page_mapped(), ppage);
+//	if (/*!IS_ENABLED(CONFIG_DEBUG_VM) && */unlikely(ppage->page_mapped()))
+	if (0)
 	{
-		int mapcount;
+		JCASSERT(0);
+//		int mapcount;
 
-		pr_alert("BUG: Bad page cache in process %s  pfn:%05lx\n", current->comm, page_to_pfn(page));
-		dump_page(page, "still mapped when deleted");
-		dump_stack();
-		add_taint(TAINT_BAD_PAGE, LOCKDEP_NOW_UNRELIABLE);
+		//	pr_alert("BUG: Bad page cache in process %s  pfn:%05lx\n", current->comm, page_to_pfn(ppage));
+		//	dump_page(ppage, "still mapped when deleted");
+		//	dump_stack();
+		//	add_taint(TAINT_BAD_PAGE, LOCKDEP_NOW_UNRELIABLE);
 
-		mapcount = page_mapcount(page);
-		if (mapping_exiting(mapping) && page_count(page) >= mapcount + 2) 
-		{
-			/* All vmas have already been torn down, so it's a good bet that actually the page is unmapped, and we'd prefer not to leak it: if we're wrong, some other bad page check should catch it later.	 */
-			page_mapcount_reset(page);
-			page_ref_sub(page, mapcount);
-		}
+			//mapcount = page_mapcount(ppage);
+			//if (mapping_exiting(mapping) && page_count(ppage) >= mapcount + 2) 
+			//{
+			//	/* All vmas have already been torn down, so it's a good bet that actually the page is unmapped, and we'd prefer not to leak it: if we're wrong, some other bad page check should catch it later.	 */
+			//	page_mapcount_reset(ppage);
+			//	page_ref_sub(ppage, mapcount);
+			//}
 	}
 
 	/* hugetlb pages do not participate in page cache accounting. */
-	if (PageHuge(page))	return;
+	if (PageHuge(ppage))	return;
 
-	nr = thp_nr_pages(page);
+	nr = thp_nr_pages(ppage);
 
-	__mod_lruvec_page_state(page, NR_FILE_PAGES, -nr);
-	if (PageSwapBacked(page)) 
+	__mod_lruvec_page_state(ppage, NR_FILE_PAGES, -nr);
+	if (PageSwapBacked(ppage))
 	{
-		__mod_lruvec_page_state(page, NR_SHMEM, -nr);
-		if (PageTransHuge(page))	__mod_lruvec_page_state(page, NR_SHMEM_THPS, -nr);
-	} 
-	else if (PageTransHuge(page)) 
+		__mod_lruvec_page_state(ppage, NR_SHMEM, -nr);
+		if (PageTransHuge(ppage))	__mod_lruvec_page_state(ppage, NR_SHMEM_THPS, -nr);
+	}
+	else if (PageTransHuge(ppage))
 	{
-		__mod_lruvec_page_state(page, NR_FILE_THPS, -nr);
+		__mod_lruvec_page_state(ppage, NR_FILE_THPS, -nr);
 		filemap_nr_thps_dec(mapping);
 	}
 
-	/* At this point page must be either written or cleaned by truncate.  Dirty page here signals a bug and loss of
-	 * unwritten data.
-	 *
+	/* At this point page must be either written or cleaned by truncate.  Dirty page here signals a bug and loss of unwritten data.
 	 * This fixes dirty accounting after removing the page entirely but leaves PageDirty set: it has no effect for truncated page and anyway will be cleared before returning page into buddy allocator. */
-	if (WARN_ON_ONCE(PageDirty(page)))	account_page_cleaned(page, mapping, inode_to_wb(mapping->host));
+//	if (WARN_ON_ONCE(PageDirty(ppage)))
+	if (PageDirty(ppage))
+	{
+		account_page_cleaned(ppage, mapping, inode_to_wb(mapping->host));
+	}
 #else
 	JCASSERT(0);
 #endif;
 }
 
 /* Delete a page from the page cache and free it. Caller has to make sure the page is locked and that nobody else uses it - or that usage is safe.  The caller must hold the i_pages lock. */
-void __delete_from_page_cache(struct page *page, void *shadow)
+void __delete_from_page_cache(page *ppage, void *shadow)
 {
-	address_space *mapping = page->mapping;
+	address_space *mapping = ppage->mapping;
 
-//	trace_mm_filemap_delete_from_page_cache(page);
+//	trace_mm_filemap_delete_from_page_cache(ppage);
 
-	unaccount_page_cache_page(mapping, page);
-	page_cache_delete(mapping, page, shadow);
+	unaccount_page_cache_page(mapping, ppage);
+	page_cache_delete(mapping, ppage, shadow);
 }
 
-#if 0 //<TODO>
-
-static void page_cache_free_page(struct address_space *mapping,
-				struct page *page)
+static void page_cache_free_page(address_space *mapping, page *ppage)
 {
-	void (*freepage)(struct page *);
+	//void (*freepage)(struct page *);
 
-	freepage = mapping->a_ops->freepage;
-	if (freepage)
-		freepage(page);
+	//freepage = mapping->a_ops->freepage;
+	//if (freepage)
+	//	freepage(ppage);
+	// 目前没有address_space类支持freepage()函数
+//	mapping->freepage(ppage);
 
-	if (PageTransHuge(page) && !PageHuge(page)) {
-		page_ref_sub(page, thp_nr_pages(page));
-		VM_BUG_ON_PAGE(page_count(page) <= 0, page);
-	} else {
-		page->put_page();
-	}
+
+	if (PageTransHuge(ppage) && !PageHuge(ppage)) 
+	{
+//		page_ref_sub(ppage, thp_nr_pages(ppage));
+		ppage->ref_sub(thp_nr_pages(ppage));
+//		VM_BUG_ON_PAGE(page_count(ppage) <= 0, ppage);
+	} 
+	else {	ppage->put_page(); }
 }
+
 
 /**
  * delete_from_page_cache - delete page from page cache
  * @page: the page which the kernel is trying to remove from page cache
  *
- * This must be called only on pages that have been verified to be in the page
- * cache and locked.  It will never put the page into the free list, the caller
- * has a reference on the page.
- */
-void delete_from_page_cache(struct page *page)
+ * This must be called only on pages that have been verified to be in the page cache and locked.  It will never put the page into the free list, the caller has a reference on the page. */
+void delete_from_page_cache(page *ppage)
 {
-	struct address_space *mapping = page_mapping(page);
-	unsigned long flags;
+	address_space *mapping = page_mapping(ppage);
+	unsigned long flags=0;
 
-	BUG_ON(!PageLocked(page));
+	BUG_ON(!PageLocked(ppage));
 	xa_lock_irqsave(&mapping->i_pages, flags);
-	__delete_from_page_cache(page, NULL);
+	__delete_from_page_cache(ppage, NULL);
 	xa_unlock_irqrestore(&mapping->i_pages, flags);
 
-	page_cache_free_page(mapping, page);
+	page_cache_free_page(mapping, ppage);
 }
-EXPORT_SYMBOL(delete_from_page_cache);
+//EXPORT_SYMBOL(delete_from_page_cache);
 
 /*
  * page_cache_delete_batch - delete several pages from page cache
  * @mapping: the mapping to which pages belong
  * @pvec: pagevec with pages to delete
  *
- * The function walks over mapping->i_pages and removes pages passed in @pvec
- * from the mapping. The function expects @pvec to be sorted by page index
- * and is optimised for it to be dense.
- * It tolerates holes in @pvec (mapping entries at those indices are not
- * modified). The function expects only THP head pages to be present in the
- * @pvec.
+ * The function walks over mapping->i_pages and removes pages passed in @pvec from the mapping. The function expects @pvec to be sorted by page index and is optimised for it to be dense. It tolerates holes in @pvec (mapping entries at those indices are not modified). The function expects only THP head pages to be present in the @pvec.
  *
- * The function expects the i_pages lock to be held.
- */
-static void page_cache_delete_batch(struct address_space *mapping,
-			     struct pagevec *pvec)
+ * The function expects the i_pages lock to be held. */
+static void page_cache_delete_batch(address_space *mapping,  pagevec *pvec)
 {
 	XA_STATE(xas, &mapping->i_pages, pvec->pages[0]->index);
 	int total_pages = 0;
 	int i = 0;
-	struct page *page;
+	page *ppage;
 
 	mapping_set_update(&xas, mapping);
-	xas_for_each(&xas, page, ULONG_MAX) {
+	xas_for_each(&xas, ppage, ULONG_MAX) 
+	{
 		if (i >= pagevec_count(pvec))
 			break;
 
 		/* A swap/dax/shadow entry got inserted? Skip it. */
-		if (xa_is_value(page))
+		if (xa_is_value(ppage))
 			continue;
-		/*
-		 * A page got inserted in our range? Skip it. We have our
-		 * pages locked so they are protected from being removed.
-		 * If we see a page whose index is higher than ours, it
-		 * means our page has been removed, which shouldn't be
-		 * possible because we're holding the PageLock.
-		 */
-		if (page != pvec->pages[i]) {
-			VM_BUG_ON_PAGE(page->index > pvec->pages[i]->index,
-					page);
+		/* A page got inserted in our range? Skip it. We have our pages locked so they are protected from being removed. If we see a page whose index is higher than ours, it means our page has been removed, which shouldn't be possible because we're holding the PageLock.	 */
+		if (ppage != pvec->pages[i])
+		{
+//			VM_BUG_ON_PAGE(ppage->index > pvec->pages[i]->index,		ppage);
 			continue;
 		}
 
-		WARN_ON_ONCE(!PageLocked(page));
+//		WARN_ON_ONCE(!PageLocked(ppage));
 
-		if (page->index == xas.xa_index)
-			page->mapping = NULL;
+		if (ppage->index == xas.xa_index)
+			ppage->mapping = NULL;
 		/* Leave page->index set: truncation lookup relies on it */
 
-		/*
-		 * Move to the next page in the vector if this is a regular
-		 * page or the index is of the last sub-page of this compound
-		 * page.
-		 */
-		if (page->index + compound_nr(page) - 1 == xas.xa_index)
+		/* Move to the next page in the vector if this is a regular page or the index is of the last sub-page of this compound page. */
+		if (ppage->index + compound_nr(ppage) - 1 == xas.xa_index)
 			i++;
 		xas_store(&xas, NULL);
 		total_pages++;
@@ -329,19 +316,18 @@ static void page_cache_delete_batch(struct address_space *mapping,
 	mapping->nrpages -= total_pages;
 }
 
-void delete_from_page_cache_batch(struct address_space *mapping,
-				  struct pagevec *pvec)
+void delete_from_page_cache_batch(address_space *mapping, pagevec *pvec)
 {
 	int i;
-	unsigned long flags;
+	unsigned long flags=0;
 
 	if (!pagevec_count(pvec))
 		return;
 
 	xa_lock_irqsave(&mapping->i_pages, flags);
-	for (i = 0; i < pagevec_count(pvec); i++) {
-		trace_mm_filemap_delete_from_page_cache(pvec->pages[i]);
-
+	for (i = 0; i < pagevec_count(pvec); i++) 
+	{
+//		trace_mm_filemap_delete_from_page_cache(pvec->pages[i]);
 		unaccount_page_cache_page(mapping, pvec->pages[i]);
 	}
 	page_cache_delete_batch(mapping, pvec);
@@ -351,7 +337,6 @@ void delete_from_page_cache_batch(struct address_space *mapping,
 		page_cache_free_page(mapping, pvec->pages[i]);
 }
 
-#endif //<TODO>
 
 int filemap_check_errors(address_space *mapping)
 {

@@ -71,36 +71,31 @@ static struct fsync_inode_entry *get_fsync_inode(list_head *head, nid_t ino)
 
 static fsync_inode_entry *add_fsync_inode(f2fs_sb_info *sbi, list_head *head, nid_t ino, bool quota_inode)
 {
-#define ERR_CAST(x)		(fsync_inode_entry*)(x)
-#define ERR_PTR(x)		(fsync_inode_entry*)(x)
-	struct inode *inode;
-	struct fsync_inode_entry *entry;
+	f2fs_inode_info *iinode;
+	fsync_inode_entry *entry;
 	int err;
 
-	inode = f2fs_iget_retry(sbi, ino);
-	if (IS_ERR(inode)) return ERR_CAST(inode);
+	iinode = sbi->f2fs_iget_retry(ino);
+	if (IS_ERR(iinode)) return ERR_PTR<fsync_inode_entry>((UINT64)iinode);
 
-	err = dquot_initialize(inode);
+	err = dquot_initialize(iinode);
 	if (err)		goto err_out;
 
 	if (quota_inode) 
 	{
 		JCASSERT(0);
-		err = dquot_alloc_inode(inode);
+		err = dquot_alloc_inode(iinode);
 		if (err)	goto err_out;
 	}
 
 	entry = f2fs_kmem_cache_alloc<fsync_inode_entry>(sbi->m_fs->fsync_entry_slab, GFP_F2FS_ZERO);
-	entry->inode = inode;
+	entry->inode = iinode;
 	list_add_tail(&entry->list, head);
 
 	return entry;
 err_out:
-	iput(inode);
-	return ERR_PTR(err);
-
-#undef ERR_CAST
-#undef ERR_PTR
+	iput(iinode);
+	return ERR_PTR<fsync_inode_entry>(err);
 }
 
 static void del_fsync_inode(struct fsync_inode_entry *entry, int drop)
@@ -176,17 +171,15 @@ static int init_recovered_filename(const inode *dir, f2fs_inode *raw_inode, f2fs
 	return 0;
 }
 
-static int recover_dentry(inode *inode_buf, struct page *ipage, struct list_head *dir_list)
+static int recover_dentry(f2fs_inode_info *inode_buf, page *ipage, list_head *dir_list)
 {
-#define ERR_CAST(x)	(inode*)(x)
-
-	struct f2fs_inode *raw_inode = F2FS_INODE(ipage);
+	f2fs_inode *raw_inode = F2FS_INODE(ipage);
 	nid_t pino = le32_to_cpu(raw_inode->i_pino);
-	struct f2fs_dir_entry *de;
-	struct f2fs_filename fname;
-	struct qstr usr_fname;
-	struct page *page;
-	inode *einode;
+	f2fs_dir_entry *de;
+	f2fs_filename fname;
+	qstr usr_fname;
+	page *ppage;
+//	inode *einode;
 	struct fsync_inode_entry *entry;
 	int err = 0;
 	//char *name;
@@ -209,44 +202,45 @@ static int recover_dentry(inode *inode_buf, struct page *ipage, struct list_head
 	err = init_recovered_filename(dir, raw_inode, &fname, &usr_fname);
 	if (err) goto out;
 retry:
-	de = dir->__f2fs_find_entry(&fname, &page);
+	de = dir->__f2fs_find_entry(&fname, &ppage);
 	if (de && inode_buf->i_ino == le32_to_cpu(de->ino))
 		goto out_put;
 
-	if (de) {
-		einode = f2fs_iget_retry(inode_buf->i_sb, le32_to_cpu(de->ino));
-		if (IS_ERR(einode)) {
+	if (de) 
+	{
+		f2fs_inode_info *einode = inode_buf->m_sbi->f2fs_iget_retry(le32_to_cpu(de->ino));
+		if (IS_ERR(einode)) 
+		{
 			WARN_ON(1);
 			err = PTR_ERR(einode);
-			if (err == -ENOENT)
-				err = -EEXIST;
+			if (err == -ENOENT)		err = -EEXIST;
 			goto out_put;
 		}
 
 		err = dquot_initialize(einode);
-		if (err) {
+		if (err) 
+		{
 			iput(einode);
 			goto out_put;
 		}
 
 		err = f2fs_acquire_orphan_inode(F2FS_I_SB(inode_buf));
-		if (err) {
+		if (err) 
+		{
 			iput(einode);
 			goto out_put;
 		}
-		f2fs_delete_entry(de, page, dir, einode);
+		f2fs_delete_entry(de, ppage, dir, einode);
 		iput(einode);
 		goto retry;
-	} else if (IS_ERR(page)) {
-		err = PTR_ERR(page);
-	} else {
-		err = f2fs_add_dentry(dir, &fname, inode_buf, inode_buf->i_ino, inode_buf->i_mode);
-	}
+	} 
+	else if (IS_ERR(ppage)) 	{		err = PTR_ERR(ppage);	}
+	else {	err = f2fs_add_dentry(dir, &fname, inode_buf, inode_buf->i_ino, inode_buf->i_mode); 	}
 	if (err == -ENOMEM)		goto retry;
 	goto out;
 
 out_put:
-	f2fs_put_page(page, 0);
+	f2fs_put_page(ppage, 0);
 out:
 	const char* name = NULL;
 	if (file_enc_name(inode_buf))	name = "<encrypted>";
@@ -254,7 +248,7 @@ out:
 	LOG_NOTICE(L"ino=%x, name=%S, dir = %lx, err = %d", ino_of_node(ipage), name, IS_ERR(dir) ? 0 : dir->i_ino, err);
 	return err;
 
-#undef ERR_CAST
+//#undef ERR_CAST
 }
 
 static int recover_quota_data(struct inode *inode, struct page *page)
@@ -463,12 +457,13 @@ static int check_index_in_prev_nodes(struct f2fs_sb_info *sbi, block_t blkaddr, 
 	struct page *sum_page, *node_page;
 	struct dnode_of_data tdn = *dn;
 	nid_t ino, nid;
-	struct inode *inode;
+//	struct inode *inode;
+	f2fs_inode_info* iinode = nullptr;
 	unsigned int offset;
 	block_t bidx;
 	int i;
 
-	sentry = get_seg_entry(sbi, segno);
+	sentry = sbi->get_seg_entry( segno);
 	if (!f2fs_test_bit(blkoff, sentry->cur_valid_map))		return 0;
 
 	/* Get the previous summary */
@@ -512,31 +507,32 @@ got_it:
 	ino = ino_of_node(node_page);
 	f2fs_put_page(node_page, 1);
 
-	if (ino != dn->inode->i_ino) {
+	if (ino != dn->inode->i_ino) 
+	{
 		int ret;
 
 		/* Deallocate previous index in the node page */
-		inode = f2fs_iget_retry(sbi, ino);
-		if (IS_ERR(inode))
-			return PTR_ERR(inode);
+		iinode = sbi->f2fs_iget_retry(ino);
+		if (IS_ERR(iinode))
+			return PTR_ERR(iinode);
 
-		ret = dquot_initialize(inode);
+		ret = dquot_initialize(iinode);
 		if (ret) 
 		{
-			iput(inode);
+			iput(iinode);
 			return ret;
 		}
 	} else {
-		inode = dn->inode;
+		iinode = dn->inode;
 	}
 
-	bidx = f2fs_start_bidx_of_node(offset, inode) +le16_to_cpu(sum._u._s.ofs_in_node);
+	bidx = f2fs_start_bidx_of_node(offset, iinode) +le16_to_cpu(sum._u._s.ofs_in_node);
 
 	/* if inode page is locked, unlock temporarily, but its reference count keeps alive. */
 	if (ino == dn->inode->i_ino && dn->inode_page_locked)
 		unlock_page(dn->inode_page);
 
-	tdn.set_new_dnode( inode, NULL, NULL, 0);
+	tdn.set_new_dnode( iinode, NULL, NULL, 0);
 	if (f2fs_get_dnode_of_data(&tdn, bidx, LOOKUP_NODE))
 		goto out;
 
@@ -546,7 +542,7 @@ got_it:
 	f2fs_put_dnode(&tdn);
 out:
 	if (ino != dn->inode->i_ino)
-		iput(inode);
+		iput(iinode);
 	else if (dn->inode_page_locked)
 		lock_page(dn->inode_page);
 	return 0;
@@ -714,8 +710,9 @@ static int recover_data(f2fs_sb_info *sbi, list_head *inode_list, list_head *tmp
 	curseg = sbi->CURSEG_I(CURSEG_WARM_NODE);
 	blkaddr = NEXT_FREE_BLKADDR(sbi, curseg);
 
-	while (1) {
-		struct fsync_inode_entry *entry;
+	while (1) 
+	{
+		fsync_inode_entry *entry;
 
 		if (!sbi->f2fs_is_valid_blkaddr(blkaddr, META_POR))
 			break;

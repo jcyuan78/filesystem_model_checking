@@ -134,6 +134,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|Win32'">Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="source\unit_test.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\android_config.h" />
@@ -159,6 +160,7 @@
     <ClInclude Include="source\mapping.h" />
     <ClInclude Include="source\pch.h" />
     <ClInclude Include="source\file.h" />
+    <ClInclude Include="source\unit_test.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>16.0</VCProjectVersion>

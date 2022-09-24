@@ -37,6 +37,7 @@ bio* CBioSet::bio_alloc_bioset(gfp_t gfp_mask, unsigned short nr_iovecs/*, void*
 	//if (unlikely(!p))	return NULL;
 	//bio = p + bs->front_pad;
 
+	// nr_iovecs=bio包含的page数量
 	if (nr_iovecs > BIO_INLINE_VECS)
 	{
 		bio_vec* bvl = new bio_vec[nr_iovecs];

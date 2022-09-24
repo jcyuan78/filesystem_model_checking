@@ -88,7 +88,7 @@ public:
 	unsigned short* free_nid_count;	/* free nid count of NAT block */
 
 	/* for checkpoint */
-	char* nat_bitmap;		/* NAT bitmap pointer */
+	BYTE* nat_bitmap;		/* NAT bitmap pointer */
 
 	unsigned int nat_bits_blocks;	/* # of nat bits blocks */
 	unsigned char* nat_bits;	/* NAT bits blocks */

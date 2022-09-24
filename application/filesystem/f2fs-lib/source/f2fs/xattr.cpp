@@ -786,7 +786,7 @@ int f2fs_setxattr(struct inode *inode, int index, const char *name,
 	if (ipage)
 		return __f2fs_setxattr(inode, index, name, value,
 						size, ipage, flags);
-	f2fs_balance_fs(sbi, true);
+	sbi->f2fs_balance_fs(true);
 
 	sbi->f2fs_lock_op();
 	//auto_lock<semaphore_read_lock> lock_op(sbi->cp_rwsem);

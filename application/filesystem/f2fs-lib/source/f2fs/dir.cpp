@@ -904,81 +904,77 @@ fail:
 	return err;
 }
 
-void f2fs_drop_nlink(struct inode *dir, struct inode *inode)
+#endif //<TOOD>
+
+void f2fs_drop_nlink(f2fs_inode_info *dir, f2fs_inode_info *iinode)
 {
-	struct f2fs_sb_info *sbi = F2FS_I_SB(dir);
+	f2fs_sb_info *sbi = F2FS_I_SB(dir);
+	down_write(&iinode->i_sem);
 
-	down_write(&F2FS_I(inode)->i_sem);
+	if (S_ISDIR(iinode->i_mode))
+		dir->f2fs_i_links_write(false);
+	iinode->i_ctime = current_time(iinode);
 
-	if (S_ISDIR(inode->i_mode))
-		f2fs_i_links_write(dir, false);
-	inode->i_ctime = current_time(inode);
-
-	f2fs_i_links_write(inode, false);
-	if (S_ISDIR(inode->i_mode)) {
-		f2fs_i_links_write(inode, false);
-		f2fs_i_size_write(inode, 0);
+	iinode->f2fs_i_links_write(false);
+	if (S_ISDIR(iinode->i_mode)) 
+	{
+		iinode->f2fs_i_links_write(false);
+		iinode->f2fs_i_size_write(0);
 	}
-	up_write(&F2FS_I(inode)->i_sem);
+	up_write(&iinode->i_sem);
 
-	if (inode->i_nlink == 0)
-		f2fs_add_orphan_inode(inode);
-	else
-		f2fs_release_orphan_inode(sbi);
+	if (iinode->i_nlink == 0)		sbi->f2fs_add_orphan_inode(iinode);
+	else		f2fs_release_orphan_inode(sbi);
 }
 
-/*
- * It only removes the dentry from the dentry page, corresponding name
- * entry in name page does not need to be touched during deletion.
- */
-void f2fs_delete_entry(struct f2fs_dir_entry *dentry, struct page *page,
-					struct inode *dir, struct inode *inode)
+/* It only removes the dentry from the dentry page, corresponding name entry in name page does not need to be touched during deletion. */
+// dirw为父目录，iinode是要删除的节点
+void f2fs_delete_entry(f2fs_dir_entry *dentry, page *ppage, f2fs_inode_info *dir, f2fs_inode_info *iinode)
 {
-	struct	f2fs_dentry_block *dentry_blk;
+	f2fs_dentry_block *dentry_blk;
 	unsigned int bit_pos;
 	int slots = GET_DENTRY_SLOTS(le16_to_cpu(dentry->name_len));
 	int i;
 
-	f2fs_update_time(F2FS_I_SB(dir), REQ_TIME);
+	F2FS_I_SB(dir)->f2fs_update_time(REQ_TIME);
 
 	if (F2FS_OPTION(F2FS_I_SB(dir)).fsync_mode == FSYNC_MODE_STRICT)
 		f2fs_add_ino_entry(F2FS_I_SB(dir), dir->i_ino, TRANS_DIR_INO);
 
-	if (f2fs_has_inline_dentry(dir))
-		return f2fs_delete_inline_entry(dentry, page, dir, inode);
+	if (dir->f2fs_has_inline_dentry())
+		return f2fs_delete_inline_entry(dentry, ppage, dir, iinode);
 
-	lock_page(page);
-	f2fs_wait_on_page_writeback(page, DATA, true, true);
+	lock_page(ppage);
+	f2fs_wait_on_page_writeback(ppage, DATA, true, true);
 
-	dentry_blk = page_address(page);
+	dentry_blk = page_address<f2fs_dentry_block>(ppage);
 	bit_pos = dentry - dentry_blk->dentry;
 	for (i = 0; i < slots; i++)
 		__clear_bit_le(bit_pos + i, &dentry_blk->dentry_bitmap);
 
 	/* Let's check and deallocate this dentry page */
-	bit_pos = find_next_bit_le(&dentry_blk->dentry_bitmap,
-			NR_DENTRY_IN_BLOCK,
-			0);
-	set_page_dirty(page);
+	bit_pos = find_next_bit_le(dentry_blk->dentry_bitmap, NR_DENTRY_IN_BLOCK, 0);
+	set_page_dirty(ppage);
 
-	if (bit_pos == NR_DENTRY_IN_BLOCK &&
-		!f2fs_truncate_hole(dir, page->index, page->index + 1)) {
-		f2fs_clear_page_cache_dirty_tag(page);
-		clear_page_dirty_for_io(page);
-		f2fs_clear_page_private(page);
-		ClearPageUptodate(page);
-		clear_cold_data(page);
+	if (bit_pos == NR_DENTRY_IN_BLOCK && !dir->f2fs_truncate_hole(ppage->index, ppage->index + 1))
+	{
+		f2fs_clear_page_cache_dirty_tag(ppage);
+		clear_page_dirty_for_io(ppage);
+		f2fs_clear_page_private(ppage);
+		ClearPageUptodate(ppage);
+		clear_cold_data(ppage);
 		inode_dec_dirty_pages(dir);
 		f2fs_remove_dirty_inode(dir);
 	}
-	f2fs_put_page(page, 1);
+	f2fs_put_page(ppage, 1);
 
 	dir->i_ctime = dir->i_mtime = current_time(dir);
-	f2fs_mark_inode_dirty_sync(dir, false);
+	dir->f2fs_mark_inode_dirty_sync(false);
 
-	if (inode)
-		f2fs_drop_nlink(dir, inode);
+	if (iinode)	f2fs_drop_nlink(dir, iinode);
 }
+
+#if 0 //<TODO>
 
 bool f2fs_empty_dir(struct inode *dir)
 {

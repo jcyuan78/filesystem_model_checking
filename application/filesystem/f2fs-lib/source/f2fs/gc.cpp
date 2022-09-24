@@ -343,7 +343,7 @@ static unsigned int get_cb_cost(struct f2fs_sb_info *sbi, unsigned int segno)
 	unsigned int usable_segs_per_sec = f2fs_usable_segs_in_sec(sbi, segno);
 
 	for (i = 0; i < usable_segs_per_sec; i++)
-		mtime += get_seg_entry(sbi, start + i)->mtime;
+		mtime += sbi->get_seg_entry( start + i)->mtime;
 	vblocks = get_valid_blocks(sbi, segno, true);
 
 //	mtime = div_u64(mtime, usable_segs_per_sec);
@@ -366,7 +366,7 @@ static unsigned int get_cb_cost(struct f2fs_sb_info *sbi, unsigned int segno)
 static inline unsigned int get_gc_cost(f2fs_sb_info *sbi, unsigned int segno, struct victim_sel_policy *p)
 {
 	if (p->alloc_mode == SSR)
-		return get_seg_entry(sbi, segno)->ckpt_valid_blocks;
+		return sbi->get_seg_entry( segno)->ckpt_valid_blocks;
 
 	/* alloc_mode == LFS */
 	if (p->gc_mode == GC_GREEDY)
@@ -437,7 +437,7 @@ static void add_victim_entry(f2fs_sb_info *sbi, victim_sel_policy *p, unsigned i
 			return;
 	}
 
-	for (i = 0; i < sbi->segs_per_sec; i++) mtime += get_seg_entry(sbi, start + i)->mtime;
+	for (i = 0; i < sbi->segs_per_sec; i++) mtime += sbi->get_seg_entry( start + i)->mtime;
 	mtime = mtime / sbi->segs_per_sec;
 //	mtime = div_u64(mtime, sbi->segs_per_sec);
 
@@ -585,7 +585,7 @@ next_node:
 
 	age = max_mtime - ve->mtime;
 
-	vblocks = get_seg_entry(sbi, ve->segno)->ckpt_valid_blocks;
+	vblocks = sbi->get_seg_entry( ve->segno)->ckpt_valid_blocks;
 	f2fs_bug_on(sbi, !vblocks);
 
 	/* rare case */
@@ -879,7 +879,7 @@ static int check_valid_map(f2fs_sb_info *sbi, unsigned int segno, int offset)
 	int ret;
 
 	down_read(&sit_i->sentry_lock);
-	sentry = get_seg_entry(sbi, segno);
+	sentry = sbi->get_seg_entry( segno);
 	ret = f2fs_test_bit(offset, sentry->cur_valid_map);
 	up_read(&sit_i->sentry_lock);
 	return ret;
@@ -1043,11 +1043,11 @@ static bool is_alive(f2fs_sb_info *sbi, f2fs_summary *sum, node_info *dni, block
 //static int ra_data_block(inode *inode, pgoff_t index)
 int f2fs_inode_info::ra_data_block(pgoff_t index)
 {
-	struct f2fs_sb_info *sbi = F2FS_I_SB(this);
+	f2fs_sb_info *sbi = F2FS_I_SB(this);
 //	address_space *mapping = inode->i_mapping;
-	struct dnode_of_data dn;
+	dnode_of_data dn;
 	struct page *page;
-	struct extent_info ei = {0, 0, 0};
+	extent_info ei = {0, 0, 0};
 
 	f2fs_io_info fio;
 	fio.sbi = sbi;
@@ -1188,10 +1188,7 @@ int f2fs_inode_info::move_data_block(block_t bidx, int gc_type, unsigned int seg
 		goto put_out;
 	}
 
-	/*
-	 * don't cache encrypted data into meta inode until previous dirty
-	 * data were writebacked to avoid racing between GC and flush.
-	 */
+	/* don't cache encrypted data into meta inode until previous dirty data were writebacked to avoid racing between GC and flush. */
 	f2fs_wait_on_page_writeback(page, DATA, true, true);
 
 	f2fs_wait_on_block_writeback(this, dn.data_blkaddr);
@@ -1265,7 +1262,7 @@ int f2fs_inode_info::move_data_block(block_t bidx, int gc_type, unsigned int seg
 	fio.op = REQ_OP_WRITE;
 	fio.op_flags = REQ_SYNC;
 	fio.new_blkaddr = newaddr;
-	f2fs_submit_page_write(&fio);
+	m_sbi->f2fs_submit_page_write(&fio);
 	if (fio.retry)
 	{
 		err = -EAGAIN;
@@ -1548,7 +1545,7 @@ static int do_garbage_collect(f2fs_sb_info *sbi, unsigned int start_segno,
 	unsigned int segno = start_segno;
 	unsigned int end_segno = start_segno + sbi->segs_per_sec;
 	int seg_freed = 0, migrated = 0;
-	unsigned char type = IS_DATASEG(get_seg_entry(sbi, segno)->type) ?	SUM_TYPE_DATA : SUM_TYPE_NODE;
+	unsigned char type = IS_DATASEG(sbi->get_seg_entry( segno)->type) ?	SUM_TYPE_DATA : SUM_TYPE_NODE;
 	int submitted = 0;
 
 	if (sbi->__is_large_section())
@@ -1560,7 +1557,7 @@ static int do_garbage_collect(f2fs_sb_info *sbi, unsigned int start_segno,
 	if (f2fs_sb_has_blkzoned(sbi))
 		end_segno -= sbi->segs_per_sec - f2fs_usable_segs_in_sec(sbi, segno);
 
-	sanity_check_seg_type(sbi, get_seg_entry(sbi, segno)->type);
+	sanity_check_seg_type(sbi, sbi->get_seg_entry( segno)->type);
 
 	/* readahead multi ssa blocks those have contiguous address */
 	if (sbi->__is_large_section())

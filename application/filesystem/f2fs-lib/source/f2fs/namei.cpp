@@ -210,7 +210,10 @@ int f2fs_inode_info::_internal_new_inode(f2fs_inode_info* dir, umode_t mode)
 //	if (dir && dir->i_mode & S_ISGID) {
 //		inode->i_gid = dir->i_gid;
 		/* Directories are special, and always inherit S_ISGID */
-	if (S_ISDIR(mode))	mode |= S_ISGID;
+
+//	if (S_ISDIR(mode))	mode |= S_ISGID;
+
+
 	//else if ((mode & (S_ISGID | S_IXGRP)) == (S_ISGID | S_IXGRP) &&
 	//	!in_group_p(i_gid_into_mnt(mnt_userns, dir)) &&
 	//	!capable_wrt_inode_uidgid(mnt_userns, dir, CAP_FSETID))
@@ -514,6 +517,7 @@ int Cf2fsDirInode::create(user_namespace *mnt_userns, dentry *entry, umode_t mod
 #ifdef _DEBUG
 	jcvos::Utf8ToUnicode(fn, entry->d_name.name);
 	new_inode->m_description = L"file of " + fn;
+	LOG_DEBUG(L"check size lock file=%s, lock=%d", fn.c_str(), new_inode->i_size_lock.LockCount);
 #endif
 
 //	if (!test_opt(sbi, DISABLE_EXT_IDENTIFY)) new_inode->set_file_temperature(entry->d_name.name);
@@ -543,7 +547,7 @@ int Cf2fsDirInode::create(user_namespace *mnt_userns, dentry *entry, umode_t mod
 	sbi->nm_info->f2fs_alloc_nid_done(ino);
 	d_instantiate_new(entry, new_inode);
 	if (IS_DIRSYNC(this))		sbi->sync_fs(1);
-	f2fs_balance_fs(sbi, true);
+	sbi->f2fs_balance_fs(true);
 
 #ifdef _DEBUG
 	DebugListItems();
@@ -582,7 +586,7 @@ static int f2fs_link(struct dentry *old_dentry, struct inode *dir,
 	if (err)
 		return err;
 
-	f2fs_balance_fs(sbi, true);
+	sbi->f2fs_balance_fs(true);
 
 	inode->i_ctime = current_time(inode);
 	ihold(inode);
@@ -625,7 +629,7 @@ struct dentry *f2fs_get_parent(struct dentry *child)
 //static int __recover_dot_dentries(struct inode *dir, nid_t pino)
 int Cf2fsDirInode::__recover_dot_dentries(nid_t pino)
 {
-	struct f2fs_sb_info *sbi = F2FS_I_SB(this);
+	f2fs_sb_info *sbi = F2FS_I_SB(this);
 	// qstr dot; dot.name = ".", // = QSTR_INIT(".", 1);
 	const qstr dot(L".");
 	const qstr dotdot(L"..");
@@ -642,7 +646,7 @@ int Cf2fsDirInode::__recover_dot_dentries(nid_t pino)
 	err = dquot_initialize(this);
 	if (err) return err;
 
-	f2fs_balance_fs(sbi, true);
+	sbi->f2fs_balance_fs(true);
 
 	{auto_lock<semaphore_read_lock> lock_op(sbi->cp_rwsem);
 	//	sbi->f2fs_lock_op();
@@ -678,7 +682,8 @@ int Cf2fsDirInode::__recover_dot_dentries(nid_t pino)
 }
 
 //static struct dentry* f2fs_lookup(struct inode* dir, struct dentry* dentry,	unsigned int flags)
-// 应该返回
+// 在当前的inode中查找子节点。src_entry作为名称的输入，返回的字节的也在src_entry中。函数返回值仅是错误代码；
+//
 dentry *Cf2fsDirInode::lookup(dentry *src_entry, unsigned int flags)
 {
 //	f2fs_inode_info *new_node = NULL;
@@ -687,7 +692,7 @@ dentry *Cf2fsDirInode::lookup(dentry *src_entry, unsigned int flags)
 	dentry *new_entry;
 	nid_t ino = -1;
 	int err = 0;
-	unsigned int root_ino = F2FS_ROOT_INO(F2FS_I_SB(this));
+	unsigned int root_ino = m_sbi->F2FS_ROOT_INO();
 	
 	f2fs_filename fname;
 	LOG_DEBUG(L"looup for %S", src_entry->d_name.name.c_str());
@@ -724,7 +729,8 @@ dentry *Cf2fsDirInode::lookup(dentry *src_entry, unsigned int flags)
 	ino = le32_to_cpu(de->ino);
 	f2fs_put_page(page, 0);
 
-	f2fs_inode_info * new_node = GetFs()->f2fs_iget(ino);
+	LOG_DEBUG(L"find inode by ino=%d", ino);
+	f2fs_inode_info * new_node = m_sbi->f2fs_iget(ino);
 
 	if (IS_ERR(new_node)) 
 	{
@@ -736,6 +742,7 @@ dentry *Cf2fsDirInode::lookup(dentry *src_entry, unsigned int flags)
 	std::wstring fn;
 	jcvos::Utf8ToUnicode(fn, fname.usr_fname->name);
 	new_node->m_description = L"file of " + fn;
+	LOG_DEBUG(L"check size lock file=%s, lock=%d", fn.c_str(), new_node->i_size_lock.LockCount);
 #endif
 
 	if ((i_ino == root_ino) && f2fs_has_inline_dots())
@@ -780,66 +787,64 @@ out_iput:
 	return ERR_PTR<dentry>(err);
 }
 
-#if 0 //TODO
 
-static int f2fs_unlink(struct inode *dir, struct dentry *dentry)
+//static int f2fs_unlink(struct inode *dir, struct dentry *dentry)
+// 删除文件。ddentry为要删除文件的dentry结构
+int Cf2fsDirInode::unlink(dentry* ddentry)
 {
-	struct f2fs_sb_info *sbi = F2FS_I_SB(dir);
-	struct inode *inode = d_inode(dentry);
-	struct f2fs_dir_entry *de;
-	struct page *page;
+	f2fs_sb_info* sbi = m_sbi;
+	f2fs_inode_info *iinode= F2FS_I(d_inode(ddentry));		// 要删除文件的inode
+	f2fs_dir_entry *de;
+	page *ppage;
 	int err;
 
-	trace_f2fs_unlink_enter(dir, dentry);
+//	trace_f2fs_unlink_enter(dir, ddentry);
 
-	if (unlikely(sbi->f2fs_cp_error())) {
+	if (unlikely(sbi->f2fs_cp_error())) 
+	{
 		err = -EIO;
 		goto fail;
 	}
 
-	err = dquot_initialize(dir);
-	if (err)
-		goto fail;
-	err = dquot_initialize(inode);
-	if (err)
-		goto fail;
+	err = dquot_initialize(this);
+	if (err)	goto fail;
+	err = dquot_initialize(iinode);
+	if (err)	goto fail;
 
-	de = f2fs_find_entry(dir, &dentry->d_name, &page);
-	if (!de) {
-		if (IS_ERR(page))
-			err = PTR_ERR(page);
+	de = f2fs_find_entry(&ddentry->d_name, &ppage);
+	if (!de) 
+	{
+		if (IS_ERR(ppage))	err = PTR_ERR(ppage);
 		goto fail;
 	}
 
-	f2fs_balance_fs(sbi, true);
+	sbi->f2fs_balance_fs(true);
 
 	sbi->f2fs_lock_op();
 	//auto_lock<semaphore_read_lock> lock_op(sbi->cp_rwsem);
 	err = f2fs_acquire_orphan_inode(sbi);
-	if (err) {
+	if (err) 
+	{
 		sbi->f2fs_unlock_op();
-		f2fs_put_page(page, 0);
+		f2fs_put_page(ppage, 0);
 		goto fail;
 	}
-	f2fs_delete_entry(de, page, dir, inode);
+	f2fs_delete_entry(de, ppage, this, iinode);
 #ifdef CONFIG_UNICODE
-	/* VFS negative dentries are incompatible with Encoding and
-	 * Case-insensitiveness. Eventually we'll want avoid
-	 * invalidating the dentries here, alongside with returning the
-	 * negative dentries at f2fs_lookup(), when it is better
-	 * supported by the VFS for the CI case.
-	 */
-	if (IS_CASEFOLDED(dir))
-		d_invalidate(dentry);
+	/* VFS negative dentries are incompatible with Encoding and Case-insensitiveness. Eventually we'll want avoid invalidating the dentries here, alongside with returning the negative dentries at f2fs_lookup(), when it is better supported by the VFS for the CI case. */
+	if (IS_CASEFOLDED(this))	d_invalidate(ddentry);
 #endif
 	sbi->f2fs_unlock_op();
 
-	if (IS_DIRSYNC(dir))
+	if (IS_DIRSYNC(this))
 		sbi->sync_fs(1);
 fail:
-	trace_f2fs_unlink_exit(inode, err);
+//	trace_f2fs_unlink_exit(iinode, err);
 	return err;
 }
+
+#if 0 //TODO
+
 
 static const char *f2fs_get_link(struct dentry *dentry,
 				 struct inode *inode,
@@ -887,7 +892,7 @@ static int f2fs_symlink(struct user_namespace *mnt_userns, struct inode *dir,
 		inode->i_op = &f2fs_encrypted_symlink_inode_operations;
 	else
 		inode->i_op = &f2fs_symlink_inode_operations;
-	inode_nohighmem(inode);
+	inode->inode_nohighmem();
 	inode->i_mapping->a_ops = &f2fs_dblock_aops;
 
 	sbi->f2fs_lock_op();
@@ -927,7 +932,7 @@ err_out:
 		f2fs_unlink(dir, dentry);
 	}
 
-	f2fs_balance_fs(sbi, true);
+	sbi->f2fs_balance_fs(true);
 	goto out_free_encrypted_link;
 
 out_f2fs_handle_failed_inode:
@@ -938,53 +943,54 @@ out_free_encrypted_link:
 	return err;
 }
 
-static int f2fs_mkdir(struct user_namespace *mnt_userns, struct inode *dir,
-		      struct dentry *dentry, umode_t mode)
+#endif //<TODO>
+
+//static int f2fs_mkdir(struct user_namespace *mnt_userns, struct inode *dir,   struct dentry *dentry, umode_t mode)
+int Cf2fsDirInode::mkdir(user_namespace* mnt_userns, dentry* ddentry, umode_t mode)
 {
-	struct f2fs_sb_info *sbi = F2FS_I_SB(dir);
-	struct inode *inode;
+	//struct f2fs_sb_info* sbi = m_sbi; // F2FS_I_SB(dir);
+//	struct inode *inode;
 	int err;
 
-	if (unlikely(sbi->f2fs_cp_error()))
-		return -EIO;
+	if (unlikely(m_sbi->f2fs_cp_error()))	return -EIO;
 
-	err = dquot_initialize(dir);
-	if (err)
-		return err;
+	err = dquot_initialize(this);
+	if (err)	return err;
 
-	inode = f2fs_new_inode(dir, S_IFDIR | mode);
-	if (IS_ERR(inode))
-		return PTR_ERR(inode);
+	f2fs_inode_info * iinode = GetFs()->f2fs_new_inode<Cf2fsDirInode>(this, S_IFDIR | mode);
+	if (IS_ERR(iinode))	return PTR_ERR(iinode);
 
-	inode->i_op = &f2fs_dir_inode_operations;
-	inode->i_fop = &f2fs_dir_operations;
-	inode->i_mapping->a_ops = &f2fs_dblock_aops;
-	inode_nohighmem(inode);
-
-	set_inode_flag(inode, FI_INC_LINK);
-	sbi->f2fs_lock_op();
-	//auto_lock<semaphore_read_lock> lock_op(sbi->cp_rwsem);
-
-	err = f2fs_add_link(dentry, inode);
-	if (err)
-		goto out_fail;
-	sbi->f2fs_unlock_op();
-
-	f2fs_alloc_nid_done(sbi, inode->i_ino);
-
-	d_instantiate_new(dentry, inode);
-
-	if (IS_DIRSYNC(dir))
-		sbi->sync_fs(1);
-
-	f2fs_balance_fs(sbi, true);
+//	iinode->i_op = &f2fs_dir_inode_operations;
+//	iinode->i_fop = &f2fs_dir_operations;
+//	iinode->i_mapping->a_ops = &f2fs_dblock_aops;
+	iinode->inode_nohighmem();
+	iinode->set_inode_flag(FI_INC_LINK);
+//	m_sbi->f2fs_lock_op();
+	{
+		auto_lock<semaphore_read_lock> lock_op(m_sbi->cp_rwsem);
+		err = f2fs_add_link(ddentry, iinode);
+		if (err)
+		{
+//			goto out_fail;
+			clear_inode_flag(iinode, FI_INC_LINK);
+			f2fs_handle_failed_inode(iinode);
+			return err;
+		}
+//		m_sbi->f2fs_unlock_op();
+	}
+	m_sbi->nm_info->f2fs_alloc_nid_done(iinode->i_ino);
+	d_instantiate_new(ddentry, iinode);
+	if (IS_DIRSYNC(this))	m_sbi->sync_fs(1);
+	m_sbi->f2fs_balance_fs(true);
 	return 0;
 
-out_fail:
-	clear_inode_flag(inode, FI_INC_LINK);
-	f2fs_handle_failed_inode(inode);
-	return err;
+//out_fail:
+//	clear_inode_flag(iinode, FI_INC_LINK);
+//	f2fs_handle_failed_inode(iinode);
+//	return err;
 }
+
+#if 0 //<TODO>
 
 static int f2fs_rmdir(struct inode *dir, struct dentry *dentry)
 {
@@ -1033,7 +1039,7 @@ static int f2fs_mknod(struct user_namespace *mnt_userns, struct inode *dir,
 	if (IS_DIRSYNC(dir))
 		sbi->sync_fs(1);
 
-	f2fs_balance_fs(sbi, true);
+	sbi->f2fs_balance_fs(true);
 	return 0;
 out:
 	f2fs_handle_failed_inode(inode);
@@ -1097,7 +1103,7 @@ static int __f2fs_tmpfile(struct inode *dir, struct dentry *dentry,
 	sbi->f2fs_unlock_op();
 	unlock_new_inode(inode);
 
-	f2fs_balance_fs(sbi, true);
+	sbi->f2fs_balance_fs(true);
 	return 0;
 
 release_out:
@@ -1219,7 +1225,7 @@ static int f2fs_rename(struct inode *old_dir, struct dentry *old_dentry,
 			goto out_dir;
 		}
 
-		f2fs_balance_fs(sbi, true);
+		sbi->f2fs_balance_fs(true);
 
 		sbi->f2fs_lock_op();
 		//auto_lock<semaphore_read_lock> lock_op(sbi->cp_rwsem);
@@ -1243,7 +1249,7 @@ static int f2fs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		else
 			f2fs_release_orphan_inode(sbi);
 	} else {
-		f2fs_balance_fs(sbi, true);
+		sbi->f2fs_balance_fs(true);
 
 		sbi->f2fs_lock_op();
 		//auto_lock<semaphore_read_lock> lock_op(sbi->cp_rwsem);
@@ -1409,7 +1415,7 @@ static int f2fs_cross_rename(struct inode *old_dir, struct dentry *old_dentry,
 			goto out_new_dir;
 	}
 
-	f2fs_balance_fs(sbi, true);
+	sbi->f2fs_balance_fs(true);
 
 	sbi->f2fs_lock_op();
 	//auto_lock<semaphore_read_lock> lock_op(sbi->cp_rwsem);
