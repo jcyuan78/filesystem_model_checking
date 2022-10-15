@@ -106,7 +106,7 @@ static void del_fsync_inode(struct fsync_inode_entry *entry, int drop)
 	if (drop)
 	{
 		/* inode should not be recovered, drop it */
-		f2fs_inode_synced(entry->inode);
+		entry->inode->f2fs_inode_synced();
 	}
 	iput(entry->inode);
 	list_del(&entry->list);
@@ -224,13 +224,13 @@ retry:
 			goto out_put;
 		}
 
-		err = f2fs_acquire_orphan_inode(F2FS_I_SB(inode_buf));
+		err = inode_buf->m_sbi->f2fs_acquire_orphan_inode();
 		if (err) 
 		{
 			iput(einode);
 			goto out_put;
 		}
-		f2fs_delete_entry(de, ppage, dir, einode);
+		dir->f2fs_delete_entry(de, ppage, einode);
 		iput(einode);
 		goto retry;
 	} 
@@ -575,7 +575,7 @@ static int do_recover_data(f2fs_sb_info *sbi, inode *inode, page *page)
 	}
 
 	/* step 2: recover inline data */
-	err = f2fs_recover_inline_data(inode, page);
+	err = f2fs_recover_inline_data(F2FS_I(inode), page);
 	if (err) {
 		if (err == 1)
 			err = 0;

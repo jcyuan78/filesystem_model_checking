@@ -9,8 +9,13 @@ LOCAL_LOGGER_ENABLE(L"f2fs.fileinfo", LOGGER_LEVEL_DEBUGINFO);
 
 CF2fsFile::~CF2fsFile(void)
 {
-	dput(m_dentry);			// dput可以接受null参数，被忽略
-	m_dentry = nullptr;
+	if (m_dentry)
+	{
+		dput(m_dentry);			// dput可以接受null参数，被忽略
+		//LOG_DEBUG(L"[dentry_track] addr=%p, fn=%S, ref=%d, inode=%p - destory Cf2fsFile", m_dentry, m_dentry->d_name.name.c_str(), m_dentry->d_lockref.count, m_dentry->d_inode);
+		m_dentry->dentry_trace(__FUNCTIONW__, __LINE__);
+		m_dentry = nullptr;
+	}
 }
 
 void CF2fsFile::Init(dentry* de, inode* node, CF2fsFileSystem* fs, UINT32 mode)
@@ -28,24 +33,33 @@ void CF2fsFile::Init(dentry* de, inode* node, CF2fsFileSystem* fs, UINT32 mode)
 	if (m_inode == NULL) THROW_ERROR(ERR_APP, L"[err] inode is null or wrong type");
 	m_file.init(m_inode);
 	m_file.f_mode |= mode;
-//	iget(m_inode);
+	//LOG_DEBUG(L"[dentry_track] addr=%p, fn=%S, ref=%d, inode=%p - create Cf2fsFile", m_dentry, m_dentry->d_name.name.c_str(), m_dentry->d_lockref.count, m_dentry->d_inode);
+//	m_dentry->dentry_trace(__FUNCTIONW__, __LINE__);
 }
 
 void CF2fsFile::CloseFile(void)
 {
 	LOG_STACK_TRACE();
-	JCASSERT(m_inode);
 
-	m_inode->fsync(&m_file, 0, m_inode->i_size, true);
-	m_inode->release_file(&m_file);
-	dput(m_dentry);
-	m_dentry = nullptr;
-	m_inode = nullptr;
+	//JCASSERT(m_inode);
+	if (m_inode && m_dentry)
+	{	// 有可能文件已经被删除
+//		LOG_DEBUG(L"[fs_op] close, %S", m_dentry->d_name.name.c_str());
+		m_dentry->dentry_trace(__FUNCTIONW__, __LINE__);
+
+		m_inode->fsync(&m_file, 0, m_inode->i_size, true);
+		m_inode->release_file(&m_file);
+		dput(m_dentry);
+		//LOG_DEBUG(L"[dentry_track] addr=%p, fn=%S, ref=%d, inode=%p - before close file", m_dentry, m_dentry->d_name.name.c_str(), m_dentry->d_lockref.count, m_dentry->d_inode);
+		m_dentry = nullptr;
+		m_inode = nullptr;
+	}
 }
 
 bool CF2fsFile::DokanReadFile(LPVOID buf, DWORD len, DWORD& read, LONGLONG offset)
 {
 	LOG_STACK_TRACE();
+//	LOG_DEBUG(L"[fs_op] read, %S, offset=%lld, len=%lld", m_dentry->d_name.name.c_str(), offset, len);
 	Cf2fsFileNode* file_node = dynamic_cast<Cf2fsFileNode*>(m_inode);
 	if (!file_node) THROW_ERROR(ERR_APP, L"the inode is not a file (%X) or is null", m_inode);
 
@@ -75,6 +89,8 @@ bool CF2fsFile::DokanReadFile(LPVOID buf, DWORD len, DWORD& read, LONGLONG offse
 bool CF2fsFile::DokanWriteFile(const void* buf, DWORD len, DWORD& written, LONGLONG offset)
 {
 	LOG_STACK_TRACE();
+//	LOG_DEBUG(L"[fs_op] write, %S, offset=%lld, len=%lld", m_dentry->d_name.name.c_str(), offset, len);
+
 	Cf2fsFileNode* file_node = dynamic_cast<Cf2fsFileNode*>(m_inode);
 	if (!file_node) THROW_ERROR(ERR_APP, L"the inode is not a file (%X) or is null", m_inode);
 	iovec iov;
@@ -111,21 +127,51 @@ inline time64_t FromFileTime(const FILETIME& ft)
 	return tt;
 }
 
+bool CF2fsFile::EnumerateFiles(EnumFileListener* listener) const
+{
+	JCASSERT(m_inode);
+	Cf2fsDirInode* dir = dynamic_cast<Cf2fsDirInode*>(m_inode);
+	if (dir == nullptr) THROW_ERROR(ERR_APP, L"only dir support enumerate");
+	std::list<dentry*> child_list;
+	dir->enum_childs(m_dentry, child_list);
+	int index = 0;
+	for (auto it = child_list.begin(); it != child_list.end(); ++it, ++index)
+	{
+		dentry* entry = *it;
+		std::wstring fn;
+		jcvos::Utf8ToUnicode(fn, entry->d_name.name);
+		BY_HANDLE_FILE_INFORMATION info;
+		InodeToInfo(info, F2FS_I(entry->d_inode));
+		bool br = listener->EnumFileCallback(fn, entry->d_inode->i_ino, index, &info);
+		dput(entry);
+//		if (!br) break;
+	}
+	child_list.clear();
+	return true;
+}
+
 bool CF2fsFile::GetFileInformation(LPBY_HANDLE_FILE_INFORMATION fileinfo) const
 {
+	LOG_STACK_TRACE();
+//	LOG_DEBUG(L"[fs_op] file_info, %S", m_dentry->d_name.name.c_str());
+
 	if (fileinfo)
 	{
-//		m_inode->getattr();
-		fileinfo->dwFileAttributes = m_inode->GetFileAttribute();
-		ToFileTime(fileinfo->ftCreationTime, m_inode->i_ctime);
-		ToFileTime(fileinfo->ftLastAccessTime, m_inode->i_atime);
-		ToFileTime(fileinfo->ftLastWriteTime, m_inode->i_mtime);
-		fileinfo->dwVolumeSerialNumber = m_inode->m_sbi->raw_super->magic;
-		fileinfo->nFileSizeHigh = m_inode->GetFileSizeHi();
-		fileinfo->nFileSizeLow = m_inode->GetFileSizeLo();
-		fileinfo->nNumberOfLinks = m_inode->i_nlink;
-		fileinfo->nFileIndexHigh = 0;
-		fileinfo->nFileIndexLow = m_inode->i_ino;
+		InodeToInfo(*fileinfo, m_inode);
+//		LOG_DEBUG(L"attr = 0x%X", fileinfo->dwFileAttributes);
+#ifdef _DEBUG
+		SYSTEMTIME t;
+		FILETIME ft = fileinfo->ftCreationTime;
+		FileTimeToSystemTime(&ft, &t);
+		LOG_DEBUG(L"create time, hi=%d, lo=%d, t=%d-%d-%d:%d:%d:%d", ft.dwLowDateTime, ft.dwHighDateTime, t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+
+		ft = fileinfo->ftLastAccessTime;
+		FileTimeToSystemTime(&ft, &t);
+		LOG_DEBUG(L"access time, hi=%d, lo=%d, t=%d-%d-%d:%d:%d:%d", ft.dwLowDateTime, ft.dwHighDateTime, t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+		ft = fileinfo->ftLastWriteTime;
+		FileTimeToSystemTime(&ft, &t);
+		LOG_DEBUG(L"modify time, hi=%d, lo=%d, t=%d-%d-%d:%d:%d:%d", ft.dwLowDateTime, ft.dwHighDateTime, t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+#endif
 	}
 	return true;
 }
@@ -137,21 +183,38 @@ std::wstring CF2fsFile::GetFileName(void) const
 	return str_fn;
 }
 
+bool CF2fsFile::IsEmpty(void) const
+{
+	return m_inode->f2fs_empty_dir();
+}
+
 bool CF2fsFile::SetAllocationSize(LONGLONG size)
 {
+	//Cf2fsFileNode* file = dynamic_cast<Cf2fsFileNode*>(m_inode);
+	//if (!file) THROW_ERROR(ERR_APP, L"the inode is not a file (%X) or is null", m_inode);
+	//// 获取文件现在的长度
+	//loff_t offset = file->GetFileSize();
+	//if ((loff_t)size < offset)
+	//{
+	//	LOG_ERROR(L"[err] not support truncate now, cur size=%lld, new size=%lld", offset, size);
+	//	return false;
+	//}
+	//loff_t new_size = size - offset;
+	////	int mode = FALLOC_FL_INSERT_RANGE;	// 增加文件长度，并且以洞填充，好像无法在文件末尾怎加长度
+	//int mode = FALLOC_FL_ZERO_RANGE;	// 增加文件长度，并且以0填充
+	//int err = file->fallocate(mode, offset, new_size);
+	//return (err == 0);
+
+	// SetAllocationSize: 相当于WinAPI的 SetFileValidData()，仅改变文件的逻辑长度。//<TODO>优化
 	Cf2fsFileNode* file = dynamic_cast<Cf2fsFileNode*>(m_inode);
 	if (!file) THROW_ERROR(ERR_APP, L"the inode is not a file (%X) or is null", m_inode);
-	// 获取文件现在的长度
-	loff_t offset = file->GetFileSize();
-	if ((loff_t)size < offset)
-	{
-		LOG_ERROR(L"[err] not support truncate now, cur size=%lld, new size=%lld", offset, size);
-		return false;
-	}
-	loff_t new_size = size - offset;
-	//	int mode = FALLOC_FL_INSERT_RANGE;	// 增加文件长度，并且以洞填充，好像无法在文件末尾怎加长度
-	int mode = FALLOC_FL_ZERO_RANGE;	// 增加文件长度，并且以0填充
-	int err = file->fallocate(mode, offset, new_size);
+
+	iattr attr;
+	memset(&attr, 0, sizeof(attr));
+	attr.ia_valid |= ATTR_SIZE;
+	attr.ia_size = size;
+
+	int err = m_inode->setattr(nullptr, m_dentry, &attr);
 	return (err == 0);
 }
 
@@ -194,14 +257,57 @@ bool CF2fsFile::SetEndOfFile(LONGLONG size)
 
 void CF2fsFile::DokanSetFileAttributes(DWORD attr)
 {
-	m_inode->SetFileAttribute(attr);
+
+	fmode_t mode_add=0, mode_sub=0;
+	if (attr & FILE_ATTRIBUTE_READONLY) mode_add |= FMODE_READONLY;
+	else								mode_sub |= FMODE_READONLY;
+	if (attr & FILE_ATTRIBUTE_HIDDEN)	mode_add |= FMODE_HIDDEN;
+	else								mode_sub |= FMODE_HIDDEN;
+	if (attr & FILE_ATTRIBUTE_SYSTEM)	mode_add |= FMODE_SYSTEM;
+	else								mode_sub |= FMODE_SYSTEM;
+	if (attr & FILE_ATTRIBUTE_ARCHIVE)	mode_add |= FMODE_ARCHIVE;
+	else								mode_sub |= FMODE_ARCHIVE;
+
+	m_inode->SetFileAttribute(mode_add, mode_sub);
+	LOG_DEBUG(L"new mode=0x%X", m_inode->i_mode);
 }
 
 void CF2fsFile::SetFileTime(const FILETIME* ct, const FILETIME* at, const FILETIME* mt)
 {
+#ifdef _DEBUG
+	SYSTEMTIME t;
+	FILETIME ft;
+	if (ct)
+	{
+		ft = *ct;
+		FileTimeToSystemTime(&ft, &t);
+		LOG_DEBUG(L"create time, hi=%d, lo=%d, t=%d-%d-%d:%d:%d:%d", ft.dwLowDateTime, ft.dwHighDateTime, t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+	}
+	else { LOG_DEBUG(L"create time is not set"); }
+
+	if (at)
+	{
+		ft = *at;
+		FileTimeToSystemTime(&ft, &t);
+		LOG_DEBUG(L"access time, hi=%d, lo=%d, t=%d-%d-%d:%d:%d:%d", ft.dwLowDateTime, ft.dwHighDateTime, t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+	}
+	else { LOG_DEBUG(L"access time is not set"); }
+	if (mt)
+	{
+		ft = *mt;
+		FileTimeToSystemTime(&ft, &t);
+		LOG_DEBUG(L"modify time, hi=%d, lo=%d, t=%d-%d-%d:%d:%d:%d", ft.dwLowDateTime, ft.dwHighDateTime, t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+	}
+	else { LOG_DEBUG(L"modify time is not set"); }
+
+
+#endif
+
 	if (ct) { m_inode->i_ctime = FromFileTime(*ct); }
 	if (at) { m_inode->i_atime = FromFileTime(*at); }
 	if (mt) { m_inode->i_mtime = FromFileTime(*mt); }
+	else { m_inode->i_mtime =current_time(m_inode); }
+	m_inode->SetFileAttribute(0, 0);		// force inode dirty
 	// <TODO> make inode dirty
 }
 
@@ -237,10 +343,10 @@ bool CF2fsFile::_OpenChild(CF2fsFile*& file, const wchar_t* fn, UINT32 mode) con
 	dentry* entry = d_alloc(m_dentry, name);
 	if (!entry) THROW_ERROR(ERR_MEM, L"failed on creating dentry");
 	// lock_kernel
+	// lookup不影响总体的计数。如果成功，则计数转移给next_entry，src_entry无效。如果没有找到，保持src_entry不变，需要再dput()
 	dentry * new_entry = m_inode->lookup(entry, 0);
 //	dput(entry);
-
-	if ((INT64)new_entry < 0 )
+	if (IS_ERR(new_entry) )
 	{
 		LOG_ERROR(L"[err] cannot find item %s", fn);
 		dput(entry);
@@ -248,9 +354,24 @@ bool CF2fsFile::_OpenChild(CF2fsFile*& file, const wchar_t* fn, UINT32 mode) con
 	}
 	// unlock_kernel
 	file = jcvos::CDynamicInstance<CF2fsFile>::Create();
-	file->Init(entry, NULL, m_fs, mode);
-	dput(entry);
+	file->Init(new_entry, NULL, m_fs, mode);
+	dput(new_entry);
+	new_entry->dentry_trace(__FUNCTIONW__, __LINE__);
 	return true;
+}
+
+void CF2fsFile::InodeToInfo(BY_HANDLE_FILE_INFORMATION& info, f2fs_inode_info* iinode)
+{
+	info.dwFileAttributes = iinode->GetFileAttribute();
+	ToFileTime(info.ftCreationTime, iinode->i_ctime);
+	ToFileTime(info.ftLastAccessTime, iinode->i_atime);
+	ToFileTime(info.ftLastWriteTime, iinode->i_mtime);
+	info.dwVolumeSerialNumber = iinode->m_sbi->raw_super->magic;
+	info.nFileSizeHigh = iinode->GetFileSizeHi();
+	info.nFileSizeLow = iinode->GetFileSizeLo();
+	info.nNumberOfLinks = iinode->i_nlink;
+	info.nFileIndexHigh = 0;
+	info.nFileIndexLow = iinode->i_ino;
 }
 
 // 递归打开文件夹
@@ -279,16 +400,18 @@ bool CF2fsFile::_OpenChildEx(CF2fsFile*& file, const wchar_t* fn, size_t len)
 		dentry* src_entry = d_alloc(cur_entry, name);
 
 		f2fs_inode_info * cur_inode = F2FS_I(cur_entry->d_inode);
+		// lookup不影响总体的计数。如果成功，则计数转移给next_entry，src_entry无效。如果没有找到，保持src_entry不变，需要再dput()
 		dentry * next_entry = cur_inode->lookup(src_entry, 0);
-
+//		dput(src_entry);
 		dput(cur_entry);
-		if ((INT64)next_entry < 0)
+		if (IS_ERR(next_entry))
 		{
 			LOG_ERROR(L"[err] cannot find %S in %S", name.name.c_str(), cur_entry->d_name.name.c_str());
+			dput(src_entry);
 			return false;
 		}
 
-		cur_entry = src_entry;
+		cur_entry = next_entry;
 		// 分析后续名称
 		parent_start = parent_end;
 		if (parent_start >= end_path) break;
@@ -302,11 +425,43 @@ bool CF2fsFile::_OpenChildEx(CF2fsFile*& file, const wchar_t* fn, size_t len)
 	return true;
 }
 
-void CF2fsFile::_DeleteChild(CF2fsFile* child)
+//void CF2fsFile::_DeleteChild(CF2fsFile* child)
+//{
+//	dentry* child_entry = child->m_dentry;
+//	int err = m_inode->unlink(child_entry);
+//	if (err) THROW_ERROR(ERR_APP, L"failed on delete file %S, error=%d", m_dentry->d_name.name.c_str(), err);
+//}
+
+int CF2fsFile::_DeleteChild(const std::wstring & fn)
 {
-	dentry* child_entry = child->m_dentry;
-	int err = m_inode->unlink(child_entry);
-	if (err) THROW_ERROR(ERR_APP, L"failed on delete file %S, error=%d", m_dentry->d_name.name.c_str(), err);
+	qstr child_name(fn);
+	dentry* child_entry = d_alloc(m_dentry, child_name);
+	// lookup不影响总体的计数。如果成功，则计数转移给next_entry，src_entry无效。如果没有找到，保持src_entry不变，需要再dput()
+	dentry* new_entry = m_inode->lookup(child_entry, 0);
+//	dput(child_entry);
+	if (IS_ERR(new_entry))
+	{
+		LOG_ERROR(L"[err] cannot find %s in parent", fn.c_str());
+		dput(child_entry);
+		return -ENOENT;
+	}
+	// 如果目标文件是目录，检查是否为空。
+	if (S_ISDIR(new_entry->d_inode->i_mode))
+	{
+		Cf2fsDirInode* dir = dynamic_cast<Cf2fsDirInode*>(new_entry->d_inode);
+		if (!dir->f2fs_empty_dir())
+		{
+			dput(new_entry);
+			return -ENOTEMPTY;
+		}
+	}
+	LOG_DEBUG(L"fn=%s, dentry=%p, inode=%p, ino=%d", fn.c_str(), new_entry, new_entry->d_inode, new_entry->d_inode->i_ino);
+	int err = m_inode->unlink(new_entry);
+	if (err) THROW_ERROR(ERR_APP, L"failed on delete file %S, error=%d", new_entry->d_name.name.c_str(), err);
+	d_delete(new_entry);
+	m_inode->m_sbi->f2fs_balance_fs(true);
+	dput(new_entry);
+	return 0;
 }
 
 bool CF2fsFile::CreateChild(IFileInfo*& file, const wchar_t* fn, bool dir, UINT32 mode)
@@ -320,7 +475,7 @@ bool CF2fsFile::CreateChild(IFileInfo*& file, const wchar_t* fn, bool dir, UINT3
 	int err = 0;
 	if (!dir)	
 	{
-		mode |= S_IFREG;	
+		mode |= (S_IFREG | FMODE_ARCHIVE);	
 		err = m_inode->create(NULL, entry, mode, false);
 		if (err)
 		{

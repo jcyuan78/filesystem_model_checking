@@ -346,24 +346,23 @@ int Cf2fsMetaMapping::write_page(page * page, writeback_control *wbc)
 //static int f2fs_write_meta_pages(address_space *mapping, struct writeback_control *wbc)
 int Cf2fsMetaMapping::write_pages(writeback_control * wbc)
 {
-#if 0
-	struct f2fs_sb_info *sbi = F2FS_M_SB(mapping);
+#if 1
+//	struct f2fs_sb_info *sbi = F2FS_M_SB(mapping);
+	f2fs_sb_info* sbi = dynamic_cast<f2fs_sb_info*>(host->i_sb);
 	long diff, written;
 
 	if (unlikely(sbi->is_sbi_flag_set( SBI_POR_DOING)))
 		goto skip_write;
 
 	/* collect a number of dirty meta pages and write together */
-	if (wbc->sync_mode != WB_SYNC_ALL &&
-			sbi->get_pages( F2FS_DIRTY_META) <
-					nr_pages_to_skip(sbi, META))
+	if (wbc->sync_mode != WB_SYNC_ALL && sbi->get_pages( F2FS_DIRTY_META) < nr_pages_to_skip(sbi, META))
 		goto skip_write;
 
 	/* if locked failed, cp will flush dirty pages instead */
 	if (!down_write_trylock(&sbi->cp_global_sem))
 		goto skip_write;
 
-	trace_f2fs_writepages(mapping->host, wbc, META);
+//	trace_f2fs_writepages(mapping->host, wbc, META);
 	diff = nr_pages_to_write(sbi, META, wbc);
 	written = sbi->f2fs_sync_meta_pages(META, wbc->nr_to_write, FS_META_IO);
 	up_write(&sbi->cp_global_sem);
@@ -372,7 +371,7 @@ int Cf2fsMetaMapping::write_pages(writeback_control * wbc)
 
 skip_write:
 	wbc->pages_skipped += sbi->get_pages( F2FS_DIRTY_META);
-	trace_f2fs_writepages(mapping->host, wbc, META);
+//	trace_f2fs_writepages(mapping->host, wbc, META);
 #else
 	JCASSERT(0);
 #endif
@@ -607,41 +606,43 @@ bool f2fs_is_dirty_device(struct f2fs_sb_info *sbi, nid_t ino, unsigned int devi
 }
 
 
-int f2fs_acquire_orphan_inode(struct f2fs_sb_info *sbi)
+//int f2fs_acquire_orphan_inode(struct f2fs_sb_info *sbi)
+int f2fs_sb_info::f2fs_acquire_orphan_inode(void)
 {
-	struct inode_management *im = &sbi->im[ORPHAN_INO];
+	LOG_STACK_TRACE();
+	inode_management *im = &this->im[ORPHAN_INO];
 	int err = 0;
 
 	spin_lock(&im->ino_lock);
 
-	if (time_to_inject(sbi, FAULT_ORPHAN)) {
+	if (time_to_inject(this, FAULT_ORPHAN)) 
+	{
 		spin_unlock(&im->ino_lock);
-		f2fs_show_injection_info(sbi, FAULT_ORPHAN);
+		f2fs_show_injection_info(this, FAULT_ORPHAN);
 		return -ENOSPC;
 	}
 
-	if (unlikely(im->ino_num >= sbi->max_orphans))
-		err = -ENOSPC;
-	else
-		im->ino_num++;
+	if (unlikely(im->ino_num >= this->max_orphans))		err = -ENOSPC;
+	else		im->ino_num++;
 	spin_unlock(&im->ino_lock);
-
 	return err;
 }
 
-void f2fs_release_orphan_inode(f2fs_sb_info *sbi)
+//void f2fs_release_orphan_inode(f2fs_sb_info *sbi)
+void f2fs_sb_info::f2fs_release_orphan_inode(void)
 {
-	inode_management *im = &sbi->im[ORPHAN_INO];
-
+	inode_management *im = &this->im[ORPHAN_INO];
 	spin_lock(&im->ino_lock);
-	f2fs_bug_on(sbi, im->ino_num == 0);
+	f2fs_bug_on(this, im->ino_num == 0);
 	im->ino_num--;
 	spin_unlock(&im->ino_lock);
+	LOG_DEBUG(L"[orphan track] release orphan node, remain=%d", im->ino_num);
 }
 
 //void f2fs_add_orphan_inode(f2fs_inode_info *iinode)
 void f2fs_sb_info::f2fs_add_orphan_inode(f2fs_inode_info* iinode)
 {
+	LOG_DEBUG(L"[orphan track] add orphan node, ino=%d", iinode->i_ino);
 	/* add new orphan ino entry into list */
 	__add_ino_entry(iinode->i_ino, 0, ORPHAN_INO);
 	iinode->f2fs_update_inode_page();
@@ -650,19 +651,21 @@ void f2fs_sb_info::f2fs_add_orphan_inode(f2fs_inode_info* iinode)
 void f2fs_remove_orphan_inode(f2fs_sb_info *sbi, nid_t ino)
 {
 	/* remove orphan entry from orphan list */
+	LOG_DEBUG(L"[orphan track] remove orphan node, ino=%d", ino);
 	__remove_ino_entry(sbi, ino, ORPHAN_INO);
 }
 
-static int recover_orphan_inode(f2fs_sb_info *sbi, nid_t ino)
+//static int recover_orphan_inode(f2fs_sb_info *sbi, nid_t ino)
+int f2fs_sb_info::recover_orphan_inode(nid_t ino)
 {
 	f2fs_inode_info *iinode;
-	struct node_info ni;
+	node_info ni;
 	int err;
 
-	iinode = sbi->f2fs_iget_retry(ino);
+	iinode = f2fs_iget_retry(ino);
 	if (IS_ERR(iinode)) 
 	{	/* there should be a bug that we can't find the entry to orphan inode. */
-		f2fs_bug_on(sbi, PTR_ERR(iinode) == -ENOENT);
+		f2fs_bug_on(this, PTR_ERR(iinode) == -ENOENT);
 		return (int)PTR_ERR(iinode);
 	}
 
@@ -675,160 +678,153 @@ static int recover_orphan_inode(f2fs_sb_info *sbi, nid_t ino)
 	}
 #endif
 
-	clear_nlink(iinode);
+	iinode->clear_nlink();
 
 	/* truncate all the data during iput */
 	iput(iinode);
 
-	err = NM_I(sbi)->f2fs_get_node_info( ino, &ni);
-	if (err)
-		goto err_out;
+	err = nm_info->f2fs_get_node_info( ino, &ni);
+	if (err)	goto err_out;
 
 	/* ENOMEM was fully retried in f2fs_evict_inode. */
-	if (ni.blk_addr != NULL_ADDR) {
+	if (ni.blk_addr != NULL_ADDR) 
+	{
 		err = -EIO;
 		goto err_out;
 	}
 	return 0;
 
 err_out:
-	sbi->set_sbi_flag(SBI_NEED_FSCK);
-	f2fs_warn(sbi, L"%s: orphan failed (ino=%x), run fsck to fix.",  __func__, ino);
+	set_sbi_flag(SBI_NEED_FSCK);
+	LOG_WARNING(L"[warning] orphan failed (ino=%x), run fsck to fix.",  ino);
 	return err;
 }
 
-int f2fs_recover_orphan_inodes(struct f2fs_sb_info *sbi)
+//int f2fs_recover_orphan_inodes(struct f2fs_sb_info *sbi)
+int f2fs_sb_info::f2fs_recover_orphan_inodes(void)
 {
+	LOG_STACK_TRACE();
 	block_t start_blk, orphan_blocks, i, j;
-	unsigned int s_flags = sbi->s_flags;
+	unsigned int s_flags = this->s_flags;
 	int err = 0;
 #ifdef CONFIG_QUOTA
 	int quota_enabled;
 #endif
 
-	if (!sbi->is_set_ckpt_flags(CP_ORPHAN_PRESENT_FLAG))	return 0;
+	if (!this->is_set_ckpt_flags(CP_ORPHAN_PRESENT_FLAG))	return 0;
 
-	if (bdev_read_only(sbi->s_bdev))
+	if (bdev_read_only(s_bdev))
 	{
-		f2fs_info(sbi, L"write access unavailable, skipping orphan cleanup");
+		LOG_NOTICE(L"write access unavailable, skipping orphan cleanup");
 		return 0;
 	}
 
 	if (s_flags & SB_RDONLY)
 	{
-		f2fs_info(sbi, L"orphan cleanup on readonly fs");
-		sbi->s_flags &= ~SB_RDONLY;
+		LOG_NOTICE(L"orphan cleanup on readonly fs");
+		s_flags &= ~SB_RDONLY;
 	}
 
 #ifdef CONFIG_QUOTA
 	/* Needed for iput() to work correctly and not trash data */
-	sbi->s_flags |= SB_ACTIVE;
+	this->s_flags |= SB_ACTIVE;
 
-	/*
-	 * Turn on quotas which were not enabled for read-only mounts if
-	 * filesystem has quota feature, so that they are updated correctly.
-	 */
-	quota_enabled = f2fs_enable_quota_files(sbi, s_flags & SB_RDONLY);
+	/* Turn on quotas which were not enabled for read-only mounts if filesystem has quota feature, so that they are updated correctly. */
+	quota_enabled = f2fs_enable_quota_files(this, s_flags & SB_RDONLY);
 #endif
 
-	start_blk = sbi->__start_cp_addr() + 1 + sbi->__cp_payload();
-	orphan_blocks = __start_sum_addr(sbi) - 1 - sbi->__cp_payload();
+	start_blk = __start_cp_addr() + 1 + __cp_payload();
+	orphan_blocks = __start_sum_addr(this) - 1 - __cp_payload();
 
-	sbi->f2fs_ra_meta_pages( start_blk, orphan_blocks, META_CP, true);
+	this->f2fs_ra_meta_pages( start_blk, orphan_blocks, META_CP, true);
 
 	for (i = 0; i < orphan_blocks; i++)
 	{
-		struct page *page;
-		struct f2fs_orphan_block *orphan_blk;
-
-		page = sbi->f2fs_get_meta_page(start_blk + i);
-		if (IS_ERR(page))
+		page * ppage = f2fs_get_meta_page(start_blk + i);
+		if (IS_ERR(ppage))
 		{
-			err = (int)PTR_ERR(page);
+			err = (int)PTR_ERR(ppage);
 			goto out;
 		}
 
-		orphan_blk = page_address<f2fs_orphan_block>(page);
+		f2fs_orphan_block * orphan_blk = page_address<f2fs_orphan_block>(ppage);
 		for (j = 0; j < le32_to_cpu(orphan_blk->entry_count); j++)
 		{
 			nid_t ino = le32_to_cpu(orphan_blk->ino[j]);
-			err = recover_orphan_inode(sbi, ino);
+			LOG_DEBUG(L"get orphan node=%d", ino);
+			err = recover_orphan_inode(ino);
 			if (err)
 			{
-				f2fs_put_page(page, 1);
+				f2fs_put_page(ppage, 1);
 				goto out;
 			}
 		}
-		f2fs_put_page(page, 1);
+		f2fs_put_page(ppage, 1);
 	}
 	/* clear Orphan Flag */
-	clear_ckpt_flags(sbi, CP_ORPHAN_PRESENT_FLAG);
+	clear_ckpt_flags(this, CP_ORPHAN_PRESENT_FLAG);
 out:
-	sbi->set_sbi_flag(SBI_IS_RECOVERED);
+	set_sbi_flag(SBI_IS_RECOVERED);
 
 #ifdef CONFIG_QUOTA
 	/* Turn quotas off */
-	if (quota_enabled)	f2fs_quota_off_umount(sbi->sb);
+	if (quota_enabled)	f2fs_quota_off_umount(this->sb);
 #endif
-	sbi->s_flags = s_flags; /* Restore SB_RDONLY status */
+	s_flags = s_flags; /* Restore SB_RDONLY status */
 
 	return err;
 }
 
-static void write_orphan_inodes(struct f2fs_sb_info *sbi, block_t start_blk)
+//static void write_orphan_inodes(struct f2fs_sb_info *sbi, block_t start_blk)
+void f2fs_sb_info::write_orphan_inodes(block_t start_blk)
 {
-	struct list_head *head;
-	struct f2fs_orphan_block *orphan_blk = NULL;
+	LOG_STACK_TRACE();
+	f2fs_orphan_block *orphan_blk = NULL;
 	unsigned int nentries = 0;
 	unsigned short index = 1;
 	unsigned short orphan_blocks;
-	struct page *page = NULL;
-	struct ino_entry *orphan = NULL;
-	struct inode_management *im = &sbi->im[ORPHAN_INO];
+	page *ppage = NULL;
+	ino_entry *orphan = NULL;
+	inode_management *im = &this->im[ORPHAN_INO];
 
 	orphan_blocks = boost::numeric_cast<unsigned short>( GET_ORPHAN_BLOCKS(im->ino_num) );
 
-	/*
-	 * we don't need to do spin_lock(&im->ino_lock) here, since all the
-	 * orphan inode operations are covered under f2fs_lock_op().
-	 * And, spin_lock should be avoided due to page operations below.
-	 */
-	head = &im->ino_list;
+	/* we don't need to do spin_lock(&im->ino_lock) here, since all the orphan inode operations are covered under f2fs_lock_op(). And, spin_lock should be avoided due to page operations below. */
+	list_head *head = &im->ino_list;
 
 	/* loop for each orphan inode entry and write them in Jornal block */
 	list_for_each_entry(ino_entry, orphan, head, list) 
 	{
-		if (!page) {
-			page = f2fs_grab_meta_page(sbi, start_blk++);
-			orphan_blk = page_address<f2fs_orphan_block>(page);
+		if (!ppage)
+		{
+			ppage = f2fs_grab_meta_page(this, start_blk++);
+			orphan_blk = page_address<f2fs_orphan_block>(ppage);
 			memset(orphan_blk, 0, sizeof(*orphan_blk));
 		}
-
+		LOG_DEBUG(L"add orphan node=%d", orphan->ino);
 		orphan_blk->ino[nentries++] = cpu_to_le32(orphan->ino);
 
-		if (nentries == F2FS_ORPHANS_PER_BLOCK) {
-			/*
-			 * an orphan block is full of 1020 entries,
-			 * then we need to flush current orphan blocks
-			 * and bring another one in memory
-			 */
+		if (nentries == F2FS_ORPHANS_PER_BLOCK) 
+		{
+			/* an orphan block is full of 1020 entries, then we need to flush current orphan blocks and bring another one in memory */
 			orphan_blk->blk_addr = cpu_to_le16(index);
 			orphan_blk->blk_count = cpu_to_le16(orphan_blocks);
 			orphan_blk->entry_count = cpu_to_le32(nentries);
-			set_page_dirty(page);
-			f2fs_put_page(page, 1);
+			set_page_dirty(ppage);
+			f2fs_put_page(ppage, 1);
 			index++;
 			nentries = 0;
-			page = NULL;
+			ppage = NULL;
 		}
 	}
 
-	if (page) {
+	if (ppage) 
+	{
 		orphan_blk->blk_addr = cpu_to_le16(index);
 		orphan_blk->blk_count = cpu_to_le16(orphan_blocks);
 		orphan_blk->entry_count = cpu_to_le32(nentries);
-		set_page_dirty(page);
-		f2fs_put_page(page, 1);
+		set_page_dirty(ppage);
+		f2fs_put_page(ppage, 1);
 	}
 }
 
@@ -1021,7 +1017,8 @@ static void __add_dirty_inode(inode *iinode, inode_type type)
 	if (!f2fs_is_volatile_file(iinode))
 	{
 //		list_add_tail(&F2FS_I(iinode)->dirty_list, &sbi->inode_list[type]);
-		sbi->list_add_tail(finode, type);
+		LOG_DEBUG(L"[inode_track] add=%p, ino=%d, type=%d - add to sb inode list", finode, finode->i_ino, type);
+		sbi->sb_list_add_tail(finode, type);
 	}
 	stat_inc_dirty_inode(sbi, type);
 }
@@ -1035,7 +1032,8 @@ static void __remove_dirty_inode(struct inode *inode, enum inode_type type)
 	int flag = (type == DIR_INODE) ? FI_DIRTY_DIR : FI_DIRTY_FILE;
 	if (get_dirty_pages(inode) || !is_inode_flag_set(inode, flag))		return;
 	//list_del_init(&F2FS_I(inode)->dirty_list);
-	sbi->list_del_init(finode, type);
+	LOG_DEBUG(L"[inode_track] add=%p, ino=%d, type=%d - add to sb inode list", finode, finode->i_ino, type);
+	sbi->sb_list_del_init(finode, type);
 	clear_inode_flag(F2FS_I(inode), flag);
 	stat_dec_dirty_inode(F2FS_I_SB(inode), type);
 }
@@ -1063,8 +1061,7 @@ void f2fs_remove_dirty_inode(struct inode *inode)
 	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
 	enum inode_type type = S_ISDIR(inode->i_mode) ? DIR_INODE : FILE_INODE;
 
-	if (!S_ISDIR(inode->i_mode) && !S_ISREG(inode->i_mode) &&
-			!S_ISLNK(inode->i_mode))
+	if (!S_ISDIR(inode->i_mode) && !S_ISREG(inode->i_mode) && !S_ISLNK(inode->i_mode))
 		return;
 
 	if (type == FILE_INODE && !test_opt(sbi, DATA_FLUSH))
@@ -1105,11 +1102,10 @@ int f2fs_sync_dirty_inodes(f2fs_sb_info* sbi, enum inode_type type)
 		}
 		//fi = list_first_entry(head, f2fs_inode_info, dirty_list);
 		f2fs_inode_info* fi = sbi->get_list_first_entry(type);
-		//	iinode = static_cast<inode*>(fi);
+		inode* iinode = igrab(fi);
 		spin_unlock(&sbi->inode_lock[type]);
-		if (fi)
+		if (iinode)
 		{
-			inode* iinode = igrab(fi);
 			unsigned long cur_ino = fi->i_ino;
 			//		F2FS_I(iinode)->cp_task = current;
 			//		fi->i_mapping->filemap_fdatawrite();
@@ -1151,10 +1147,12 @@ int f2fs_sync_inode_meta(f2fs_sb_info *sbi)
 		}
 //		fi = list_first_entry(head, f2fs_inode_info, gdirty_list);
 		fi = sbi->get_list_first_entry(DIRTY_META);
+		LOG_DEBUG(L"[inode_track] add=%p, ino=%d, - try to sync", fi, fi->i_ino);
+		inode* iinode = igrab(fi);
 		spin_unlock(&sbi->inode_lock[DIRTY_META]);
-		if (fi)
+		if (iinode)
 		{
-			inode * iinode = igrab(fi);
+//			inode * iinode = igrab(fi);
 			sync_inode_metadata(iinode, 0);
 			/* it's on eviction */
 			if (is_inode_flag_set(iinode, FI_DIRTY_INODE))		fi->f2fs_update_inode_page();
@@ -1320,10 +1318,10 @@ static void update_ckpt_flags(f2fs_sb_info *sbi, struct cp_control *cpc)
 
 	spin_lock_irqsave(&sbi->cp_lock, flags);
 
-	if ((cpc->reason & CP_UMOUNT) &&
-			le32_to_cpu(ckpt->cp_pack_total_block_count) >
-			sbi->blocks_per_seg - NM_I(sbi)->nat_bits_blocks)
-		disable_nat_bits(sbi, false);
+	if ((cpc->reason & CP_UMOUNT) && le32_to_cpu(ckpt->cp_pack_total_block_count) > sbi->blocks_per_seg - NM_I(sbi)->nat_bits_blocks)
+	{
+		NM_I(sbi)->disable_nat_bits(false);
+	}
 
 	if (cpc->reason & CP_TRIMMED)
 		__set_ckpt_flags(ckpt, CP_TRIMMED_FLAG);
@@ -1513,7 +1511,7 @@ int f2fs_sb_info::do_checkpoint(cp_control* cpc)
 
 	if (orphan_num)
 	{
-		write_orphan_inodes(this, start_blk);
+		write_orphan_inodes(start_blk);
 		start_blk += orphan_blocks;
 	}
 

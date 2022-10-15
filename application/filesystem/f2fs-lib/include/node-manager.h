@@ -46,6 +46,8 @@ public:
 	int scan_nat_page(page* nat_page, nid_t start_nid);
 	bool add_free_nid(nid_t nid, bool build, bool update);
 
+	inline void disable_nat_bits(bool lock);
+
 
 public:	// protected
 	void cache_nat_entry(nid_t nid, struct f2fs_nat_entry* ne);

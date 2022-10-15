@@ -710,7 +710,7 @@ int CF2fsFileSystem::f2fs_write_check_point_pack(f2fs_configuration & c)
 	}
 
 	/* 1. cp page 1 of checkpoint pack 1 */
-	srand((c.fake_seed) ? 0 : time(NULL));
+	srand((c.fake_seed) ? 0 : (UINT)(time(NULL)) );
 	cp->checkpoint_ver = cpu_to_le64(rand() | 0x1);
 	set_cp(cur_node_segno[0], c.cur_seg[CURSEG_HOT_NODE]);
 	set_cp(cur_node_segno[1], c.cur_seg[CURSEG_WARM_NODE]);

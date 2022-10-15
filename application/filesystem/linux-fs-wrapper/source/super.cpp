@@ -1908,6 +1908,8 @@ super_block::super_block(void)
 
 	s_bdi = new backing_dev_info;
 	bdi_init(s_bdi);
+
+	spin_lock_init(&rename_lock);
 }
 
 super_block::~super_block(void)
@@ -1915,4 +1917,5 @@ super_block::~super_block(void)
 	delete s_bdi;
 	spin_lock_del(&s_inode_list_lock);
 	spin_lock_del(&s_inode_wblist_lock);
+	spin_lock_del(&rename_lock);
 }

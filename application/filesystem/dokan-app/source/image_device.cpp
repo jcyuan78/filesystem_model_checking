@@ -28,12 +28,12 @@ bool CImageDevice::CreateFileImage(const std::wstring & fn, size_t secs)
 	return true;
 }
 
-UINT CImageDevice::GetCapacity(void)
+size_t CImageDevice::GetCapacity(void)
 {
 	return m_capacity;
 }
 
-bool CImageDevice::ReadSectors(void * buf, UINT lba, size_t secs)
+bool CImageDevice::ReadSectors(void * buf, size_t lba, size_t secs)
 {
 	JCASSERT(m_sector_size);
 	jcvos::auto_interface<jcvos::IBinaryBuffer> _buf;
@@ -49,7 +49,7 @@ bool CImageDevice::ReadSectors(void * buf, UINT lba, size_t secs)
 	return true;
 }
 
-bool CImageDevice::WriteSectors(void * buf, UINT lba, size_t secs)
+bool CImageDevice::WriteSectors(void * buf, size_t lba, size_t secs)
 {
 	JCASSERT(m_sector_size);
 	jcvos::auto_interface<jcvos::IBinaryBuffer> _buf;

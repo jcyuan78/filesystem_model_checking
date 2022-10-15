@@ -75,21 +75,23 @@ static inline struct inode *wb_inode(struct list_head *head)
 #include <trace/events/writeback.h>
 
 EXPORT_TRACEPOINT_SYMBOL_GPL(wbc_writepage);
+#endif //<TODO>
 
 static bool wb_io_lists_populated(struct bdi_writeback *wb)
 {
-	if (wb_has_dirty_io(wb)) {
+	if (wb_has_dirty_io(wb)) 
+	{
 		return false;
-	} else {
+	}
+	else
+	{
 		set_bit(WB_has_dirty_io, &wb->state);
-		WARN_ON_ONCE(!wb->avg_write_bandwidth);
-		atomic_long_add(wb->avg_write_bandwidth,
-				&wb->bdi->tot_write_bandwidth);
+		JCASSERT(wb->avg_write_bandwidth);
+		atomic_long_add(wb->avg_write_bandwidth, &wb->bdi->tot_write_bandwidth);
 		return true;
 	}
 }
 
-#endif //<TODO>
 
 static void wb_io_lists_depopulated(bdi_writeback *wb)
 {
@@ -103,34 +105,21 @@ static void wb_io_lists_depopulated(bdi_writeback *wb)
 	}
 }
 
-#if 0 //<TODO>
-
-/**
- * inode_io_list_move_locked - move an inode onto a bdi_writeback IO list
+/** inode_io_list_move_locked - move an inode onto a bdi_writeback IO list
  * @inode: inode to be moved
  * @wb: target bdi_writeback
  * @head: one of @wb->b_{dirty|io|more_io|dirty_time}
  *
- * Move @inode->i_io_list to @list of @wb and set %WB_has_dirty_io.
- * Returns %true if @inode is the first occupant of the !dirty_time IO
- * lists; otherwise, %false.
- */
-static bool inode_io_list_move_locked(struct inode *inode,
-				      struct bdi_writeback *wb,
-				      struct list_head *head)
+ * Move @inode->i_io_list to @list of @wb and set %WB_has_dirty_io. Returns %true if @inode is the first occupant of the !dirty_time IO lists; otherwise, %false. */
+static bool inode_io_list_move_locked(inode *iinode, bdi_writeback *wb, list_head *head)
 {
-	assert_spin_locked(&wb->list_lock);
-
-	list_move(&inode->i_io_list, head);
-
+//	assert_spin_locked(&wb->list_lock);
+	list_move(&iinode->i_io_list, head);
 	/* dirty_time doesn't count as dirty_io until expiration */
-	if (head != &wb->b_dirty_time)
-		return wb_io_lists_populated(wb);
-
+	if (head != &wb->b_dirty_time) 	return wb_io_lists_populated(wb);
 	wb_io_lists_depopulated(wb);
 	return false;
 }
-#endif //<TODO>
 
 /**
  * inode_io_list_del_locked - remove an inode from its bdi_writeback IO list
@@ -1032,14 +1021,13 @@ static void bdi_down_write_wb_switch_rwsem(struct backing_dev_info *bdi) { }
 static void bdi_up_write_wb_switch_rwsem(struct backing_dev_info *bdi) { }
 
 
-static struct bdi_writeback *
-locked_inode_to_wb_and_lock_list(struct inode *inode)
+static bdi_writeback * locked_inode_to_wb_and_lock_list(inode *iinode)
 //	__releases(&inode->i_lock)
 //	__acquires(&wb->list_lock)
 {
-#if 0 //TODO
-	struct bdi_writeback *wb = inode_to_wb(inode);
-	spin_unlock(&inode->i_lock);
+#if 1 //TODO
+	bdi_writeback *wb = inode_to_wb(iinode);
+	spin_unlock(&iinode->i_lock);
 	spin_lock(&wb->list_lock);
 	return wb;
 #else
@@ -1488,7 +1476,7 @@ static int __writeback_single_inode(inode *iinode, writeback_control *wbc)
 	     time_after(jcvos::GetTimeStamp(), iinode->dirtied_time_when + dirtytime_expire_interval * HZ)))
 	{
 //		trace_writeback_lazytime(iinode);
-		mark_inode_dirty_sync(iinode);
+		iinode->mark_inode_dirty_sync();
 	}
 
 	/* Get and clear the dirty flags from i_state.  This needs to be done after calling writepages because some filesystems may redirty the inode during writepages due to delalloc.  It also needs to be done after handling timestamp expiration, as that may dirty the inode too. */
@@ -2194,9 +2182,9 @@ int dirtytime_interval_handler(struct ctl_table *table, int write,
    itself.  And the ->dirtied_when field of the kernel-internal blockdev inode represents the dirtying time of the
    blockdev's pages.  This is why for I_DIRTY_PAGES we always use page->mapping->host, so the page-dirtying time is
    recorded in the internal blockdev inode. */
-void __mark_inode_dirty(struct inode *inode, int flags)
+void __mark_inode_dirty(inode *iinode, int flags)
 {
-	struct super_block *sb = inode->i_sb;
+	struct super_block *sb = iinode->i_sb;
 	int dirtytime = 0;
 
 //	trace_writeback_mark_inode_dirty(inode, flags);
@@ -2210,8 +2198,8 @@ void __mark_inode_dirty(struct inode *inode, int flags)
 		//if (sb->s_op->dirty_inode)
 		//	sb->s_op->dirty_inode(inode, flags & I_DIRTY_INODE);
 		//<YUAN>通过虚函数实现dirty_inode()
-		sb->dirty_inode(inode, flags & I_DIRTY_INODE);
-//		trace_writeback_dirty_inode(inode, flags);
+		sb->dirty_inode(iinode, flags & I_DIRTY_INODE);
+//		trace_writeback_dirty_inode(iinode, flags);
 
 		/* I_DIRTY_INODE supersedes I_DIRTY_TIME. */
 		flags &= ~I_DIRTY_TIME;
@@ -2229,63 +2217,64 @@ void __mark_inode_dirty(struct inode *inode, int flags)
 	smp_mb();
 #endif
 
-	if ((/*(inode->i_state & flags)*/inode->TestState(flags) == flags) || (dirtytime && /*(inode->i_state & I_DIRTY_INODE)*/inode->TestState(I_DIRTY_INODE) ))
+	if ((/*(inode->i_state & flags)==flags*/iinode->TestState(flags)==flags) || (dirtytime && iinode->TestState(I_DIRTY_INODE) ))
 		return;
 
-	spin_lock(&inode->i_lock);
-	if (dirtytime &&/* (inode->i_state & I_DIRTY_INODE)*/inode->TestState(I_DIRTY_INODE)) 		goto out_unlock_inode;
-	if (/*(inode->i_state & flags)*/inode->TestState(flags) != flags)
+	spin_lock(&iinode->i_lock);
+	if (dirtytime &&iinode->TestState(I_DIRTY_INODE)) 		goto out_unlock_inode;
+	if (/*(iinode->i_state & flags)!=flags*/iinode->TestState(flags) != flags)
 	{
-		const int was_dirty = /*inode->i_state & I_DIRTY*/inode->TestState(I_DIRTY);
-		inode_attach_wb(inode, NULL);
+		const int was_dirty = iinode->TestState(I_DIRTY);
+		inode_attach_wb(iinode, NULL);
 
 		/* I_DIRTY_INODE supersedes I_DIRTY_TIME. */
-		if (flags & I_DIRTY_INODE) 	/*inode->i_state &= ~I_DIRTY_TIME*/ inode->ClearState(I_DIRTY_TIME);
-//		inode->i_state |= flags;
-		inode->SetState(flags);
+		if (flags & I_DIRTY_INODE) iinode->ClearState(I_DIRTY_TIME);
+		iinode->SetState(flags);
 
 		/* If the inode is queued for writeback by flush worker, just update its dirty state. Once the flush worker is done with the inode it will place it on the appropriate superblock list, based upon its state.		 */
-		if (/*inode->i_state & I_SYNC_QUEUED*/inode->TestState(I_SYNC_QUEUED))		goto out_unlock_inode;
+		if (iinode->TestState(I_SYNC_QUEUED))		goto out_unlock_inode;
 
 		/* Only add valid (hashed) inodes to the superblock's dirty list.  Add blockdev inodes as well.	 */
-		if (!S_ISBLK(inode->i_mode)) 
+		if (!S_ISBLK(iinode->i_mode)) 
 		{
-			if (inode_unhashed(inode))	goto out_unlock_inode;
+			if (iinode->inode_unhashed())	goto out_unlock_inode;
 		}
-		if (/*inode->i_state & I_FREEING*/inode->TestState(I_FREEING))		goto out_unlock_inode;
+		if (iinode->TestState(I_FREEING))		goto out_unlock_inode;
 
 		/* If the inode was already on b_dirty/b_io/b_more_io, don't reposition it (that would break b_dirty time-ordering).		 */
-		if (!was_dirty) 
+		if (!was_dirty)
 		{
-#if 0 //TODO
-			struct bdi_writeback *wb;
-			struct list_head *dirty_list;
+			struct bdi_writeback* wb;
+			struct list_head* dirty_list;
 			bool wakeup_bdi = false;
 
-			wb = locked_inode_to_wb_and_lock_list(inode);
+			wb = locked_inode_to_wb_and_lock_list(iinode);
 
-			inode->dirtied_when = jiffies;
-			if (dirtytime)	inode->dirtied_time_when = jiffies;
+			iinode->dirtied_when = jiffies;
+			if (dirtytime)	iinode->dirtied_time_when = jiffies;
 
-			if (inode->i_state & I_DIRTY)				dirty_list = &wb->b_dirty;
+			if (iinode->TestState(I_DIRTY))				dirty_list = &wb->b_dirty;
 			else				dirty_list = &wb->b_dirty_time;
 
-			wakeup_bdi = inode_io_list_move_locked(inode, wb, dirty_list);
+			wakeup_bdi = inode_io_list_move_locked(iinode, wb, dirty_list);
 
 			spin_unlock(&wb->list_lock);
 			//trace_writeback_dirty_inode_enqueue(inode);
 
-			/* If this is the first dirty inode for this bdi, we have to wake-up the corresponding bdi thread
-			 * to make sure background write-back happens later. */
-			if (wakeup_bdi && (wb->bdi->capabilities & BDI_CAP_WRITEBACK)) 	wb_wakeup_delayed(wb);
+			/* If this is the first dirty inode for this bdi, we have to wake-up the corresponding bdi thread to make sure background write-back happens later. */
+			if (wakeup_bdi && (wb->bdi->capabilities & BDI_CAP_WRITEBACK))
+			{
+#if 0 //TODO
+				wb_wakeup_delayed(wb);
 #else
-			JCASSERT(0)
+				JCASSERT(1)
 #endif
+			}
 			return;
 		}
 	}
 out_unlock_inode:
-	spin_unlock(&inode->i_lock);
+	spin_unlock(&iinode->i_lock);
 }
 //EXPORT_SYMBOL(__mark_inode_dirty);
 #if 0 //TODO
@@ -2495,35 +2484,30 @@ void sync_inodes_sb(struct super_block *sb)
 	wait_sb_inodes(sb);
 }
 EXPORT_SYMBOL(sync_inodes_sb);
+#endif //<TODO>
 
-/**
- * write_inode_now	-	write an inode to disk
+/* write_inode_now	-	write an inode to disk
  * @inode: inode to write to disk
  * @sync: whether the write should be synchronous or not
  *
- * This function commits an inode to disk immediately if it is dirty. This is
- * primarily needed by knfsd.
- *
- * The caller must either have a ref on the inode or must have set I_WILL_FREE.
- */
-int write_inode_now(struct inode *inode, int sync)
+ * This function commits an inode to disk immediately if it is dirty. This is primarily needed by knfsd.
+ * The caller must either have a ref on the inode or must have set I_WILL_FREE. */
+int write_inode_now(inode *iinode, int sync)
 {
-	struct writeback_control wbc = {
-		.nr_to_write = LONG_MAX,
-		.sync_mode = sync ? WB_SYNC_ALL : WB_SYNC_NONE,
-		.range_start = 0,
-		.range_end = LLONG_MAX,
-	};
+	writeback_control wbc;
+	wbc.nr_to_write = LONG_MAX;
+	wbc.sync_mode = sync ? WB_SYNC_ALL : WB_SYNC_NONE;
+	wbc.range_start = 0;
+	wbc.range_end = LLONG_MAX;
 
-	if (!mapping_can_writeback(inode->i_mapping))
+	if (!mapping_can_writeback(iinode->get_mapping()))
 		wbc.nr_to_write = 0;
 
-	might_sleep();
-	return writeback_single_inode(inode, &wbc);
+//	might_sleep();
+	return writeback_single_inode(iinode, &wbc);
 }
-EXPORT_SYMBOL(write_inode_now);
+//EXPORT_SYMBOL(write_inode_now);
 
-#endif //<TODO>
 /* sync_inode - write an inode and its pages to disk.
  * @inode: the inode to sync
  * @wbc: controls the writeback mode

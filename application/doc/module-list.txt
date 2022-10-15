@@ -9,11 +9,12 @@
 在同一个文件系统的实体上，进行往复操作的测试工具。
 被测文件系统基于IFileSystem接口，不需要dokan支持
 
-[app] filesystem_model_check/fat_io_dokan
 
 
 [lib] filesystem_model_check/fat_io_lib
 FatIO的VC移植版本
+[dll] filesystem_model_check/fat_io_dokan
+将fat_io_lib包装成基于dokan-if的dll封装。
 
 filesystem_model_check/fat-dokan
 

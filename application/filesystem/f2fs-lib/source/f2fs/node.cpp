@@ -27,7 +27,7 @@
 //#include <trace/events/f2fs.h>
 LOCAL_LOGGER_ENABLE(L"f2fs.node", LOGGER_LEVEL_DEBUGINFO);
 
-#define on_f2fs_build_free_nids(nmi) mutex_is_locked(&(nm_i)->build_lock)
+//#define on_f2fs_build_free_nids(nmi) mutex_is_locked(&(nm_i)->build_lock)
 
 static struct kmem_cache *nat_entry_slab;
 static struct kmem_cache *free_nid_slab;
@@ -191,6 +191,7 @@ static void __free_nat_entry(nat_entry *e)
 /* must be locked by nat_tree_lock */
 nat_entry *f2fs_nm_info::__init_nat_entry(nat_entry *ne, f2fs_nat_entry *raw_ne, bool no_fail)
 {
+	LOG_DEBUG(L"[nat] add nat to cache, ino=%d, block_addr=0x%X", ne->ni.ino, ne->ni.blk_addr);
 	if (no_fail)	f2fs_radix_tree_insert(&nat_root, nat_get_nid(ne), ne);
 	else			if (radix_tree_insert(&nat_root, nat_get_nid(ne), ne))		return NULL;
 
@@ -229,17 +230,17 @@ static unsigned int __gang_lookup_nat_cache(f2fs_nm_info *nm_i, nid_t start, uns
 
 static void __del_from_nat_cache(f2fs_nm_info *nm_i, nat_entry *e)
 {
+	LOG_DEBUG(L"[nat] delete nat from cache, ino=%d, block_addr=0x%X", e->ni.ino, e->ni.blk_addr);
 	radix_tree_delete<nat_entry>(&nm_i->nat_root, nat_get_nid(e));
 	nm_i->nat_cnt[TOTAL_NAT]--;
 	nm_i->nat_cnt[RECLAIMABLE_NAT]--;
 	__free_nat_entry(e);
 }
 
-static struct nat_entry_set *__grab_nat_entry_set(struct f2fs_nm_info *nm_i,
-							struct nat_entry *ne)
+static nat_entry_set *__grab_nat_entry_set(f2fs_nm_info *nm_i, nat_entry *ne)
 {
 	nid_t set = NAT_BLOCK_OFFSET(ne->ni.nid);
-	struct nat_entry_set *head;
+	nat_entry_set *head;
 
 	head = radix_tree_lookup<nat_entry_set>(&nm_i->nat_set_root, set);
 	if (!head) {
@@ -408,8 +409,7 @@ bool f2fs_need_inode_block_update(f2fs_sb_info *sbi, nid_t ino)
 	down_read(&nm_i->nat_tree_lock);
 	e = nm_i->__lookup_nat_cache(ino);
 	if (e && get_nat_flag(e, HAS_LAST_FSYNC) &&
-			(get_nat_flag(e, IS_CHECKPOINTED) ||
-			 get_nat_flag(e, HAS_FSYNCED_INODE)))
+		(get_nat_flag(e, IS_CHECKPOINTED) || get_nat_flag(e, HAS_FSYNCED_INODE)))
 		need_update = false;
 	up_read(&nm_i->nat_tree_lock);
 	return need_update;
@@ -547,7 +547,6 @@ int f2fs_nm_info::f2fs_get_node_info(nid_t nid, /*out*/ node_info* ni)
 	ni->nid = nid;
 
 	/* Check nat cache */
-	
 	down_read(&nat_tree_lock);
 	e = __lookup_nat_cache(nid);
 	if (e) 
@@ -556,6 +555,7 @@ int f2fs_nm_info::f2fs_get_node_info(nid_t nid, /*out*/ node_info* ni)
 		ni->blk_addr = nat_get_blkaddr(e);
 		ni->version = nat_get_version(e);
 		up_read(&nat_tree_lock);
+		LOG_DEBUG(L"[nat] got node info from cache, ino=%d, block_addr=0x%X", ni->ino, ni->blk_addr);
 		return 0;
 	}
 
@@ -568,6 +568,7 @@ int f2fs_nm_info::f2fs_get_node_info(nid_t nid, /*out*/ node_info* ni)
 	{
 		ne = nat_in_journal(journal, i);
 		node_info_from_raw_nat(ni, &ne);
+		LOG_DEBUG(L"[nat] got node info from journal, ino=%d, block_addr=0x%X", ni->ino, ni->blk_addr);
 	}
 	up_read(&curseg->journal_rwsem);
 	if (i >= 0) 
@@ -587,6 +588,7 @@ int f2fs_nm_info::f2fs_get_node_info(nid_t nid, /*out*/ node_info* ni)
 	ne = nat_blk->entries[nid - start_nid];
 	node_info_from_raw_nat(ni, &ne);
 	f2fs_put_page(page, 1);
+	LOG_DEBUG(L"[nat] got node info from nat, ino=%d, block_addr=0x%X", ni->ino, ni->blk_addr);
 
 cache:
 	blkaddr = le32_to_cpu(ne.block_addr);
@@ -873,7 +875,7 @@ static int truncate_node(struct dnode_of_data *dn)
 	if (dn->nid == dn->inode->i_ino) {
 		f2fs_remove_orphan_inode(sbi, dn->nid);
 		dec_valid_inode_count(sbi);
-		f2fs_inode_synced(dn->inode);
+		F2FS_I(dn->inode)->f2fs_inode_synced();
 	}
 
 	clear_node_page_dirty(dn->node_page);
@@ -1306,7 +1308,6 @@ fail:
  * LOCKED_PAGE or error: f2fs_put_page(page, 1) */
 int f2fs_sb_info::read_node_page(page *page, int op_flags)
 {
-//	struct f2fs_sb_info *sbi = F2FS_P_SB(page);
 	node_info ni;
 	f2fs_io_info fio;
 	fio.sbi = this;
@@ -1330,10 +1331,15 @@ int f2fs_sb_info::read_node_page(page *page, int op_flags)
 
 	//<YUAN>获取inode的block地址，放入ni.blk_addr
 	err = nm_info->f2fs_get_node_info(page->index, &ni);
-	if (err)		return err;
+	if (err)
+	{
+		LOG_ERROR(L"[err] failed on getting node info, err=%d", err);
+		return err;
+	}
 
 	if (unlikely(ni.blk_addr == NULL_ADDR) ||	is_sbi_flag_set( SBI_IS_SHUTDOWN)) 
 	{
+		LOG_ERROR(L"[err] check address failed, blk_addr=%d, flag=0x%X, err=%d", ni.blk_addr, s_flag, -ENOENT);
 		ClearPageUptodate(page);
 		return -ENOENT;
 	}
@@ -1380,24 +1386,26 @@ void f2fs_ra_node_page(struct f2fs_sb_info *sbi, nid_t nid)
 //<YUAN> nid: inode number
 page *f2fs_sb_info::__get_node_page(pgoff_t nid, page *parent, int start)
 {
-	//f2fs_sb_info* sbi = m_sb_info;
-//#define ERR_PTR(x)	(page*)(x)
 	page *ptr_page;
 	int err;
 
-	if (!nid)	return ERR_PTR<page>(-ENOENT);
+	if (!nid)
+	{
+		LOG_ERROR(L"nid==0, err=%d", (-ENOENT));
+		return ERR_PTR<page>(-ENOENT);
+	}
 	if (f2fs_check_nid_range(this, nid)) 	return ERR_PTR<page>(-EINVAL);
 repeat:
 	ptr_page = f2fs_grab_cache_page(NODE_MAPPING(this), nid, false);
 	if (!ptr_page)		return ERR_PTR<page>(-ENOMEM);
 #ifdef _DEBUG
 	jcvos::Utf8ToUnicode(ptr_page->m_type, "node");
-	LOG_DEBUG(L"got page, page=%llX, addr=%llX, type=%s index=%d", 
-		ptr_page, ptr_page->virtual_add, ptr_page->m_type.c_str(), nid);
 #endif
+	LOG_DEBUG(L"[page_track], page=%p, addr=%p, type=node, index=%d", ptr_page, ptr_page->virtual_add, nid);
 	err = read_node_page(ptr_page, 0);
 	if (err < 0) 
 	{
+		LOG_ERROR(L"[err] failed on reading node page, err=%d", err);
 		f2fs_put_page(ptr_page, 1);
 		return ERR_PTR<page>(err);
 	} 
@@ -1468,7 +1476,7 @@ static void flush_inline_data(f2fs_sb_info* sbi, nid_t ino)
 //	struct inode* inode;
 //	struct page* page;
 	/* should flush inline_data before evict_inode */
-	inode * node = sbi->m_fs-> ilookup(ino);
+	inode * node = sbi->ilookup(ino);
 	if (!node) 	return;
 	f2fs_inode_info* fi = F2FS_I(node);
 	JCASSERT(fi);
@@ -1863,7 +1871,7 @@ static bool flush_dirty_inode(struct page *page)
 	struct inode *inode;
 	nid_t ino = ino_of_node(page);
 
-	inode = sbi->m_fs->find_inode_nowait(ino, f2fs_match_ino, NULL);
+	inode = sbi->find_inode_nowait(ino, f2fs_match_ino, NULL);
 	if (!inode)	return false;
 
 	F2FS_I(inode)->f2fs_update_inode( page);
@@ -2084,8 +2092,10 @@ int f2fs_wait_on_node_pages_writeback(f2fs_sb_info *sbi, 	unsigned int seq_id)
 //static int f2fs_write_node_pages(address_space *mapping, struct writeback_control *wbc)
 int Cf2fsNodeMapping::write_pages(writeback_control *wbc)
 {
-#if 0
-	f2fs_sb_info* sbi = (f2fs_sb_info*)host->i_sb->s_fs_info; //F2FS_M_SB(mapping);
+#if 1
+//	f2fs_sb_info* sbi = (f2fs_sb_info*)host->i_sb->s_fs_info; //F2FS_M_SB(mapping);
+	f2fs_sb_info* sbi = dynamic_cast<f2fs_sb_info*>(host->i_sb);
+	JCASSERT(sbi);
 	blk_plug plug;
 	long diff;
 
@@ -2101,7 +2111,7 @@ int Cf2fsNodeMapping::write_pages(writeback_control *wbc)
 	if (wbc->sync_mode == WB_SYNC_ALL)				atomic_inc(&sbi->wb_sync_req[NODE]);
 	else if (atomic_read(&sbi->wb_sync_req[NODE]))		goto skip_write;
 
-	trace_f2fs_writepages(mapping->host, wbc, NODE);
+//	trace_f2fs_writepages(mapping->host, wbc, NODE);
 
 	diff = nr_pages_to_write(sbi, NODE, wbc);
 	blk_start_plug(&plug);
@@ -2114,7 +2124,7 @@ int Cf2fsNodeMapping::write_pages(writeback_control *wbc)
 
 skip_write:
 	wbc->pages_skipped += sbi->get_pages( F2FS_DIRTY_NODES);
-	trace_f2fs_writepages(mapping->host, wbc, NODE);
+//	trace_f2fs_writepages(mapping->host, wbc, NODE);
 #else
 	JCASSERT(0)
 #endif
@@ -2469,10 +2479,12 @@ int f2fs_nm_info::__f2fs_build_free_nids(bool sync, bool mount)
 int f2fs_nm_info::f2fs_build_free_nids(bool sync, bool mount)
 {
 	int ret;
+	LOG_DEBUG(L"[build_lock] lock");
 	auto_lock<mutex_locker> lock(build_lock);
 	//mutex_lock(&NM_I(this)->build_lock);
 	ret = __f2fs_build_free_nids(sync, mount);
 	//mutex_unlock(&NM_I(this)->build_lock);
+	LOG_DEBUG(L"[build_lock] release");
 	return ret;
 }
 
@@ -2501,8 +2513,10 @@ retry:
 
 		/* We should not use stale free nids created by f2fs_build_free_nids */
 //		if (nid_cnt[FREE_NID] && !on_f2fs_build_free_nids(this))
+		LOG_DEBUG(L"[build_lock] check lock");
 		if (nid_cnt[FREE_NID] && !mutex_is_locked(&build_lock))
 		{
+			LOG_DEBUG(L"[build_lock] check result not locked");
 //			f2fs_bug_on(sbi, list_empty(&nm_i->free_nid_list));
 			JCASSERT(!list_empty(&free_nid_list));
 			i = list_first_entry(&free_nid_list, free_nid, list);
@@ -3058,7 +3072,7 @@ int f2fs_nm_info::__get_nat_bitmaps(void)
 	cp_ver |= (cur_cp_crc(ckpt) << 32);
 	if (cpu_to_le64(cp_ver) != *(__le64 *)nat_bits)
 	{
-		disable_nat_bits(m_sbi, true);
+		disable_nat_bits(true);
 		return 0;
 	}
 
@@ -3357,6 +3371,7 @@ f2fs_nm_info::f2fs_nm_info(f2fs_sb_info * sbi) : m_sbi(sbi), build_lock(NULL)
 	INIT_LIST_HEAD(&nat_entries);
 	spin_lock_init(&nat_list_lock);
 
+	LOG_DEBUG(L"[build_lock] init");
 	mutex_init(&build_lock);
 	spin_lock_init(&nid_list_lock);
 	init_rwsem(&nat_tree_lock);
@@ -3368,6 +3383,8 @@ f2fs_nm_info::f2fs_nm_info(f2fs_sb_info * sbi) : m_sbi(sbi), build_lock(NULL)
 	if (!nat_bitmap)	THROW_ERROR(ERR_MEM, L"failed on creating bitmap, size=%d", bitmap_size);
 		//return -ENOMEM;
 
+	// 由于在__get_nat_bitmaps() -> disable_nat_bits()中会用到sbi->nm_info，需要先设置变量
+//	sbi->nm_info = this;
 	int err = __get_nat_bitmaps();
 	if (err) THROW_ERROR(ERR_APP, L"failed on getting nat bitmap");
 		//return err;
@@ -3462,7 +3479,7 @@ f2fs_nm_info::~f2fs_nm_info(void)
 	//}
 	//f2fs_kvfree(free_nid_bitmap);
 
-
+	LOG_DEBUG(L"[build_lock] destory");
 	mutex_destory(&build_lock);
 
 }

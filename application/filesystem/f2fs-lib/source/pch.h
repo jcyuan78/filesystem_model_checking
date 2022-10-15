@@ -10,13 +10,14 @@
 // 添加要在此处预编译的标头
 #define WIN32_NO_STATUS
 #include "framework.h"
+#undef WIN32_NO_STATUS
+#include <ntstatus.h>
 
 #define LOG_OUT_CLASS_SIZE
 #define LOGGER_LEVEL LOGGER_LEVEL_DEBUGINFO
 
 #include <stdext.h>
 
-#undef WIN32_NO_STATUS
 #include <fcntl.h>
 #include <linux-fs-wrapper.h>
 #include <boost\cast.hpp>

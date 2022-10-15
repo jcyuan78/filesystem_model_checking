@@ -519,9 +519,10 @@ unsigned int addrs_per_block(struct f2fs_inode *i)
 	return ALIGN_DOWN(DEF_ADDRS_PER_BLOCK, 1 << i->_u._s.i_log_cluster_size);
 }
 
-unsigned int f2fs_max_file_offset(f2fs_inode *i)
+UINT64 f2fs_max_file_offset(f2fs_inode *i)
 {
-	if (!LINUX_S_ISREG(le16_to_cpu(i->i_mode)) || !(le32_to_cpu(i->i_flags) & F2FS_COMPR_FL))  return le64_to_cpu(i->i_size);
+	if (!LINUX_S_ISREG(le16_to_cpu(i->i_mode)) || !(le32_to_cpu(i->i_flags) & F2FS_COMPR_FL))  
+		return le64_to_cpu(i->i_size);
 	return ALIGN_UP(le64_to_cpu(i->i_size), ((UINT64)1) << i->_u._s.i_log_cluster_size);
 }
 

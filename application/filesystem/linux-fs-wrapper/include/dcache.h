@@ -155,6 +155,10 @@ public:
 //	friend class CDentryManager;
 //protected:
 	CDentryManager* m_manager;
+
+#ifdef _DEBUG
+	void dentry_trace(const wchar_t* func, int line);
+#endif
 };
 
 #define _STATIC_DENTRY_BUF
@@ -289,17 +293,17 @@ struct dentry_operations
 #define DCACHE_DENTRY_CURSOR		0x20000000
 #define DCACHE_NORCU			0x40000000 /* No RCU delay for freeing */
 
-extern seqlock_t rename_lock;
+//extern seqlock_t rename_lock;
 
 /* These are the low-level FS interfaces to the dcache.. */
 void d_instantiate(struct dentry*, struct inode*);
 void d_instantiate_new(struct dentry *, struct inode *);
+extern void d_delete(struct dentry *);
 #if 0
 extern struct dentry * d_instantiate_unique(struct dentry *, struct inode *);
 extern struct dentry * d_instantiate_anon(struct dentry *, struct inode *);
 extern void __d_drop(struct dentry *dentry);
 extern void d_drop(struct dentry *dentry);
-extern void d_delete(struct dentry *);
 #endif
 
 inline void d_set_d_op(struct dentry *dentry, const struct dentry_operations *op){}
@@ -310,7 +314,7 @@ extern dentry * d_alloc(dentry *, const qstr &);
 extern struct dentry * d_alloc_anon(struct super_block *);
 extern struct dentry * d_alloc_parallel(struct dentry *, const struct qstr *, wait_queue_head_t *);
 #endif
-extern struct dentry * d_splice_alias(struct inode *, struct dentry *);
+//extern struct dentry * d_splice_alias(struct inode *, struct dentry *);
 #if 0 //TODO
 extern struct dentry * d_add_ci(struct dentry *, struct inode *, struct qstr *);
 extern struct dentry * d_exact_alias(struct dentry *, struct inode *);

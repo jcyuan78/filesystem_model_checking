@@ -21,6 +21,7 @@ typedef LONG64 atomic64_t;
 #define atomic_long_dec(x)			InterlockedDecrement(x)
 #define atomic_long_sub_return(a, x)	InterlockedAdd(x, (0-a))
 #define atomic_add(a, x)			InterlockedAdd(x, a)
+#define atomic_long_add(a, x)			InterlockedAdd(x, a)
 #define atomic_sub(a, x)			InterlockedAdd(x, (0-a))
 #define atomic_read(x)				InterlockedAdd(x, 0)
 #define atomic_long_read(x)			InterlockedAdd(x, 0)
@@ -65,11 +66,16 @@ inline bool write_trylock(rwlock_t* x) { EnterCriticalSection(x); return true; }
 
 inline int atomic_dec_and_lock(atomic_t* a, spinlock_t* l)
 {
-	long c = atomic_dec(a);
-	if (c != 0) return 0;
+	int c = *a;
+	do
+	{
+		if (unlikely(c == 1))			break;
+	} while (!InterlockedCompareExchange(a, c -1, c));
+	if (c!=1) return 0;
 
 	spin_lock(l);
-	if (c) return c;
+//	if (c) return c;
+	if (InterlockedDecrement(a) == 0) return 1;
 	spin_unlock(l);
 	return 0;
 }
@@ -187,7 +193,13 @@ inline void mutex_destory(mutex* hh) { CloseHandle(*hh); *hh = NULL; }
 inline bool mutex_is_locked(mutex* mm)
 {
 	DWORD ir = WaitForSingleObject(*mm, 0);
-	return (ir == WAIT_TIMEOUT);
+	if (ir == 0)
+	{
+		ReleaseMutex(*mm);
+		return false;
+	}
+	//	else if (ir == WAIT_TIMEOUT) return true;
+	else return true;
 }
 //#define mutex_init(x)	{HANDLE * hh = x; *hh = CreateMutex(NULL, FALSE, NULL);}
 #define mutex_lock(x)	{DWORD ir = WaitForSingleObject(*x, INFINITE); if (ir!=0) THROW_WIN32_ERROR(L"failed on waiting " #x); }

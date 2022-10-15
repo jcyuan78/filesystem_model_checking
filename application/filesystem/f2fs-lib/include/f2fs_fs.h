@@ -925,7 +925,10 @@ struct f2fs_orphan_block {
 #define DEFAULT_INLINE_XATTR_ADDRS	50
 #define DEF_ADDRS_PER_INODE	923	/* Address Pointers in an Inode */
 //#define CUR_ADDRS_PER_INODE(inode)	(DEF_ADDRS_PER_INODE - __get_extra_isize(inode))
-#define CUR_ADDRS_PER_INODE(_inode)	(DEF_ADDRS_PER_INODE - get_extra_isize(_inode))
+// for _inode == f2fs_inode_info
+#define CUR_ADDRS_PER_INODE(_inode)	(DEF_ADDRS_PER_INODE - _inode->get_extra_isize())
+// for _inode == f2fs_inode
+#define CUR_ADDRS_PER_INODE_(_inode)	(DEF_ADDRS_PER_INODE - get_extra_isize(_inode))
 
 #define DEF_NIDS_PER_INODE	5	/* Node IDs in an Inode */
 #define ADDRS_PER_INODE(inode)	addrs_per_inode(inode)
@@ -1399,7 +1402,7 @@ extern int utf16_to_utf8(char *, const UINT16 *, size_t, size_t);
 extern int log_base_2(UINT32);
 //extern unsigned int addrs_per_inode(struct f2fs_inode *);
 extern unsigned int addrs_per_block(struct f2fs_inode *);
-extern unsigned int f2fs_max_file_offset(struct f2fs_inode *);
+extern UINT64 f2fs_max_file_offset(struct f2fs_inode *);
 //extern __u32 f2fs_inode_chksum(struct f2fs_node *);
 extern __u32 f2fs_checkpoint_chksum(struct f2fs_checkpoint *);
 //extern int write_inode(struct f2fs_node *, UINT64);

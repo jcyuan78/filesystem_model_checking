@@ -65,7 +65,17 @@ protected:
 public:
 	void Init(super_block* sb) { m_sb = sb; }
 	// 不能直接调用iget_locked；需要创建对象，然后调用internal_iget_locked
-	inode* iget_locked(bool thp_support, unsigned long ino) { JCASSERT(0); return NULL; };
+	template <class INODE_T>
+	INODE_T* iget_locked(bool thp_support, UINT ino)
+	{
+		inode* iinode = _iget_locked(thp_support, ino);
+		if (!iinode) return nullptr;
+		INODE_T* res = dynamic_cast<INODE_T*>(iinode);
+		JCASSERT(res);
+		return res;
+	}
+
+
 	void iget_failed(inode* node);
 	void init_inode_mapping(inode* node, address_space* mapping, bool thp_support);
 	// 将inode插入到hash table中
@@ -74,10 +84,14 @@ public:
 	void new_inode(inode* node);
 
 	inode* ilookup(unsigned long ino);
-	inode* find_inode_nowait(unsigned long hashval, int (*match)(struct inode*, unsigned long, void*),
-		void* data);
+	inode* find_inode_nowait(unsigned long hashval, int (*match)(struct inode*, unsigned long, void*), void* data);
+	void remove_inode_hash(inode* iinode);
+
+
 
 protected:
+	inode* _iget_locked(bool thp_support, UINT ino);
+
 	inode* find_inode_fast(inode_hash_list& head, unsigned long ino);
 	int inode_init_always(bool thp_support, inode* ptr_node);
 	static UINT32 hash(/*super_block* sb,*/ unsigned long hashval)

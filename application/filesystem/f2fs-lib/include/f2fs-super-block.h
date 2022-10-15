@@ -2,6 +2,7 @@
 #pragma once
 
 #include <linux-fs-wrapper.h>
+#include "f2fs-inode.h"
 
 
 /* COUNT_TYPE for monitoring
@@ -79,7 +80,7 @@ public:
 		return fi->f2fs_write_inode(wbc);
 	}
 
-	virtual int		drop_inode(inode*) { JCASSERT(0);  return 0; };
+	virtual int		drop_inode(inode*);
 	virtual void	evict_inode(inode*);
 	virtual void	put_super(void);
 	virtual int		sync_fs(int wait);
@@ -243,16 +244,18 @@ public:
 	unsigned int migration_granularity = 0;
 
 
+	friend class CF2fsFileSystem;
+
 	//== lists
 protected:
 	std::list<f2fs_inode_info*> m_inode_list[NR_INODE_TYPE];
 public:
-	void list_add_tail(f2fs_inode_info* iinode, inode_type type)
+	void sb_list_add_tail(f2fs_inode_info* iinode, inode_type type)
 	{
 		m_inode_list[type].push_back(iinode);
 		iinode->m_in_list[type] = true;
 	}
-	void list_del_init(f2fs_inode_info* iinode, inode_type type)
+	void sb_list_del_init(f2fs_inode_info* iinode, inode_type type)
 	{
 		m_inode_list[type].remove(iinode);
 		iinode->m_in_list[type] = false;
@@ -300,7 +303,7 @@ public:
 	unsigned long long rw_iostat[NR_IO_TYPE] = { 0 };
 	unsigned long long prev_rw_iostat[NR_IO_TYPE] = { 0 };
 	bool iostat_enable = 0;
-	unsigned long iostat_next_period = 0;
+	LONGLONG iostat_next_period = 0;
 	unsigned int iostat_period_ms = 0;
 
 	/* to attach REQ_META|REQ_FUA flags */
@@ -405,9 +408,15 @@ public:
 	int f2fs_get_valid_checkpoint(void);
 	long f2fs_sync_meta_pages(enum page_type type, long nr_to_write, enum iostat_type io_type);
 	void f2fs_add_orphan_inode(f2fs_inode_info* iinode);
+	int f2fs_acquire_orphan_inode(void);
+	void f2fs_release_orphan_inode(void);
 
 
 protected:
+	int f2fs_recover_orphan_inodes(void);
+	int recover_orphan_inode(nid_t ino);
+	void write_orphan_inodes(block_t start_blk);
+
 	page* validate_checkpoint(block_t cp_addr, unsigned long long* version);
 	int get_checkpoint_version(block_t cp_addr, f2fs_checkpoint** cp_block, page** cp_page, unsigned long long* version);
 	int do_checkpoint(cp_control* cpc);
@@ -546,6 +555,40 @@ public:
 //	f2fs_inode_info* f2fs_iget(unsigned long ino);
 //	int f2fs_submit_page_bio(f2fs_io_info* fio);
 
+// ==== namei.cpp ====
+
+protected:
+	CInodeManager m_inodes;
+public:
+	// 为创建新的inode调用。
+	template <class NODE_TYPE> NODE_TYPE* NewInode(void)
+	{
+		NODE_TYPE* node = new NODE_TYPE(this, 0);
+		inode* base_node = static_cast<inode*>(node);
+		m_inodes.new_inode(base_node);
+		return node;
+	}
+
+	f2fs_inode_info* f2fs_new_inode(Cf2fsDirInode* dir, umode_t mode, inode_type type);
+	int f2fs_rename(Cf2fsDirInode* old_dir, dentry* old_dentry, Cf2fsDirInode* new_dir, dentry* new_dentry, unsigned int flags);
+	inode* ilookup(nid_t ino) { return m_inodes.ilookup(ino); }
+	inode* find_inode_nowait(unsigned long hashval, int (*match)(struct inode*, unsigned long, void*),
+		void* data)
+	{
+		return m_inodes.find_inode_nowait(hashval, match, data);
+	}
+
+	// 构建inode对象为读取做准备，因此带有ino
+	template <class NODE_TYPE> NODE_TYPE* GetInodeLocked(bool thp_support, unsigned long ino)
+	{
+		NODE_TYPE* node = new NODE_TYPE(this, ino);
+		inode* base_node = static_cast<inode*>(node);
+		base_node->i_sb = this;
+		m_inodes.internal_iget_locked(base_node, thp_support, ino);
+		m_inodes.insert_inode_locked(base_node);
+		m_inodes.init_inode_mapping(base_node, NULL, thp_support);
+		return node;
+	}
 
 // ==== inline functions ====
 public:

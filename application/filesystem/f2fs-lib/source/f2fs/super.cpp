@@ -1858,69 +1858,68 @@ static struct inode *f2fs_alloc_inode(struct super_block *sb)
 
 	return &fi->vfs_inode;
 }
+#endif
 
-static int f2fs_drop_inode(struct inode *inode)
+//static int f2fs_drop_inode(struct inode *inode)
+int	f2fs_sb_info::drop_inode(inode* iinode)
+
 {
-	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
+//	struct f2fs_sb_info *sbi = F2FS_I_SB(iinode);
 	int ret;
 
-	/*
-	 * during filesystem shutdown, if checkpoint is disabled,
-	 * drop useless meta/node dirty pages.
-	 */
-	if (unlikely(sbi->is_sbi_flag_set( SBI_CP_DISABLED))) {
-		if (inode->i_ino == sbi->F2FS_NODE_INO() ||
-			inode->i_ino == sbi->F2FS_META_INO()) {
-			trace_f2fs_drop_inode(inode, 1);
+	/* during filesystem shutdown, if checkpoint is disabled, drop useless meta/node dirty pages. */
+	if (unlikely(this->is_sbi_flag_set( SBI_CP_DISABLED))) 
+	{
+		if (iinode->i_ino == this->F2FS_NODE_INO() || iinode->i_ino == this->F2FS_META_INO()) 
+		{
+//			trace_f2fs_drop_inode(iinode, 1);
 			return 1;
 		}
 	}
+	f2fs_inode_info* fi = F2FS_I(iinode);
 
-	/*
-	 * This is to avoid a deadlock condition like below.
-	 * writeback_single_inode(inode)
+	/* This is to avoid a deadlock condition like below.
+	 * writeback_single_inode(iinode)
 	 *  - f2fs_write_data_page
 	 *    - f2fs_gc -> iput -> evict
-	 *       - inode_wait_for_writeback(inode)
-	 */
-	if ((!inode_unhashed(inode) && inode->i_state & I_SYNC)) {
-		if (!inode->i_nlink && !is_bad_inode(inode)) {
+	 *       - inode_wait_for_writeback(iinode)	 */
+	if ((!iinode->inode_unhashed() && iinode->TestState(I_SYNC) )) 
+	{
+		if (!iinode->i_nlink && !iinode->is_bad_inode()) 
+		{
 			/* to avoid evict_inode call simultaneously */
-			atomic_inc(&inode->i_count);
-			spin_unlock(&inode->i_lock);
+			atomic_inc(&iinode->i_count);
+			spin_unlock(&iinode->i_lock);
 
 			/* some remained atomic pages should discarded */
-			if (f2fs_is_atomic_file(inode))
-				f2fs_drop_inmem_pages(inode);
+			if (f2fs_is_atomic_file(iinode))
+				f2fs_drop_inmem_pages(iinode);
 
 			/* should remain fi->extent_tree for writepage */
-			f2fs_destroy_extent_node(inode);
+			f2fs_destroy_extent_node(iinode);
 
-			sb_start_intwrite(inode->i_sb);
-			f2fs_i_size_write(inode, 0);
+			sb_start_intwrite(this);
+			fi->f2fs_i_size_write(0);
 
-			f2fs_submit_merged_write_cond(F2FS_I_SB(inode),
-					inode, NULL, 0, DATA);
-			truncate_inode_pages_final(inode->i_mapping);
+			f2fs_submit_merged_write_cond(this, iinode, NULL, 0, DATA);
+			truncate_inode_pages_final(iinode->get_mapping());
 
-			if (F2FS_HAS_BLOCKS(inode))
-				f2fs_truncate(inode);
+			if (F2FS_HAS_BLOCKS(iinode))	f2fs_truncate(fi);
 
-			sb_end_intwrite(inode->i_sb);
+			sb_end_intwrite(this);
 
-			spin_lock(&inode->i_lock);
-			atomic_dec(&inode->i_count);
+			spin_lock(&iinode->i_lock);
+			atomic_dec(&iinode->i_count);
 		}
-		trace_f2fs_drop_inode(inode, 0);
+//		trace_f2fs_drop_inode(iinode, 0);
 		return 0;
 	}
-	ret = generic_drop_inode(inode);
+	ret = generic_drop_inode(iinode);
 	if (!ret)
-		ret = fscrypt_drop_inode(inode);
-	trace_f2fs_drop_inode(inode, ret);
+		ret = fscrypt_drop_inode(iinode);
+//	trace_f2fs_drop_inode(iinode, ret);
 	return ret;
 }
-#endif
 
 //int f2fs_inode_dirtied(inode *iinode, bool sync)
 int f2fs_inode_info::f2fs_inode_dirtied(bool sync)
@@ -1940,38 +1939,41 @@ int f2fs_inode_info::f2fs_inode_dirtied(bool sync)
 //	if (list_empty(&F2FS_I(iinode)->gdirty_list))
 	if (sync && !m_in_list[DIRTY_META])
 	{
-		LOG_DEBUG(L"add inode %d to DIRTY_META list", i_ino);
+		LOG_DEBUG(L"[inode_track] add=%p, ino=%d, type=%d - add to sb inode list", this, i_ino, DIRTY_META);
 //		list_add_tail(&F2FS_I(iinode)->gdirty_list, &m_sbi->inode_list[DIRTY_META]);
-		m_sbi->list_add_tail(this, DIRTY_META);
+		m_sbi->sb_list_add_tail(this, DIRTY_META);
 		m_sbi->inc_page_count(F2FS_DIRTY_IMETA);
 	}
 	spin_unlock(&m_sbi->inode_lock[DIRTY_META]);
 	return ret;
 }
 
-void f2fs_inode_synced(inode *iinode)
+//void f2fs_inode_synced(inode *iinode)
+void f2fs_inode_info::f2fs_inode_synced(void)
 {
-	f2fs_inode_info* finode = F2FS_I(iinode);
-	f2fs_sb_info *sbi = F2FS_I_SB(iinode);
+//	f2fs_inode_info* finode = F2FS_I(iinode);
+//	f2fs_sb_info *sbi = F2FS_I_SB(iinode);
 
-	auto_lock<spin_locker> locker(sbi->inode_lock[DIRTY_META]);
-//	spin_lock(&sbi->inode_lock[DIRTY_META]);
-	if (!is_inode_flag_set(iinode, FI_DIRTY_INODE))
+	auto_lock<spin_locker> locker(m_sbi->inode_lock[DIRTY_META]);
+//	spin_lock(&m_sbi->inode_lock[DIRTY_META]);
+	if (!is_inode_flag_set(FI_DIRTY_INODE))
 	{
-//		spin_unlock(&sbi->inode_lock[DIRTY_META]);
+//		spin_unlock(&m_sbi->inode_lock[DIRTY_META]);
 		return;
 	}
 //	if (!list_empty(&F2FS_I(iinode)->gdirty_list))
-	if (!sbi->list_empty(DIRTY_META) && finode->m_in_list[DIRTY_META])
+	if (!m_sbi->list_empty(DIRTY_META) && m_in_list[DIRTY_META])
 	{
 //		list_del_init(&F2FS_I(iinode)->gdirty_list);
-		sbi->list_del_init(finode, DIRTY_META);
-		sbi->dec_page_count(F2FS_DIRTY_IMETA);
+		LOG_DEBUG(L"[inode_track] add=%p, ino=%d, type=%d - remove from sb inode list", this, i_ino, DIRTY_META);
+
+		m_sbi->sb_list_del_init(this, DIRTY_META);
+		m_sbi->dec_page_count(F2FS_DIRTY_IMETA);
 	}
-	clear_inode_flag(F2FS_I(iinode), FI_DIRTY_INODE);
-	clear_inode_flag(F2FS_I(iinode), FI_AUTO_RECOVER);
-	stat_dec_dirty_inode(sbi, DIRTY_META);
-//	spin_unlock(&sbi->inode_lock[DIRTY_META]);
+	clear_inode_flag(this, FI_DIRTY_INODE);
+	clear_inode_flag(this, FI_AUTO_RECOVER);
+	stat_dec_dirty_inode(m_sbi, DIRTY_META);
+//	spin_unlock(&m_sbi->inode_lock[DIRTY_META]);
 }
 
 
@@ -1981,11 +1983,8 @@ void f2fs_inode_synced(inode *iinode)
 void f2fs_sb_info::dirty_inode(inode* iinode, int flags)
 {
 //	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
-
 	if (iinode->i_ino == F2FS_NODE_INO() || iinode->i_ino == F2FS_META_INO())	return;
-
 	if (is_inode_flag_set(iinode, FI_AUTO_RECOVER))		clear_inode_flag(F2FS_I(iinode), FI_AUTO_RECOVER);
-
 	F2FS_I(iinode)->f2fs_inode_dirtied(false);
 }
 //int f2fs_sb_info::sync_fs(int wait)
@@ -4318,7 +4317,7 @@ int f2fs_sb_info::f2fs_fill_super(const std::wstring & str_option, int silent)
 		try
 		{
 			/* allocate memory for f2fs-specific super block info */
-			m_fs->m_inodes.Init(this);
+			m_inodes.Init(this);
 #if 0 //<TODO>
 			/* Load the checksum driver */
 			s_chksum_driver = crypto_alloc_shash("crc32", 0, 0);
@@ -4634,7 +4633,7 @@ int f2fs_sb_info::f2fs_fill_super(const std::wstring & str_option, int silent)
 			}
 #endif
 			/* if there are any orphan inodes, free them */
-			err = f2fs_recover_orphan_inodes(this);
+			err = f2fs_recover_orphan_inodes();
 			if (err)				THROW_ERROR(ERR_APP, L"failed on recover orphan inodes");
 						//goto free_meta;
 

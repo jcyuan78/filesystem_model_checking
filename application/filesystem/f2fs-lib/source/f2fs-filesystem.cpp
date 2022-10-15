@@ -1,5 +1,5 @@
-#include "pch.h"
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#include "pch.h"
 
 #include <linux-fs-wrapper.h>
 #include "../include/f2fs-filesystem.h"
@@ -13,6 +13,9 @@
 // == file system
 
 LOCAL_LOGGER_ENABLE(L"f2fs.filesystem", LOGGER_LEVEL_DEBUGINFO);
+
+#define DOKAN_OPTION_REMOVABLE (1 << 5)
+#define DOKAN_OPTION_MOUNT_MANAGER (1 << 6)
 
 
 CF2fsFileSystem::CF2fsFileSystem(void)
@@ -38,10 +41,6 @@ CF2fsFileSystem::~CF2fsFileSystem(void)
 bool CF2fsFileSystem::ConnectToDevice(IVirtualDisk* dev)
 {
 	if (dev == NULL) THROW_ERROR(ERR_APP, L"device cannot be null");
-	// for single device
-	//m_sb_info->s_ndevs = 1;
-	//m_sb_info->s_bdev = dev;
-	//m_sb_info->s_bdev->AddRef();	// 在file system中，只在这里一次计数
 	m_sb_info->SetDevice(dev);
 
 	m_config.devices[0].m_fd = dev;
@@ -56,7 +55,6 @@ bool CF2fsFileSystem::ConnectToDevice(IVirtualDisk* dev)
 void CF2fsFileSystem::Disconnect(void)
 {
 	m_buffers.Reset();
-//	RELEASE(m_sb_info->s_bdev);
 	m_config.devices[0].m_fd = NULL;
 	m_config.ndevs = 0;
 }
@@ -109,11 +107,15 @@ void f2fs_sb_info::destory_super(void)
 
 static const char* fs_name = "f2fs";
 
+ULONG CF2fsFileSystem::GetFileSystemOption(void) const
+{
+	return 0/*| DOKAN_OPTION_MOUNT_MANAGER *//* | DOKAN_OPTION_REMOVABLE*/;
+}
+
 bool CF2fsFileSystem::Mount(IVirtualDisk* dev)
 {
 	LOG_STACK_TRACE();
 	//m_sb_info 已经初始化过
-//	memset(&m_sb, 0, sizeof(super_block));
 	JCASSERT(m_sb_info == nullptr);
 
 	// 初始化 file_system_type结构。原：super.cpp中静态初始化，在init_f2fs_fs()中注册到Linux fs
@@ -123,8 +125,6 @@ bool CF2fsFileSystem::Mount(IVirtualDisk* dev)
 	
 	m_sb_info = new f2fs_sb_info(this, fs_type);
 	ConnectToDevice(dev);
-//	InitializeCriticalSection(m_sb_info->s_inode_list_lock);
-//	INIT_LIST_HEAD(m_sb_info->s_inodes);
 
 	int err = m_sb_info->f2fs_fill_super(L"", 0);
 	if (err)
@@ -230,10 +230,23 @@ bool CF2fsFileSystem::GetVolumnInfo(std::wstring& vol_name, DWORD& sn, DWORD& ma
 	return true;
 }
 
-bool CF2fsFileSystem::DokanCreateFile(IFileInfo*& file, const std::wstring& path, ACCESS_MASK access_mask, DWORD attr, FsCreateDisposition disp, ULONG share, ULONG opt, bool isdir)
+const wchar_t* DispToString(IFileSystem::FsCreateDisposition disp)
+{
+	switch (disp)
+	{
+	case IFileSystem::FS_CREATE_NEW : return L"CREATE_NEW";
+	case IFileSystem::FS_OPEN_ALWAYS : return L"OPEN_ALWAYS";
+	case IFileSystem::FS_OPEN_EXISTING : return L"OPEN_EXISTING";
+	case IFileSystem::FS_CREATE_ALWAYS : return L"CREATE_ALWAYS";
+	case IFileSystem::FS_TRUNCATE_EXISTING : return L"TRUNCATE_EXISTING";
+	default : return L"Unknown";
+	}
+}
+
+NTSTATUS CF2fsFileSystem::DokanCreateFile(IFileInfo*& file, const std::wstring& path, ACCESS_MASK access_mask, DWORD attr, FsCreateDisposition disp, ULONG share, ULONG opt, bool isdir)
 {
 	LOG_STACK_TRACE();
-	LOG_DEBUG(L"disp=%d, dir=%d, target fn=%s", disp, isdir, path.c_str());
+//	LOG_DEBUG(L"[fs_op] Create, %s, disp=%s, fn=%s", isdir?L"Dir":L"File", DispToString(disp), path.c_str());
 	//	(1) 打开parent
 	// 	(2) 在parent中查找目标
 	//  (3) 如果是 OPEN_EXIST, OPEN_ALWAYS, TRUNCATE_EXIST: 
@@ -254,109 +267,112 @@ bool CF2fsFileSystem::DokanCreateFile(IFileInfo*& file, const std::wstring& path
 	if (access_mask & GENERIC_EXECUTE) file_mode |= FMODE_EXEC;
 	if (access_mask & GENERIC_ALL) file_mode |= (FMODE_READ | FMODE_WRITE | FMODE_EXEC);
 
-
 	// 路径解析：得到父节点路径：str_path, 目标文件名：str_fn;
-	//size_t path_len = path.size();
-	//jcvos::auto_array<wchar_t> _str_path(path_len + 1);
-	//wchar_t* str_path = (wchar_t*)_str_path;
-	//wcscpy_s(str_path, path_len + 1, path.c_str());
-
-	//wchar_t* str_fn;
-	//wchar_t* ch = str_path + path_len - 1;
-	//while (*ch != DIR_SEPARATOR && ch >= str_path) ch--;
-	//str_fn = ch + 1;	// 排除根目录的"\"
-	//size_t fn_len = path_len - (str_fn - str_path);
-	//size_t parent_len = ch - str_path;
-	//LOG_DEBUG(L"parent=%s, parent len=%zd, file name = %s, length = %zd", ch, parent_len, str_fn, fn_len);
-
 
 	// TODO: 使用file缓存
-//	jcvos::auto_interface<CF2fsFile> root_dir;
 	jcvos::auto_interface<CF2fsFile> parent_dir;
 	jcvos::auto_interface<IFileInfo> _file;
-	//bool br = _GetRoot(root_dir);
-	//if (!br || !root_dir) THROW_ERROR(ERR_APP, L"root does not exist");
-
-	//if (parent_len == 0)
-	//{
-	//	parent_dir = root_dir;
-	//	root_dir->AddRef();
-	//}
-	//else
-	//{
-	//	br = root_dir->OpenChildEx(parent_dir, str_path, parent_len);
-	//	if (!br || !parent_dir || !parent_dir->IsDirectory())
-	//	{
-	//		LOG_ERROR(L"[err] cannot find parent path %s, or non directory", str_path);
-	//		return false;
-	//	}
-	//}
-
 	std::wstring str_fn;
 	bool br = OpenParent(parent_dir, path, str_fn);
-	if (!br || parent_dir == nullptr) THROW_ERROR(ERR_APP, L"parent dir of %s does not exist", path.c_str());
+	if (!br || parent_dir == nullptr)
+	{
+		LOG_WARNING(L"[warning] parent dir of %s does not exist", path.c_str());
+		return STATUS_OBJECT_PATH_NOT_FOUND;
+	}
+//	THROW_ERROR(ERR_APP, L"parent dir of %s does not exist", path.c_str());
+
 
 	if (str_fn.empty())
 	{	// 打开根目录
 		if (disp == OPEN_ALWAYS || disp == OPEN_EXISTING)
 		{
 			parent_dir.detach(file);
-			return true;
+			if (disp == OPEN_ALWAYS)	return STATUS_OBJECT_NAME_COLLISION;
+			else						return STATUS_SUCCESS;	// open existing
 		}
 		else
 		{
 			LOG_ERROR(L"[err] cannot create root dir");
-			return false;
+			return STATUS_INVALID_PARAMETER;
 		}
 
 	}
 
 	br = parent_dir->OpenChild(_file, str_fn.c_str(), file_mode);
+//	if (isdir && !_file->IsDirectory()) return STATUS_NOT_A_DIRECTORY;
 	switch (disp)
 	{
 	case CREATE_NEW:
-		if (br && _file)	{ LOG_ERROR(L"[err] file %s existed with create new", path.c_str()); return false; }
+		if (br && _file)	{
+			LOG_ERROR(L"[err] file %s existed with create new", path.c_str()); 
+			return STATUS_OBJECT_NAME_COLLISION; }
+//		STATUS_OBJECT_NAME_EXISTS
 		// else: create new file
 		break;
 
 	case OPEN_ALWAYS:
-		if (br && _file)	{	_file.detach(file);		return true;	}
+		if (br && _file)	
+		{	
+			if (isdir)
+			{
+				if (!_file->IsDirectory()) return STATUS_NOT_A_DIRECTORY;
+			}
+			_file.detach(file);
+			return STATUS_OBJECT_NAME_COLLISION;
+//			else return STATUS_SUCCESS;
+		}
 		// else: create a new file
 		break;
 
 	case OPEN_EXISTING:
-		if (br && _file)	{	_file.detach(file);		return true;	}
-		else		{	LOG_ERROR(L"[err] file %s does not exist", path.c_str());		return false;	}
+		if (br && _file)	
+		{
+			if (isdir && !_file->IsDirectory()) return STATUS_NOT_A_DIRECTORY;
+			_file.detach(file);		
+			return STATUS_SUCCESS;	
+		}
+		else		{	LOG_ERROR(L"[err] file %s does not exist", path.c_str());		return STATUS_NO_SUCH_FILE;	}
 		break;
 		
 	case CREATE_ALWAYS:
 		if (br && _file)	
-		{	// <TODO> clear file
-			_file.detach(file);		
-			return true;	
+		{	// 删除 => 重建 <TODO> 优化
+			_file->CloseFile();
+			_file.release();
+			parent_dir->_DeleteChild(str_fn);
 		}
 		break;
 	case TRUNCATE_EXISTING:
-		if (!br || !_file)	{	LOG_ERROR(L"[err] file %s does not exist", path.c_str()); return false;	}
+		// truncate existing已经由Dockan处理
+		if (!br || !_file)	{	LOG_ERROR(L"[err] file %s does not exist", path.c_str()); return STATUS_NO_SUCH_FILE;}
 		// <TODO> clear file
-		return true;
+		_file->SetEndOfFile(0);
+		_file.detach(file);
+		return STATUS_SUCCESS;
 	default:
 		THROW_ERROR(ERR_PARAMETER, L"[err] unknow disp=%d", disp);
 		break;
 	}
 
+//	DWORD file_attr = 0;
+	if (attr & FILE_ATTRIBUTE_READONLY) file_mode |= FMODE_READONLY;
+	if (attr & FILE_ATTRIBUTE_HIDDEN) file_mode |= FMODE_HIDDEN;
+	if (attr & FILE_ATTRIBUTE_SYSTEM) file_mode |= FMODE_SYSTEM;
+
 	br = parent_dir->CreateChild(_file, str_fn.c_str(), isdir, file_mode);
 	if (!br || !_file)
 	{
 		LOG_ERROR(L"[err] failed on creating new file %s", path.c_str());
-		return false;
+		return STATUS_OPEN_FAILED;
 	}
 	_file.detach(file);
-	return true;
+	if (disp == CREATE_ALWAYS) return STATUS_OBJECT_NAME_COLLISION;
+	return STATUS_SUCCESS;
 }
 
-bool CF2fsFileSystem::DokanDeleteFile(const std::wstring& full_path, IFileInfo* file, bool isdir)
+NTSTATUS CF2fsFileSystem::DokanDeleteFile(const std::wstring& full_path, IFileInfo* file, bool isdir)
 {
+	LOG_STACK_TRACE();
 	// 如果是dir，检查是否为空
 //	CF2fsFile* f2fs_file = nullptr;
 //	if (!file)
@@ -377,22 +393,99 @@ bool CF2fsFileSystem::DokanDeleteFile(const std::wstring& full_path, IFileInfo* 
 //		f2fs_file = dynamic_cast<CF2fsFile*>(file);		JCASSERT(f2fs_file);
 //		f2fs_file->AddRef();
 //	}
-
+	CF2fsFile* ff = dynamic_cast<CF2fsFile*>(file);
+//	LOG_DEBUG(L"[fs_op] Delete, %s, path=%s", file->IsDirectory() ? L"Dir" : L"File", full_path.c_str());
+	LOG_DEBUG(L"dentry=%p, inode=%p, fn=%S, ino=%d", ff->m_dentry, ff->m_inode, ff->m_dentry->d_name.name.c_str(), ff->m_inode->i_ino);
+	if (ff) ff->CloseFile();
 	// 打开父节点，
 	jcvos::auto_interface<CF2fsFile> parent_dir;
 	std::wstring fn;
 	OpenParent(parent_dir, full_path, fn);
-
-	// 打开文件
-	jcvos::auto_interface<CF2fsFile> cur_file;
-	parent_dir->_OpenChild(cur_file, fn.c_str(), 0);
+	if (parent_dir == nullptr)
+	{
+		LOG_ERROR(L"[err] failed on open parent dir: %s, err=%d", full_path.c_str(), STATUS_NO_SUCH_FILE);
+		return STATUS_NO_SUCH_FILE;
+	}
 
 	// 调用unlink
-	parent_dir->_DeleteChild(cur_file);
+	int err = parent_dir->_DeleteChild(fn);
+	if (err)
+	{
+		LOG_ERROR(L"[err] failed on deleteing file: %s, err=%d", full_path.c_str(), err);
+		if (err == -ENOTEMPTY) return STATUS_DIRECTORY_NOT_EMPTY;
+	}
 
 //	f2fs_file->Release();
-	return true;
+	return STATUS_SUCCESS;
 
+}
+
+NTSTATUS CF2fsFileSystem::DokanMoveFile(const std::wstring& src_fn, const std::wstring& dst_fn, bool replace, IFileInfo* file)
+{
+	LOG_STACK_TRACE();
+//	LOG_DEBUG(L"[fs_op] Move, %s to %s", src_fn.c_str(), dst_fn.c_str());
+	//<TODO>优化：file已经指向source了，不需要再次查找source.
+	CF2fsFile* ff = dynamic_cast<CF2fsFile*>(file);
+	if (ff) LOG_DEBUG(L"file: dentry=%p, inode=%p, fn=%S, ino=%d", ff->m_dentry, ff->m_inode, ff->m_dentry->d_name.name.c_str(), ff->m_inode->i_ino);
+	jcvos::auto_interface<CF2fsFile> old_parent_dir;
+	std::wstring old_fn;
+	OpenParent(old_parent_dir, src_fn, old_fn);
+	Cf2fsDirInode* old_dir;
+	if (old_parent_dir == nullptr || (old_dir = old_parent_dir->GetInode<Cf2fsDirInode>()) == nullptr)
+	{
+		LOG_NOTICE(L"[err] source path %s does not exist", src_fn.c_str());
+		return STATUS_NO_SUCH_FILE;
+	}
+	qstr old_name(old_fn);
+	//old_parent_dir->m_dentry->dentry_trace(__FUNCTIONW__, __LINE__);
+	dentry* _old_entry = d_alloc(old_parent_dir->GetDentry(), old_name);
+	//old_parent_dir->m_dentry->dentry_trace(__FUNCTIONW__, __LINE__);
+	dentry * old_entry = old_dir->lookup(_old_entry, 0);
+
+//	dput(_old_entry);
+	if (IS_ERR(old_entry))
+	{
+		LOG_NOTICE(L"[err] source file %s does not eixst", src_fn.c_str());
+		dput(_old_entry);
+		return STATUS_NO_SUCH_FILE;
+	}
+
+	jcvos::auto_interface<CF2fsFile> new_parent_dir;
+	std::wstring new_fn;
+	OpenParent(new_parent_dir, dst_fn, new_fn);
+	Cf2fsDirInode* new_dir;
+	if (new_parent_dir == nullptr || (new_dir = new_parent_dir->GetInode<Cf2fsDirInode>()) == nullptr)
+	{
+		dput(old_entry);
+		LOG_NOTICE(L"[err] target parent path %s, parent does not exist or not a dir", dst_fn.c_str());
+		return STATUS_NO_SUCH_FILE;
+	}
+	qstr new_name(new_fn);
+	//new_parent_dir->m_dentry->dentry_trace(__FUNCTIONW__, __LINE__);
+	dentry* _new_entry = d_alloc(new_parent_dir->GetDentry(), new_name);
+	//new_parent_dir->m_dentry->dentry_trace(__FUNCTIONW__, __LINE__);
+	dentry* new_entry = new_dir->lookup(_new_entry, 0);
+//	dput(_new_entry);
+	if (IS_ERR(new_entry)) new_entry = _new_entry;		// 目标文件不存在
+
+	UINT flag = 0;
+	if (!replace) flag |= RENAME_NOREPLACE;
+	int err = m_sb_info->f2fs_rename(old_dir, old_entry, new_dir, new_entry, flag);
+	if (!err) m_sb_info->f2fs_balance_fs(true);
+
+	//new_parent_dir->m_dentry->dentry_trace(__FUNCTIONW__, __LINE__);
+	dput(old_entry);
+	//new_parent_dir->m_dentry->dentry_trace(__FUNCTIONW__, __LINE__);
+	dput(new_entry);
+	//new_parent_dir->m_dentry->dentry_trace(__FUNCTIONW__, __LINE__);
+	if (err)
+	{
+		LOG_ERROR(L"[err] failed on rename %s to %s, err=%d", src_fn.c_str(), dst_fn.c_str(), err);
+		if (err == -EEXIST) return STATUS_OBJECT_NAME_COLLISION;
+		else if (err == -EACCES) return STATUS_ACCESS_DENIED;
+		return ERROR_INVALID_PARAMETER;
+	}
+	return STATUS_SUCCESS;
 }
 
 bool CF2fsFileSystem::Sync(void)
@@ -440,8 +533,6 @@ bool CF2fsFileSystem::OpenParent(CF2fsFile*& dir, const std::wstring& path, std:
 	fn = str_fn;
 
 	jcvos::auto_interface<CF2fsFile> root_dir;
-//	jcvos::auto_interface<IFileInfo> parent_dir;
-//	jcvos::auto_interface<IFileInfo> _file;
 	bool br = _GetRoot(root_dir);
 	if (!br || !root_dir) THROW_ERROR(ERR_APP, L"root does not exist");
 

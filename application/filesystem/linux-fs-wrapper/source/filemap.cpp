@@ -821,9 +821,8 @@ EXPORT_SYMBOL_GPL(replace_page_cache_page);
 //将page添加到mapping中
 int __add_to_page_cache_locked(page *ppage, address_space *mapping, pgoff_t offset, gfp_t gfp,	void **shadowp)
 {
-	LOG_STACK_TRACE();
+//	LOG_STACK_TRACE();
 	int error =0;
-#if 1 //<TODO>
 	XA_STATE(xas, &mapping->i_pages, offset);
 	int huge = PageHuge(ppage);
 	bool charged = false;
@@ -883,7 +882,7 @@ int __add_to_page_cache_locked(page *ppage, address_space *mapping, pgoff_t offs
 		/* hugetlb pages do not participate in page cache accounting */
 		if (!huge)
 		{
-			LOG_DEBUG(L"<TODO> increase lru page state, NR_FILE_PAGES");
+			LOG_DEBUG_(1, L"<TODO> increase lru page state, NR_FILE_PAGES");
 			__inc_lruvec_page_state(ppage, NR_FILE_PAGES);
 		}
 unlock:
@@ -896,8 +895,6 @@ unlock:
 		if (charged)	mem_cgroup_uncharge(ppage);
 		goto error;
 	}
-#endif
-
 //	trace_mm_filemap_add_to_page_cache(ppage);
 	return 0;
 error:
@@ -3787,7 +3784,7 @@ ssize_t generic_file_direct_write(kiocb *iocb, iov_iter *from)
 		write_len -= written;
 		if (pos > i_size_read(inode) && !S_ISBLK(inode->i_mode)) {
 			i_size_write(inode, pos);
-			mark_inode_dirty(inode);
+			inode->mark_inode_dirty();
 		}
 		iocb->ki_pos = pos;
 	}

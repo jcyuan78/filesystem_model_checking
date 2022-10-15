@@ -118,15 +118,14 @@ typedef int (dio_iodone_t)(struct kiocb *iocb, loff_t offset, ssize_t bytes, voi
 /* called from RCU mode, don't block */
 #define MAY_NOT_BLOCK		0x00000080
 
-/*
- * flags in file.f_mode.  Note that FMODE_READ and FMODE_WRITE must correspond
- * to O_WRONLY and O_RDWR via the strange trick in do_dentry_open()
- */
+/* flags in file.f_mode.  Note that FMODE_READ and FMODE_WRITE must correspond to O_WRONLY and O_RDWR via the strange trick in do_dentry_open() */
 
 /* file is open for reading */
-#define FMODE_READ		(( fmode_t)0x1)
+//#define FMODE_READ		(( fmode_t)0x1)
+#define FMODE_READ		S_IREAD
 /* file is open for writing */
-#define FMODE_WRITE		(( fmode_t)0x2)
+//#define FMODE_WRITE		(( fmode_t)0x2)
+#define FMODE_WRITE		S_IWRITE
 /* file is seekable */
 #define FMODE_LSEEK		(( fmode_t)0x4)
 /* file can be accessed using pread */
@@ -134,18 +133,45 @@ typedef int (dio_iodone_t)(struct kiocb *iocb, loff_t offset, ssize_t bytes, voi
 /* file can be accessed using pwrite */
 #define FMODE_PWRITE		(( fmode_t)0x10)
 /* File is opened for execution with sys_execve / sys_uselib */
-#define FMODE_EXEC		(( fmode_t)0x20)
+//#define FMODE_EXEC		(( fmode_t)0x20)
+#define FMODE_EXEC		S_IEXEC
 /* File is opened with O_NDELAY (only set for block devices) */
-#define FMODE_NDELAY		(( fmode_t)0x40)
+//#define FMODE_NDELAY		(( fmode_t)0x40)
 /* File is opened with O_EXCL (only set for block devices) */
-#define FMODE_EXCL		(( fmode_t)0x80)
+//#define FMODE_EXCL		(( fmode_t)0x80)
 /* File is opened using open(.., 3, ..) and is writeable only for ioctls
    (specialy hack for floppy.c) */
-#define FMODE_WRITE_IOCTL	(( fmode_t)0x100)
+//#define FMODE_WRITE_IOCTL	(( fmode_t)0x100)
 /* 32bit hashes as llseek() offset (for directories) */
 #define FMODE_32BITHASH         (( fmode_t)0x200)
 /* 64bit hashes as llseek() offset (for directories) */
 #define FMODE_64BITHASH         (( fmode_t)0x400)
+
+#define FMODE_READONLY		((fmode_t)0x01)
+#define FMODE_HIDDEN		((fmode_t)0x02)
+#define FMODE_SYSTEM		((fmode_t)0x20)
+#define FMODE_ARCHIVE		((fmode_t)0x800)
+
+// 0001		0000 0000 0000 0001		FMODE_READONLY
+// 0002		0000 0000 0000 0010		FMODE_HIDDEN
+// 0004		0000 0000 0000 0100		FMODE_LSEEK
+// 0008		0000 0000 0000 1000		FMODE_PREAD
+
+// 0010		0000 0000 0001 0000		FMODE_PWRITE
+// 0020		0000 0000 0010 0000		FMODE_SYSTEM
+// 0040		0000 0000 0100 0000		S_IEXEC
+// 0080		0000 0000 1000 0000		S_IWRITE
+
+// 0100		0000 0001 0000 0000		S_IREAD
+// 0200		0000 0010 0000 0000		FMODE_32BITHASH
+// 0400		0000 0100 0000 0000		FMODE_64BITHASH
+// 0800		0000 1000 0000 0000		FMODE_ARCHIVE
+
+// 1000		0001 0000 0000 0000		_S_IFIFO
+// 2000		0010 0000 0000 0000		S_IFCHR
+// 4000		0100 0000 0000 0000		S_IFDIR
+// 8000		1000 0000 0000 0000		S_IFREG
+
 
 /*
  * Don't update ctime and mtime.
@@ -660,10 +686,10 @@ static inline unsigned int i_blocksize(const struct inode *node)
 	return (1 << node->i_blkbits);
 }
 
-static inline int inode_unhashed(struct inode *inode)
-{
-	return hlist_unhashed(&inode->i_hash);
-}
+//static inline int inode_unhashed(struct inode *inode)
+//{
+//	return hlist_unhashed(&inode->i_hash);
+//}
 
 /*
  * __mark_inode_dirty expects inodes to be hashed.  Since we don't want special inodes in the fileset inode space, 
@@ -756,15 +782,7 @@ void lock_two_nondirectories(struct inode *, struct inode*);
 void unlock_two_nondirectories(struct inode *, struct inode*);
 
 /*
- * NOTE: in a 32bit arch with a preemptable kernel and
- * an UP compile the i_size_read/write must be atomic
- * with respect to the local cpu (unlike with preempt disabled),
- * but they don't need to be atomic with respect to other cpus like in
- * true SMP (so they need either to either locally disable irq around
- * the read or for example on x86 they can be still implemented as a
- * cmpxchg8b without the need of the lock prefix). For SMP compiles
- * and 64bit archs it makes no difference if preempt is enabled or not.
- */
+ * NOTE: in a 32bit arch with a preemptable kernel and an UP compile the i_size_read/write must be atomic with respect to the local cpu (unlike with preempt disabled), but they don't need to be atomic with respect to other cpus like in true SMP (so they need either to either locally disable irq around the read or for example on x86 they can be still implemented as a cmpxchg8b without the need of the lock prefix). For SMP compiles and 64bit archs it makes no difference if preempt is enabled or not. */
 static inline loff_t i_size_read(const struct inode *inode)
 {
 #if BITS_PER_LONG==32 && defined(CONFIG_SMP)
@@ -788,11 +806,7 @@ static inline loff_t i_size_read(const struct inode *inode)
 #endif
 }
 
-/*
- * NOTE: unlike i_size_read(), i_size_write() does need locking around it
- * (normally i_mutex), otherwise on 32bit/SMP an update of i_size_seqcount
- * can be lost, resulting in subsequent i_size_read() calls spinning forever.
- */
+/* NOTE: unlike i_size_read(), i_size_write() does need locking around it (normally i_mutex), otherwise on 32bit/SMP an update of i_size_seqcount can be lost, resulting in subsequent i_size_read() calls spinning forever. */
 static inline void i_size_write(struct inode *inode, loff_t i_size)
 {
 #if BITS_PER_LONG==32 && defined(CONFIG_SMP)
@@ -1526,6 +1540,9 @@ public:
 	virtual void	dentry_list_lru_del(dentry* dd) { UNSUPPORT_0; }
 	virtual void	dentry_list_lru_add(dentry* dd) { UNSUPPORT_0; }
 
+	void lock_rename(void) { write_seqlock(&rename_lock); }
+	void unlock_rename(void) {	write_sequnlock(&rename_lock);	}
+
 #if 0 // TODO op通过虚函数实现
 	const struct dquot_operations	*dq_op;
 	const struct quotactl_ops	*s_qcop;
@@ -1626,6 +1643,7 @@ public:
 
 	spinlock_t		s_inode_wblist_lock;
 	list_head	s_inodes_wb;	/* writeback inodes */
+	seqlock_t rename_lock;
 };
 //__randomize_layout;
 
@@ -2389,118 +2407,15 @@ static inline loff_t page_offset(struct page* page)
 }
 
 
-/*
- * Inode state bits.  Protected by inode->i_lock
- *
- * Four bits determine the dirty state of the inode: I_DIRTY_SYNC,
- * I_DIRTY_DATASYNC, I_DIRTY_PAGES, and I_DIRTY_TIME.
- *
- * Four bits define the lifetime of an inode.  Initially, inodes are I_NEW,
- * until that flag is cleared.  I_WILL_FREE, I_FREEING and I_CLEAR are set at
- * various stages of removing an inode.
- *
- * Two bits are used for locking and completion notification, I_NEW and I_SYNC.
- *
- * I_DIRTY_SYNC		Inode is dirty, but doesn't have to be written on
- *			fdatasync() (unless I_DIRTY_DATASYNC is also set).
- *			Timestamp updates are the usual cause.
- * I_DIRTY_DATASYNC	Data-related inode changes pending.  We keep track of
- *			these changes separately from I_DIRTY_SYNC so that we
- *			don't have to write inode on fdatasync() when only
- *			e.g. the timestamps have changed.
- * I_DIRTY_PAGES	Inode has dirty pages.  Inode itself may be clean.
- * I_DIRTY_TIME		The inode itself only has dirty timestamps, and the
- *			lazytime mount option is enabled.  We keep track of this
- *			separately from I_DIRTY_SYNC in order to implement
- *			lazytime.  This gets cleared if I_DIRTY_INODE
- *			(I_DIRTY_SYNC and/or I_DIRTY_DATASYNC) gets set.  I.e.
- *			either I_DIRTY_TIME *or* I_DIRTY_INODE can be set in
- *			i_state, but not both.  I_DIRTY_PAGES may still be set.
- * I_NEW		Serves as both a mutex and completion notification.
- *			New inodes set I_NEW.  If two processes both create
- *			the same inode, one of them will release its inode and
- *			wait for I_NEW to be released before returning.
- *			Inodes in I_WILL_FREE, I_FREEING or I_CLEAR state can
- *			also cause waiting on I_NEW, without I_NEW actually
- *			being set.  find_inode() uses this to prevent returning
- *			nearly-dead inodes.
- * I_WILL_FREE		Must be set when calling write_inode_now() if i_count
- *			is zero.  I_FREEING must be set when I_WILL_FREE is
- *			cleared.
- * I_FREEING		Set when inode is about to be freed but still has dirty
- *			pages or buffers attached or the inode itself is still
- *			dirty.
- * I_CLEAR		Added by clear_inode().  In this state the inode is
- *			clean and can be destroyed.  Inode keeps I_FREEING.
- *
- *			Inodes that are I_WILL_FREE, I_FREEING or I_CLEAR are
- *			prohibited for many purposes.  iget() must wait for
- *			the inode to be completely released, then create it
- *			anew.  Other functions will just ignore such inodes,
- *			if appropriate.  I_NEW is used for waiting.
- *
- * I_SYNC		Writeback of inode is running. The bit is set during
- *			data writeback, and cleared with a wakeup on the bit
- *			address once it is done. The bit is also used to pin
- *			the inode in memory for flusher thread.
- *
- * I_REFERENCED		Marks the inode as recently references on the LRU list.
- *
- * I_DIO_WAKEUP		Never set.  Only used as a key for wait_on_bit().
- *
- * I_WB_SWITCH		Cgroup bdi_writeback switching in progress.  Used to
- *			synchronize competing switching instances and to tell
- *			wb stat updates to grab the i_pages lock.  See
- *			inode_switch_wbs_work_fn() for details.
- *
- * I_OVL_INUSE		Used by overlayfs to get exclusive ownership on upper
- *			and work dirs among overlayfs mounts.
- *
- * I_CREATING		New object's inode in the middle of setting up.
- *
- * I_DONTCACHE		Evict inode as soon as it is not used anymore.
- *
- * I_SYNC_QUEUED	Inode is queued in b_io or b_more_io writeback lists.
- *			Used to detect that mark_inode_dirty() should not move
- * 			inode between dirty lists.
- *
- * Q: What is the difference between I_WILL_FREE and I_FREEING?
- */
-#define I_DIRTY_SYNC		(1 << 0)
-#define I_DIRTY_DATASYNC	(1 << 1)
-#define I_DIRTY_PAGES		(1 << 2)
-#define __I_NEW			3
-#define I_NEW			(1 << __I_NEW)
-#define I_WILL_FREE		(1 << 4)
-#define I_FREEING		(1 << 5)
-#define I_CLEAR			(1 << 6)
-#define __I_SYNC		7
-#define I_SYNC			(1 << __I_SYNC)
-#define I_REFERENCED		(1 << 8)
-#define __I_DIO_WAKEUP		9
-#define I_DIO_WAKEUP		(1 << __I_DIO_WAKEUP)
-#define I_LINKABLE		(1 << 10)
-#define I_DIRTY_TIME		(1 << 11)
-#define I_WB_SWITCH		(1 << 13)
-#define I_OVL_INUSE		(1 << 14)
-#define I_CREATING		(1 << 15)
-#define I_DONTCACHE		(1 << 16)
-#define I_SYNC_QUEUED		(1 << 17)
-
-#define I_DIRTY_INODE (I_DIRTY_SYNC | I_DIRTY_DATASYNC)
-#define I_DIRTY (I_DIRTY_INODE | I_DIRTY_PAGES)
-#define I_DIRTY_ALL (I_DIRTY | I_DIRTY_TIME)
-
-void __mark_inode_dirty(struct inode*, int);
-static inline void mark_inode_dirty(struct inode *inode)
-{
-	__mark_inode_dirty(inode, I_DIRTY);
-}
-
-static inline void mark_inode_dirty_sync(struct inode *inode)
-{
-	__mark_inode_dirty(inode, I_DIRTY_SYNC);
-}
+//static inline void mark_inode_dirty(struct inode *inode)
+//{
+//	__mark_inode_dirty(inode, I_DIRTY);
+//}
+//
+//static inline void mark_inode_dirty_sync(struct inode *inode)
+//{
+//	__mark_inode_dirty(inode, I_DIRTY_SYNC);
+//}
 
 /*
  * Returns true if the given inode itself only has dirty timestamps (its pages
@@ -2518,22 +2433,22 @@ static inline bool inode_is_dirtytime_only(struct inode *inode)
 }
 
 // <YUAN> in data.cpp
-extern void inc_nlink(struct inode *inode);
-extern void drop_nlink(struct inode *inode);
-extern void clear_nlink(struct inode *inode);
-extern void set_nlink(struct inode* inode, unsigned int nlink);
+//extern void inc_nlink(struct inode *inode);
+//extern void drop_nlink(struct inode *inode);
+//extern void clear_nlink(struct inode *inode);
+//extern void set_nlink(struct inode* inode, unsigned int nlink);
 
-static inline void inode_inc_link_count(struct inode *inode)
-{
-	inc_nlink(inode);
-	mark_inode_dirty(inode);
-}
-
-static inline void inode_dec_link_count(struct inode *inode)
-{
-	drop_nlink(inode);
-	mark_inode_dirty(inode);
-}
+//static inline void inode_inc_link_count(struct inode *inode)
+//{
+//	inc_nlink(inode);
+//	mark_inode_dirty(inode);
+//}
+//
+//static inline void inode_dec_link_count(struct inode *inode)
+//{
+//	drop_nlink(inode);
+//	mark_inode_dirty(inode);
+//}
 
 enum file_time_flags {
 	S_ATIME = 1,
@@ -2935,7 +2850,7 @@ static inline void unregister_chrdev(unsigned int major, const char *name)
 	__unregister_chrdev(major, 0, 256, name);
 }
 
-inline void init_special_inode(struct inode*, umode_t, dev_t) { UNSUPPORT_0; }
+void init_special_inode(inode*, umode_t, dev_t);
 
 ///* Invalid inode operations -- fs/bad_inode.c */
 //inline void make_bad_inode(inode *) UNSUPPORT_0
@@ -3062,7 +2977,7 @@ inline int vfs_fsync_range(struct file* file, loff_t start, loff_t end, int data
 	struct inode* inode = file->f_mapping->host;
 
 //	if (!file->f_op->fsync) 	return -EINVAL;
-	if (!datasync &&/* (inode->i_state & I_DIRTY_TIME)*/inode->TestState(I_DIRTY_TIME))	mark_inode_dirty_sync(inode);
+	if (!datasync &&/* (inode->i_state & I_DIRTY_TIME)*/inode->TestState(I_DIRTY_TIME))	inode->mark_inode_dirty_sync();
 	//return file->f_op->fsync(file, start, end, datasync);
 	return file->fsync(start, end, datasync);
 }
@@ -3234,9 +3149,9 @@ extern struct inode * igrab(struct inode *);
 extern ino_t iunique(struct super_block *, ino_t);
 extern int inode_needs_sync(struct inode *inode);
 extern int generic_delete_inode(struct inode *inode);
-static inline int generic_drop_inode(struct inode *inode)
+static inline int generic_drop_inode(inode *iinode)
 {
-	return !inode->i_nlink || inode_unhashed(inode);
+	return !iinode->i_nlink || iinode->inode_unhashed();
 }
 extern void d_mark_dontcache(struct inode *inode);
 
@@ -3259,7 +3174,7 @@ extern struct inode *find_inode_rcu(struct super_block *, unsigned long,
 				    int (*)(struct inode *, void *), void *);
 extern struct inode *find_inode_by_ino_rcu(struct super_block *, unsigned long);
 extern int insert_inode_locked4(struct inode *, unsigned long, int (*test)(struct inode *, void *), void *);
-extern int insert_inode_locked(struct inode *);
+//extern int insert_inode_locked(struct inode *);
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 extern void lockdep_annotate_inode_mutex_key(struct inode *inode);
 #else
@@ -3296,18 +3211,18 @@ extern void free_inode_nonrcu(struct inode *inode);
 extern int should_remove_suid(struct dentry *);
 extern int file_remove_privs(struct file *);
 
-extern void __insert_inode_hash(struct inode *, unsigned long hashval);
-static inline void insert_inode_hash(struct inode *inode)
-{
-	__insert_inode_hash(inode, inode->i_ino);
-}
+//extern void __insert_inode_hash(struct inode *, unsigned long hashval);
+//static inline void insert_inode_hash(struct inode *inode)
+//{
+//	__insert_inode_hash(inode, inode->i_ino);
+//}
 
-extern void __remove_inode_hash(struct inode *);
-static inline void remove_inode_hash(struct inode *inode)
-{
-	if (!inode_unhashed(inode) && !hlist_fake(&inode->i_hash))
-		__remove_inode_hash(inode);
-}
+//extern void __remove_inode_hash(struct inode *);
+//static inline void remove_inode_hash(struct inode *inode)
+//{
+//	if (!inode->inode_unhashed() && !hlist_fake(&inode->i_hash))
+//		__remove_inode_hash(inode);
+//}
 
 extern void inode_sb_list_add(struct inode *inode);
 
@@ -4296,3 +4211,7 @@ inline void zero_user_segment(page* pp, unsigned start, unsigned end)
 {
 	memset(page_address<BYTE>(pp) + start, 0, end - start);
 }
+
+#define RENAME_NOREPLACE	(1 << 0)	/* Don't overwrite target */
+#define RENAME_EXCHANGE		(1 << 1)	/* Exchange source and dest */
+#define RENAME_WHITEOUT		(1 << 2)	/* Whiteout source */

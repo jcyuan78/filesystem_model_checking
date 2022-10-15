@@ -38,6 +38,7 @@ typedef time64_t	timespec64;
 typedef UINT32 xa_mark_t;
 
 //#define jiffies  0
+#define jiffies (jcvos::GetTimeStamp())
 #define time_after(a,b)		((long)((b) - (a)) < 0)
 #define time_before(a,b)	time_after(b,a)
 //#define HZ 1

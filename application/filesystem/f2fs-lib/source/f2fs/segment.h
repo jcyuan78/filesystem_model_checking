@@ -803,13 +803,9 @@ static inline int nr_pages_to_skip(struct f2fs_sb_info *sbi, int type)
 	else if (type == META)		return 8 * BIO_MAX_VECS;
 	else						return 0;
 }
-#if 0
 
-/*
- * When writing pages, it'd better align nr_to_write for segment size.
- */
-static inline long nr_pages_to_write(struct f2fs_sb_info *sbi, int type,
-					struct writeback_control *wbc)
+/* When writing pages, it'd better align nr_to_write for segment size. */
+static inline long nr_pages_to_write(f2fs_sb_info *sbi, int type, writeback_control *wbc)
 {
 	long nr_to_write, desired;
 
@@ -824,7 +820,6 @@ static inline long nr_pages_to_write(struct f2fs_sb_info *sbi, int type,
 	wbc->nr_to_write = desired;
 	return desired - nr_to_write;
 }
-#endif
 
 static inline void wake_up_discard_thread(struct f2fs_sb_info *sbi, bool force)
 {

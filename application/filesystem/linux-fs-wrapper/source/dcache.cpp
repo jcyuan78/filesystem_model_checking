@@ -100,8 +100,8 @@ static void d_lru_del(dentry*);
 //static void d_shrink_add(dentry*, list_head* list);
 static inline void __d_set_inode_and_type(dentry* dentry, inode* inode, unsigned type_flags);
 
-
-seqlock_t rename_lock;
+// 全局变量移植到super_block中
+//seqlock_t rename_lock;
 
 const qstr empty_name(L"");
 //EXPORT_SYMBOL(empty_name);
@@ -400,28 +400,28 @@ static void dentry_free(dentry *ddentry)
 
 
 /* Release the dentry's inode, using the filesystem d_iput() operation if defined.*/
-static void dentry_unlink_inode(struct dentry * dentry)
-	//__releases(dentry->d_lock)
+static void dentry_unlink_inode(dentry * ddentry)
+	//__releases(ddentry->d_lock)
 	//__releases(dentry->d_inode->i_lock)
 {
-	struct inode *inode = dentry->d_inode;
+	inode *iinode = ddentry->d_inode;
 
-	raw_write_seqcount_begin(&dentry->d_seq);
-	__d_clear_type_and_inode(dentry);
-	hlist_del_init(&dentry->d_u.d_alias);
-	raw_write_seqcount_end(&dentry->d_seq);
-	spin_unlock(&dentry->d_lock);
-	spin_unlock(&inode->i_lock);
-	if (!inode->i_nlink)
+	raw_write_seqcount_begin(&ddentry->d_seq);
+	__d_clear_type_and_inode(ddentry);
+	hlist_del_init(&ddentry->d_u.d_alias);
+	raw_write_seqcount_end(&ddentry->d_seq);
+	iinode->remove_alias(ddentry);
+	spin_unlock(&ddentry->d_lock);
+	spin_unlock(&iinode->i_lock);
+	if (!iinode->i_nlink)
 	{
 #if 0	//<NOT SUPPORT> fsnotify通知用户层文件系统的事件。这里不支持。
-		fsnotify_inoderemove(inode);
+		fsnotify_inoderemove(iinode);
 #endif
 	}
-	if (dentry->d_op && dentry->d_op->d_iput)
-		dentry->d_op->d_iput(dentry, inode);
-	else
-		iput(inode);
+	if (ddentry->d_op && ddentry->d_op->d_iput)
+		ddentry->d_op->d_iput(ddentry, iinode);
+	else	iput(iinode);
 }
 
 
@@ -588,10 +588,8 @@ static void __dentry_kill(dentry *ddentry)
 	dentry_unlist(ddentry, parent);
 	if (parent)
 		spin_unlock(&parent->d_lock);
-	if (ddentry->d_inode)
-		dentry_unlink_inode(ddentry);
-	else
-		spin_unlock(&ddentry->d_lock);
+	if (ddentry->d_inode)		dentry_unlink_inode(ddentry);
+	else		spin_unlock(&ddentry->d_lock);
 //	this_cpu_dec(nr_dentry);
 	if (ddentry->d_op && ddentry->d_op->d_release)
 		ddentry->d_op->d_release(ddentry);
@@ -1995,13 +1993,12 @@ void d_instantiate_new(dentry *entry, inode *inode)
 #endif
 	spin_lock(&inode->i_lock);
 	__d_instantiate(entry, inode);
-	WARN_ON(!/*(inode->i_state & I_NEW)*/inode->TestState(I_NEW));
-//	inode->i_state &= ~I_NEW & ~I_CREATING;
+	WARN_ON(!inode->TestState(I_NEW));
 	inode->ClearStateNotify(I_NEW | I_CREATING);
 #if 0 //TODO
 	smp_mb();
-	wake_up_bit(&inode->i_state, __I_NEW);
 #endif
+//	wake_up_bit(&inode->i_state, __I_NEW);
 	spin_unlock(&inode->i_lock);
 }
 //EXPORT_SYMBOL(d_instantiate_new);
@@ -2440,27 +2437,20 @@ struct dentry *d_hash_and_lookup(struct dentry *dir, struct qstr *name)
 	return d_lookup(dir, name);
 }
 EXPORT_SYMBOL(d_hash_and_lookup);
+#endif
 
 /*
  * When a file is deleted, we have two options:
  * - turn this dentry into a negative dentry
  * - unhash this dentry and free it.
  *
- * Usually, we want to just turn this into
- * a negative dentry, but if anybody else is
- * currently using the dentry or the inode
- * we can't do that and we fall back on removing
- * it from the hash queues and waiting for
- * it to be deleted later when it has no users
- */
+ * Usually, we want to just turn this into a negative dentry, but if anybody else is currently using the dentry or the inode we can't do that and we fall back on removing it from the hash queues and waiting for it to be deleted later when it has no users */
  
 /**
  * d_delete - delete a dentry
  * @dentry: The dentry to delete
  *
- * Turn the dentry into a negative dentry if possible, otherwise
- * remove it from the hash queues so it can be deleted later
- */
+ * Turn the dentry into a negative dentry if possible, otherwise remove it from the hash queues so it can be deleted later */
  
 void d_delete(struct dentry * dentry)
 {
@@ -2468,20 +2458,20 @@ void d_delete(struct dentry * dentry)
 
 	spin_lock(&inode->i_lock);
 	spin_lock(&dentry->d_lock);
-	/*
-	 * Are we the only user?
-	 */
-	if (dentry->d_lockref.count == 1) {
+	/* Are we the only user? */
+	if (dentry->d_lockref.count == 1) 
+	{
 		dentry->d_flags &= ~DCACHE_CANT_MOUNT;
 		dentry_unlink_inode(dentry);
-	} else {
+	} 
+	else 
+	{
 		__d_drop(dentry);
 		spin_unlock(&dentry->d_lock);
 		spin_unlock(&inode->i_lock);
 	}
 }
-EXPORT_SYMBOL(d_delete);
-#endif
+//EXPORT_SYMBOL(d_delete);
 
 static void __d_rehash(dentry *entry)
 {
@@ -2986,15 +2976,9 @@ dentry *d_ancestor(dentry *p1, dentry *p2)
 }
 
 
-/*
- * This helper attempts to cope with remotely renamed directories
- *
- * It assumes that the caller is already holding
- * dentry->d_parent->d_inode->i_mutex, and rename_lock
- *
- * Note: If ever the locking in lock_rename() changes, then please
- * remember to update this too...
- */
+/* This helper attempts to cope with remotely renamed directories
+ * It assumes that the caller is already holding dentry->d_parent->d_inode->i_mutex, and rename_lock
+ * Note: If ever the locking in lock_rename() changes, then please remember to update this too... */
 static int __d_unalias(struct inode *inode, struct dentry *dentry, struct dentry *alias)
 {
 	mutex *m1 = NULL;
@@ -3030,10 +3014,10 @@ out_err:
  * Cluster filesystems may call this function with a negative, hashed dentry. In that case, we know that the inode will be a regular file, and also this will only occur during atomic_open. So we need to check for the dentry being already hashed only in the final case. */
 dentry *d_splice_alias(inode *iinode, dentry *entry)
 {
-#define ERR_CAST(x) reinterpret_cast<dentry*>(x)
+//#define ERR_CAST(x) reinterpret_cast<dentry*>(x)
 //#define ERR_PTR(x) reinterpret_cast<dentry*>(x)
 
-	if (IS_ERR(iinode)) return ERR_CAST(iinode);
+	if (IS_ERR(iinode)) return ERR_PTR<dentry>(PTR_ERR(iinode));
 //	BUG_ON(!d_unhashed(entry));
 	if (!iinode)		goto out;
 
@@ -3047,10 +3031,12 @@ dentry *d_splice_alias(inode *iinode, dentry *entry)
 		if (unlikely(new_entry)) 
 		{	/* The reference to new ensures it remains an alias */
 			spin_unlock(&iinode->i_lock);
-			write_seqlock(&rename_lock);
-			if (unlikely(d_ancestor(new_entry, entry))) 
-			{
-				write_sequnlock(&rename_lock);
+//			write_seqlock(&rename_lock);
+			iinode->i_sb->lock_rename();
+			if (unlikely(d_ancestor(new_entry, entry)))		// 检查new_entry是否是entry的祖先节点
+			{	// new_entry是entry的祖先节点，则存在循环，报错
+//				write_sequnlock(&rename_lock);
+				iinode->i_sb->unlock_rename();
 				dput(new_entry);
 				new_entry = ERR_PTR<dentry>(-ELOOP);
 				LOG_WARNING(L"VFS: Lookup of '%S' in %S %S would have caused loop", entry->d_name.name, 
@@ -3059,10 +3045,12 @@ dentry *d_splice_alias(inode *iinode, dentry *entry)
 				//	entry->d_name.name, inode->i_sb->s_type->name, inode->i_sb->s_id);
 			}
 			else if (!IS_ROOT(new_entry)) 
-			{
+			{	// new_entry 不是root
 				dentry *old_parent = dget(new_entry->d_parent);
 				int err = __d_unalias(iinode, entry, new_entry);
-				write_sequnlock(&rename_lock);
+//				write_sequnlock(&rename_lock);
+				iinode->i_sb->unlock_rename();
+
 				if (err)
 				{
 					dput(new_entry);
@@ -3073,7 +3061,8 @@ dentry *d_splice_alias(inode *iinode, dentry *entry)
 			else 
 			{
 				__d_move(new_entry, entry, false);
-				write_sequnlock(&rename_lock);
+//				write_sequnlock(&rename_lock);
+				iinode->i_sb->unlock_rename();
 			}
 			iput(iinode);
 			return new_entry;
@@ -3440,3 +3429,9 @@ void CDentryManager::free(dentry* ddentry)
 	LOG_DEBUG(L"put dentry: 0x%p, index=%lld, free=%lld", ddentry, ddentry - m_buf, m_free_list.size());
 }
 
+#ifdef _DEBUG
+void dentry::dentry_trace(const wchar_t* func, int line)
+{
+	LOG_DEBUG(L"<call=%s> <line=%d> [d_trace] addr=%p, fn=%S, ref=%d, inode=%p", func, line, this, d_name.name.c_str(), d_lockref.count, d_inode);
+}
+#endif

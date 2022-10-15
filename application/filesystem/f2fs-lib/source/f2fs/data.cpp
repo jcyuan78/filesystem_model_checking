@@ -1042,7 +1042,7 @@ static void __set_data_blkaddr(struct dnode_of_data *dn)
 	int base = 0;
 
 	if (IS_INODE(dn->node_page) && f2fs_has_extra_attr(dn->inode))
-		base = get_extra_isize(dn->inode);
+		base = dn->inode->get_extra_isize();
 
 	/* Get physical address of data block */
 	addr_array = blkaddr_in_node(rn);
@@ -2049,7 +2049,7 @@ submit_and_realloc:
 	ClearPageError(ppage);
 	*last_block_in_bio = block_nr;
 	goto out;
-confused:
+//confused:
 	if (bbio) 
 	{
 		sbi->m_fs->__submit_bio(bbio, DATA);
@@ -3116,7 +3116,7 @@ static void f2fs_write_failed(address_space *mapping, loff_t to)
 		down_write(&F2FS_I(inode)->i_mmap_sem);
 
 		truncate_pagecache(inode, i_size);
-		f2fs_truncate_blocks(inode, i_size, true);
+		f2fs_truncate_blocks(F2FS_I(inode), i_size, true);
 
 		up_write(&F2FS_I(inode)->i_mmap_sem);
 		up_write(&F2FS_I(inode)->i_gc_rwsem[WRITE]);
@@ -3529,6 +3529,7 @@ out:
 Cf2fsMappingBase::Cf2fsMappingBase(f2fs_inode_info* iinode)
 {
 	JCASSERT(iinode);
+	INIT_LIST_HEAD(&private_list);
 	host = static_cast<inode*>(iinode);
 }
 

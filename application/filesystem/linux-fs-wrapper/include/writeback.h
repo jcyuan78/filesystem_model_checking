@@ -200,15 +200,16 @@ void wakeup_flusher_threads_bdi(struct backing_dev_info *bdi,
 				enum wb_reason reason);
 void inode_wait_for_writeback(struct inode *inode);
 void inode_io_list_del(struct inode *inode);
+#endif //TODO
 
 /* writeback.h requires fs.h; it, too, is not included from here. */
-static inline void wait_on_inode(struct inode *inode)
+static inline void wait_on_inode(inode *iinode)
 {
-	might_sleep();
-	wait_on_bit(&inode->i_state, __I_NEW, TASK_UNINTERRUPTIBLE);
+//	might_sleep();
+//	wait_on_bit(&inode->i_state, __I_NEW, TASK_UNINTERRUPTIBLE);
+	iinode->WaitForState(__I_NEW);
 }
 
-#endif //TODO
 
 #ifdef CONFIG_CGROUP_WRITEBACK
 

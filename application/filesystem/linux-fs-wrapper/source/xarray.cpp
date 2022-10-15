@@ -2325,7 +2325,7 @@ void workingset_update_node(xa_node* node)
 		}
 	}
 #else
-	LOG_DEBUG(L"<TODO> count=%d, nr_value=%d", node->count, node->nr_values);
+	LOG_DEBUG_(1, L"<TODO> count=%d, nr_value=%d", node->count, node->nr_values);
 	//JCASSERT(0);
 #endif
 }

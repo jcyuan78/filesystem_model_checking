@@ -24,9 +24,6 @@ https://github.com/kdave/xfstests/blob/master/tests/generic/002
 
 
 using fs_testing::tests::DataTestResult;
-//using fs_testing::user_tools::api::WriteData;
-//using fs_testing::user_tools::api::WriteDataMmap;
-using fs_testing::user_tools::api::Checkpoint;
 using std::string;
 
 #define TEST_FILE_PERMS  ((mode_t) (S_IRWXU | S_IRWXG | S_IRWXO))
@@ -41,6 +38,43 @@ namespace tests {
 class Generic002: public BaseTestCase 
 {
 public:
+    //    class FileLister : public EnumFileListener
+    //    {
+    //    public:
+    //        virtual bool EnumFileCallback(const std::wstring& fn, UINT32 ino, UINT32 entry, // entry 在父目录中的位置
+    //            BY_HANDLE_FILE_INFORMATION* info)
+    //        {
+    //            //LOG_DEBUG(L"got child item: %s", fn.c_str());
+    //            //m_file_num++;
+    //            std::wstring ff = m_parent + fn.c_str();
+    //            if (info->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+    //            {   // dir
+    //                ff += L"\\";
+    //                m_file_list.push_back(ff);
+    //            }
+    //            LOG_DEBUG(L"item: %s", ff.c_str());
+    //            return true;
+    //        }
+    //    public:
+    //        std::vector<std::wstring> m_file_list;
+    //        std::wstring m_parent;
+    //    };
+
+    //void ListAllFiles(const std::wstring& folder)
+    //{
+    //    FileLister listener;
+    //    listener.m_parent = folder;
+    //    jcvos::auto_interface<IFileInfo> dir;
+    //    bool br = m_fs->DokanCreateFile(dir, folder, GENERIC_ALL, 0, IFileSystem::FS_OPEN_EXISTING, 0, 0, false);
+    //    if (!br || !dir) THROW_ERROR(ERR_APP, L"failed on opening root");
+    //    dir->EnumerateFiles(static_cast<EnumFileListener*>(&listener));
+
+    //    for (auto& sub : listener.m_file_list)
+    //    {
+    //        ListAllFiles(sub);
+    //    }
+    //}
+
     virtual int setup() override 
     {
         JCASSERT(m_fs);
@@ -64,9 +98,8 @@ public:
         return 0;
     }
 
-//#define USING_CM
+#define USING_CM
 
-#ifdef USING_CM
     virtual int run(int checkpoint) override 
     {
         JCASSERT(m_fs);
@@ -74,73 +107,105 @@ public:
 
         int local_checkpoint = 0;
         wchar_t msg[100];
+        bool br = false;
+
 
         jcvos::auto_interface<IFileInfo> fd_foo;
- //       bool br = m_fs->DokanCreateFile(fd_foo, foo_path, GENERIC_ALL, 0, IFileSystem::FS_OPEN_EXISTING, 0, 0, false);
-        bool br = cm_->CmCreateFile(fd_foo, foo_path, GENERIC_ALL, 0, IFileSystem::FS_OPEN_EXISTING, 0, 0, false);
+#ifdef USING_CM
+        br = cm_->CmCreateFile(fd_foo, foo_path, GENERIC_ALL, 0, IFileSystem::FS_OPEN_EXISTING, 0, 0, false);
+#else
+        br = m_fs->DokanCreateFile(fd_foo, foo_path, GENERIC_ALL, 0, IFileSystem::FS_OPEN_EXISTING, 0, 0, false);
+#endif
         if (!br || !fd_foo) return -1;
-        //const int fd_foo = open(foo_path.c_str(), O_RDWR | O_CREAT, TEST_FILE_PERMS);
-        //if (fd_foo < 0) {  return -1; }
+        LOG_DEBUG(L"start creating sub files");
 
         // Create new set of links
         for (int i = 0; i < NUM_LINKS; i++)
         {
             std::wstring foo_link = foo_link_path + std::to_wstring(i);
             jcvos::auto_interface<IFileInfo> ff;
-//            br = m_fs->DokanCreateFile(ff, foo_link, GENERIC_ALL, 0, IFileSystem::FS_CREATE_NEW, 0, 0, false);
+#ifdef USING_CM
             br = cm_->CmCreateFile(ff, foo_link, GENERIC_ALL, 0, IFileSystem::FS_CREATE_NEW, 0, 0, false);
             if (!br || !ff) return -2;
-            // fsync foo
-//            br = fd_foo->FlushFile();
             br = cm_->CmFsync(fd_foo);
             if (!br)  {     return -3;      }
+#else
+            br = m_fs->DokanCreateFile(ff, foo_link, GENERIC_ALL, 0, IFileSystem::FS_CREATE_NEW, 0, 0, false);
+            if (!br || !ff) return -2;
+            br = fd_foo->FlushFile();
+            if (!br)  {     return -3;      }
+#endif
+            // fsync foo
 
             // Make a user checkpoint here
             LOG_NOTICE(L"send checkpoint");
             swprintf_s(msg, L"create file:%d", i);
-//            if (Checkpoint(msg) < 0){  return -4;    }
-            if (cm_->CmCheckpoint(msg) < 0) { return -4; }
+            if (Checkpoint(msg) < 0){  return -4;    }
             local_checkpoint += 1;
-            if (local_checkpoint == checkpoint) {   return 0;    }
-//            ff->CloseFile();
+#ifdef USING_CM
             cm_->CmClose(ff);
+#else
+            ff->CloseFile();
+#endif
+            if (local_checkpoint == checkpoint) 
+            {
+                cm_->CmClose(fd_foo);
+                return 0;    
+            }
         }
-//        m_fs->Sync();
+#ifdef _DEBUG
+        //<YUAN>列出最大文件
+        if (checkpoint == 0)
+        {
+            LOG_DEBUG(L"List all items under X:\\");
+            std::vector<std::wstring> files;
+            fs_testing::utility::ListAllFiles(m_fs, L"\\", files);
+        }
+#endif//        m_fs->Sync();
+        LOG_DEBUG(L"start deleting sub files");
 
         // Remove the set of added links
         for (int i = 0; i < NUM_LINKS; i++)
         {
+
             std::wstring foo_link = foo_link_path + std::to_wstring(i);
-//            br = m_fs->DokanDeleteFile(foo_link, NULL, false);
+#ifdef USING_CM
             br = cm_->CmRemove(foo_link);
             if (!br) return -5;
-            //if(remove(foo_link.c_str()) < 0) { return -5;   }
-
-            // fsync foo
-//            br = fd_foo->FlushFile();
             br = cm_->CmFsync(fd_foo);
             if (!br){      return -6;     }
-
+#else
+            br = m_fs->DokanDeleteFile(foo_link, NULL, false);
+            if (!br) return -5;
+            br = fd_foo->FlushFile();
+            if (!br){      return -6;     }
+#endif
+            // fsync foo
             // Make a user checkpoint here
             swprintf_s(msg, L"delete file:%d", i);
-//            if (Checkpoint(msg) < 0){   return -7;    }
-            if (cm_->CmCheckpoint(msg) < 0) { return -7; }
+            if (Checkpoint(msg) < 0){   return -7;    }
             local_checkpoint += 1;
             if (local_checkpoint == checkpoint) 
             {
+                cm_->CmClose(fd_foo);
                 if (i == (NUM_LINKS - 1)) { return 1;  }
                 return 0;
             }
         }
+        LOG_DEBUG(L"complete testing");
 
-        //Close open files  
-        //fd_foo->CloseFile();
+        //Close open files 
+#ifdef USING_CM
         cm_->CmClose(fd_foo);
+#else
+        fd_foo->CloseFile();
+#endif
         return 0;
     }
-#else
+#if 0
     virtual int run(int checkpoint) override
     {
+        LOG_STACK_TRACE();
         JCASSERT(m_fs);
         init_paths();
 
@@ -151,6 +216,7 @@ public:
         bool br = m_fs->DokanCreateFile(fd_foo, foo_path, GENERIC_ALL, 0, IFileSystem::FS_OPEN_EXISTING, 0, 0, false);
         if (!br || !fd_foo) return -1;
 
+        LOG_DEBUG(L"start creating sub files");
         // Create new set of links
         for (int i = 0; i < NUM_LINKS; i++)
         {
@@ -172,6 +238,7 @@ public:
         }
         //        m_fs->Sync();
 
+        LOG_DEBUG(L"start deleting sub files");
         // Remove the set of added links
         for (int i = 0; i < NUM_LINKS; i++)
         {
@@ -193,6 +260,7 @@ public:
                 return 0;
             }
         }
+        LOG_DEBUG(L"complete testing");
 
         //Close open files  
         fd_foo->CloseFile();

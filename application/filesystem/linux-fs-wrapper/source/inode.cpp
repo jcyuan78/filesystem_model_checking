@@ -26,6 +26,7 @@
 //#include <trace/events/writeback.h>
 #include "internal.h"
 #include "../include/writeback.h"
+#include "../include/inode-manager.h"
 
 #include <time.h>
 
@@ -310,18 +311,16 @@ static void destroy_inode(inode *iinode)
 	//call_rcu(&iinode->i_rcu, i_callback);
 }
 
-/**
- * drop_nlink - directly drop an inode's link count
+/** drop_nlink - directly drop an inode's link count
  * @inode: inode
  *
- * This is a low-level filesystem helper to replace any direct filesystem manipulation of i_nlink.  In cases where
-   we are attempting to track writes to the filesystem, a decrement to zero means an imminent write when the file is
-   truncated and actually unlinked on the filesystem. */
-void drop_nlink(struct inode *inode)
+ * This is a low-level filesystem helper to replace any direct filesystem manipulation of i_nlink.  In cases where we are attempting to track writes to the filesystem, a decrement to zero means an imminent write when the file is   truncated and actually unlinked on the filesystem. */
+//void drop_nlink(struct inode *inode)
+void inode::drop_nlink(void)
 {
-	WARN_ON(inode->i_nlink == 0);
-	inode->__i_nlink--;
-	if (!inode->i_nlink)	atomic_long_inc(&inode->i_sb->s_remove_count);
+	WARN_ON(i_nlink == 0);
+	__i_nlink--;
+	if (!i_nlink)	atomic_long_inc(&i_sb->s_remove_count);
 }
 //EXPORT_SYMBOL(drop_nlink);
 
@@ -331,12 +330,13 @@ void drop_nlink(struct inode *inode)
  *
  * This is a low-level filesystem helper to replace any direct filesystem manipulation of i_nlink.  See drop_nlink()
    for why we care about i_nlink hitting zero. */
-void clear_nlink(struct inode *inode)
+//void clear_nlink(struct inode *inode)
+void inode::clear_nlink(void)
 {
-	if (inode->i_nlink) 
+	if (this->i_nlink) 
 	{
-		inode->__i_nlink = 0;
-		atomic_long_inc(&inode->i_sb->s_remove_count);
+		this->__i_nlink = 0;
+		atomic_long_inc(&this->i_sb->s_remove_count);
 	}
 }
 
@@ -345,23 +345,22 @@ void clear_nlink(struct inode *inode)
  * @nlink: new nlink (should be non-zero)
  *
  * This is a low-level filesystem helper to replace any direct filesystem manipulation of i_nlink. */
-void set_nlink(struct inode *inode, unsigned int nlink)
+//void set_nlink(struct inode *inode, unsigned int nlink)
+void inode::set_nlink(unsigned int nlink)
 {
-	if (!nlink) 	{		clear_nlink(inode);	} 
+	if (!nlink) 	{		clear_nlink();	} 
 	else 
 	{	/* Yes, some filesystems do change nlink from zero to one */
-		if (inode->i_nlink == 0) atomic_long_dec(&inode->i_sb->s_remove_count);
-		inode->__i_nlink = nlink;
+		if (i_nlink == 0) atomic_long_dec(&i_sb->s_remove_count);
+		__i_nlink = nlink;
 	}
 }
 //EXPORT_SYMBOL(set_nlink);
 
-/**
- * inc_nlink - directly increment an inode's link count
+/* inc_nlink - directly increment an inode's link count
  * @inode: inode
  *
- * This is a low-level filesystem helper to replace any direct filesystem manipulation of i_nlink.  Currently, it is
-   only here for parity with dec_nlink(). */
+ * This is a low-level filesystem helper to replace any direct filesystem manipulation of i_nlink.  Currently, it is   only here for parity with dec_nlink(). */
 void inode::inc_nlink(void)
 {
 	if (unlikely(i_nlink == 0)) {
@@ -400,7 +399,7 @@ void inode_init_once(struct inode *inode)
 {
 	//<YUAN> 虚函数不能清零
 //	memset(inode, 0, sizeof(*inode));
-	INIT_HLIST_NODE(&inode->i_hash);
+//	INIT_HLIST_NODE(&inode->i_hash);
 	INIT_LIST_HEAD(&inode->i_devices);
 	INIT_LIST_HEAD(&inode->i_io_list);
 	INIT_LIST_HEAD(&inode->i_wb_list);
@@ -462,27 +461,27 @@ static void inode_lru_list_del(inode *iinode)
 	//	this_cpu_dec(nr_unused);
 	iinode->i_sb->s_inode_lru.list_lru_del(iinode);
 }
-#if 0 //<TODO>
 
 /**
  * inode_sb_list_add - add inode to the superblock list of inodes
  * @inode: inode to add
  */
-void inode_sb_list_add(struct inode *inode)
+void inode_sb_list_add(inode *iinode)
 {
-	spin_lock(&inode->i_sb->s_inode_list_lock);
-	list_add(&inode->i_sb_list, &inode->i_sb->s_inodes);
-	spin_unlock(&inode->i_sb->s_inode_list_lock);
+	spin_lock(&iinode->i_sb->s_inode_list_lock);
+	list_add(&iinode->i_sb_list, &iinode->i_sb->s_inodes);
+	spin_unlock(&iinode->i_sb->s_inode_list_lock);
 }
-EXPORT_SYMBOL_GPL(inode_sb_list_add);
-#endif
+//EXPORT_SYMBOL_GPL(inode_sb_list_add);
 
-static inline void inode_sb_list_del(struct inode *inode)
+static inline void inode_sb_list_del(inode *iinode)
 {
-	if (!list_empty(&inode->i_sb_list)) {
-		spin_lock(&inode->i_sb->s_inode_list_lock);
-		list_del_init(&inode->i_sb_list);
-		spin_unlock(&inode->i_sb->s_inode_list_lock);
+	LOG_DEBUG(L"[inode_track] add=%p, ino=%d, - del from sb", iinode, iinode->i_ino);
+	if (!list_empty(&iinode->i_sb_list)) 
+	{
+		spin_lock(&iinode->i_sb->s_inode_list_lock);
+		list_del_init(&iinode->i_sb_list);
+		spin_unlock(&iinode->i_sb->s_inode_list_lock);
 	}
 }
 
@@ -521,23 +520,24 @@ EXPORT_SYMBOL(__insert_inode_hash);
 
 #endif
 
-/**
- *	__remove_inode_hash - remove an inode from the hash
+/**	__remove_inode_hash - remove an inode from the hash
  *	@inode: inode to unhash
  *
- *	Remove an inode from the superblock.
- */
-void __remove_inode_hash(struct inode *inode)
+ *	Remove an inode from the superblock. */
+//void __remove_inode_hash(struct inode *inode)
+void CInodeManager::remove_inode_hash(inode* iinode)
 {
-#if 0
-	spin_lock(&inode_hash_lock);
-	spin_lock(&inode->i_lock);
-	hlist_del_init_rcu(&inode->i_hash);
-	spin_unlock(&inode->i_lock);
-	spin_unlock(&inode_hash_lock);
-#else
-	JCASSERT(0)
-#endif
+	UINT32 hash_val = hash(iinode->i_ino);
+	inode_hash_list & hash_list = m_inode_hash[hash_val];
+
+	spin_lock(&m_inode_hash_lock);
+	spin_lock(&iinode->i_lock);
+//	hlist_del_init_rcu(&inode->i_hash);
+	hash_list.remove(iinode);
+	iinode->m_manager = nullptr;
+	spin_unlock(&iinode->i_lock);
+	spin_unlock(&m_inode_hash_lock);
+	LOG_DEBUG(L"[inode_track] addr=%p, ino=%d, hash=%d- remove from hash list", iinode, iinode->i_ino, hash_val);
 }
 //EXPORT_SYMBOL(__remove_inode_hash);
 
@@ -593,7 +593,7 @@ static void evict(inode *iinode)
 		list_del_init(&iinode->i_devices);
 //		cd_forget(iinode);
 	}
-	remove_inode_hash(iinode);
+	if (iinode->m_manager)	iinode->m_manager->remove_inode_hash(iinode);
 
 	spin_lock(&iinode->i_lock);
 //	wake_up_bit(&iinode->i_state, __I_NEW);
@@ -842,10 +842,8 @@ repeat:
 
 #endif //TODO
 
-/*
- * find_inode_fast is the fast path version of find_inode, see the comment at
- * iget_locked for details.
- */
+#if 0
+/* find_inode_fast is the fast path version of find_inode, see the comment at iget_locked for details. */
 static struct inode *find_inode_fast(super_block *sb, hlist_head *head, unsigned long ino)
 {
 	struct inode *i_node = NULL;
@@ -874,6 +872,7 @@ repeat:
 	}
 	return NULL;
 }
+#endif
 
 #if 0 //TODO
 
@@ -1103,7 +1102,7 @@ again:
 		if (IS_ERR(old))
 			return NULL;
 		wait_on_inode(old);
-		if (unlikely(inode_unhashed(old))) {
+		if (unlikely(old->inode_unhashed())) {
 			iput(old);
 			goto again;
 		}
@@ -1172,6 +1171,7 @@ struct inode *iget5_locked(struct super_block *sb, unsigned long hashval,
 }
 EXPORT_SYMBOL(iget5_locked);
 
+
 /**
  * iget_locked - obtain an inode from a mounted file system
  * @sb:		super block of file system
@@ -1197,7 +1197,7 @@ again:
 		if (IS_ERR(inode))
 			return NULL;
 		wait_on_inode(inode);
-		if (unlikely(inode_unhashed(inode))) {
+		if (unlikely(inode->inode_unhashed())) {
 			iput(inode);
 			goto again;
 		}
@@ -1237,14 +1237,15 @@ again:
 			return NULL;
 		inode = old;
 		wait_on_inode(inode);
-		if (unlikely(inode_unhashed(inode))) {
+		if (unlikely(inode->inode_unhashed())) {
 			iput(inode);
 			goto again;
 		}
 	}
 	return inode;
 }
-EXPORT_SYMBOL(iget_locked);
+//EXPORT_SYMBOL(iget_locked);
+
 
 /*
  * search the inode cache for a matching inode number.
@@ -1382,7 +1383,7 @@ again:
 	inode = ilookup5_nowait(sb, hashval, test, data);
 	if (inode) {
 		wait_on_inode(inode);
-		if (unlikely(inode_unhashed(inode))) {
+		if (unlikely(inode->inode_unhashed())) {
 			iput(inode);
 			goto again;
 		}
@@ -1635,50 +1636,52 @@ EXPORT_SYMBOL(generic_delete_inode);
 #endif //<TODO>
 /* Called when we're dropping the last reference to an inode.
  *
- * Call the FS "drop_inode()" function, defaulting to the legacy UNIX filesystem behaviour.  If it tells us to evict inode, do so.  Otherwise, retain inode in cache if fs is alive, sync and evict if fs is shutting down.
- */
-static void iput_final(struct inode *inode)
+ * Call the FS "drop_inode()" function, defaulting to the legacy UNIX filesystem behaviour.  If it tells us to evict inode, do so.  Otherwise, retain inode in cache if fs is alive, sync and evict if fs is shutting down. */
+/*static*/ void iput_final(inode *iinode)
 {
-#if 0
-	struct super_block *sb = inode->i_sb;
-	const struct super_operations *op = inode->i_sb->s_op;
-	unsigned long state;
-	int drop;
+#if 1
+	super_block *sb = iinode->i_sb;
+//	const struct super_operations *op = iinode->i_sb->s_op;
+	//unsigned long state;
+	//int drop;
 
-	WARN_ON(inode->i_state & I_NEW);
+	WARN_ON(iinode->TestState(I_NEW));
 
-	if (op->drop_inode)
-		drop = op->drop_inode(inode);
-	else
-		drop = generic_drop_inode(inode);
+	//if (op->drop_inode)		drop = op->drop_inode(iinode);
+	//else					drop = generic_drop_inode(iinode);
+	int drop = sb->drop_inode(iinode);
 
-	if (!drop &&
-	    !(inode->i_state & I_DONTCACHE) &&
-	    (sb->s_flags & SB_ACTIVE)) {
-		inode_add_lru(inode);
-		spin_unlock(&inode->i_lock);
+	if (!drop && !(iinode->TestState(I_DONTCACHE)) && (sb->s_flags & SB_ACTIVE)) 
+	{
+		inode_add_lru(iinode);
+		spin_unlock(&iinode->i_lock);
 		return;
 	}
 
-	state = inode->i_state;
-	if (!drop) {
-		WRITE_ONCE(inode->i_state, state | I_WILL_FREE);
-		spin_unlock(&inode->i_lock);
+	//state = iinode->i_state;
+	if (!drop) 
+	{
+//		WRITE_ONCE(iinode->i_state, state | I_WILL_FREE);
+		iinode->SetState(I_WILL_FREE);
+		spin_unlock(&iinode->i_lock);
 
-		write_inode_now(inode, 1);
+		write_inode_now(iinode, 1);
 
-		spin_lock(&inode->i_lock);
-		state = inode->i_state;
-		WARN_ON(state & I_NEW);
-		state &= ~I_WILL_FREE;
+		spin_lock(&iinode->i_lock);
+		//state = iinode->i_state;
+//		WARN_ON(state & I_NEW);
+		WARN_ON(iinode->TestState(I_NEW));
+//		state &= ~I_WILL_FREE;
+		iinode->ClearState(I_WILL_FREE);
 	}
 
-	WRITE_ONCE(inode->i_state, state | I_FREEING);
-	if (!list_empty(&inode->i_lru))
-		inode_lru_list_del(inode);
-	spin_unlock(&inode->i_lock);
+//	WRITE_ONCE(iinode->i_state, state | I_FREEING);
+	iinode->SetState(I_FREEING);
+	if (!list_empty(&iinode->i_lru))
+		inode_lru_list_del(iinode);
+	spin_unlock(&iinode->i_lock);
 
-	evict(inode);
+	evict(iinode);
 #else
 	JCASSERT(0);
 #endif
@@ -2051,29 +2054,24 @@ int inode_needs_sync(struct inode *inode)
 }
 EXPORT_SYMBOL(inode_needs_sync);
 #endif //TODO
-/*
- * If we try to find an inode in the inode hash while it is being
- * deleted, we have to wait until the filesystem completes its
- * deletion before reporting that it isn't found.  This function waits
- * until the deletion _might_ have completed.  Callers are responsible
- * to recheck inode state.
+/* If we try to find an inode in the inode hash while it is being deleted, we have to wait until the filesystem completes its
+ * deletion before reporting that it isn't found.  This function waits until the deletion _might_ have completed.  Callers are responsible to recheck inode state.
  *
- * It doesn't matter if I_NEW is not set initially, a call to
- * wake_up_bit(&inode->i_state, __I_NEW) after removing from the hash list
- * will DTRT.
- */
-static void __wait_on_freeing_inode(struct inode *inode)
+ * It doesn't matter if I_NEW is not set initially, a call to wake_up_bit(&inode->i_state, __I_NEW) after removing from the hash list will DTRT. */
+//void __wait_on_freeing_inode(inode *iinode)
+void inode::__wait_on_freeing_inode(void)
 {
-#if 0
-	wait_queue_head_t *wq;
-	DEFINE_WAIT_BIT(wait, &inode->i_state, __I_NEW);
-	wq = bit_waitqueue(&inode->i_state, __I_NEW);
-	prepare_to_wait(wq, &wait.wq_entry, TASK_UNINTERRUPTIBLE);
-	spin_unlock(&inode->i_lock);
-	spin_unlock(&inode_hash_lock);
-	schedule();
-	finish_wait(wq, &wait.wq_entry);
-	spin_lock(&inode_hash_lock);
+#if 1
+//	wait_queue_head_t *wq;
+//	DEFINE_WAIT_BIT(wait, &inode->i_state, __I_NEW);
+//	wq = bit_waitqueue(&inode->i_state, __I_NEW);
+//	prepare_to_wait(wq, &wait.wq_entry, TASK_UNINTERRUPTIBLE);
+	spin_unlock(&i_lock);
+	WaitForState(__I_NEW, INFINITE);
+	//spin_unlock(&inode_hash_lock);
+	//schedule();
+	//finish_wait(wq, &wait.wq_entry);
+	//spin_lock(&inode_hash_lock);
 
 #else
 	JCASSERT(0);
@@ -2140,9 +2138,11 @@ void __init inode_init(void)
 					0,
 					0);
 }
+#endif
 
 void init_special_inode(struct inode *inode, umode_t mode, dev_t rdev)
 {
+#if 0
 	inode->i_mode = mode;
 	if (S_ISCHR(mode)) {
 		inode->i_fop = &def_chr_fops;
@@ -2155,13 +2155,14 @@ void init_special_inode(struct inode *inode, umode_t mode, dev_t rdev)
 	else if (S_ISSOCK(mode))
 		;	/* leave it no_open_fops */
 	else
-		printk(KERN_DEBUG "init_special_inode: bogus i_mode (%o) for"
-				  " inode %s:%lu\n", mode, inode->i_sb->s_id,
+		printk(KERN_DEBUG "init_special_inode: bogus i_mode (%o) for inode %s:%lu\n", mode, inode->i_sb->s_id,
 				  inode->i_ino);
-}
-EXPORT_SYMBOL(init_special_inode);
-
+#else
+	JCASSERT(0);
 #endif
+}
+//EXPORT_SYMBOL(init_special_inode);
+
 /**
  * inode_init_owner - Init uid,gid,mode for new inode according to posix standards
  * @mnt_userns:	User namespace of the mount the inode was created from
@@ -2342,7 +2343,7 @@ timespec64 current_time(struct inode *inode)
 
 void inode::make_bad_inode(void)
 {
-	remove_inode_hash(this);
+	if (m_manager) m_manager->remove_inode_hash(this);
 
 	i_mode = S_IFREG;
 	//TODO

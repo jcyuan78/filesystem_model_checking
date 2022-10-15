@@ -238,9 +238,7 @@ struct cp_control {
 	__u64 trim_minlen;
 };
 
-/*
- * indicate meta/data type
- */
+/* indicate meta/data type */
 enum {
 	META_CP,
 	META_NAT,
@@ -250,17 +248,14 @@ enum {
 	META_POR,
 	DATA_GENERIC,		/* check range only */
 	DATA_GENERIC_ENHANCE,	/* strong check on range and segment bitmap */
-	DATA_GENERIC_ENHANCE_READ,	/*
-					 * strong check on range and segment
-					 * bitmap but no warning due to race
-					 * condition of read on truncated area
-					 * by extent_cache
-					 */
+	/* strong check on range and segment bitmap but no warning due to race condition of read on truncated area by extent_cache		 */
+	DATA_GENERIC_ENHANCE_READ,	
 	META_GENERIC,
 };
 
 /* for the list of ino */
-enum {
+enum
+{
 	ORPHAN_INO,		/* for orphan ino list */
 	APPEND_INO,		/* for append ino list */
 	UPDATE_INO,		/* for update ino list */
@@ -269,14 +264,16 @@ enum {
 	MAX_INO_ENTRY,		/* max. list */
 };
 
-struct ino_entry {
+struct ino_entry 
+{
 	struct list_head list;		/* list head */
 	nid_t ino;			/* inode number */
 	unsigned int dirty_device;	/* dirty device bitmap */
 };
 
 /* for the list of inodes to be GCed */
-struct inode_entry {
+struct inode_entry
+{
 	struct list_head list;	/* list head */
 	struct inode *inode;	/* vfs inode pointer */
 };
@@ -428,31 +425,18 @@ static inline int __get_extra_isize(f2fs_inode* inode)
 	return 0;
 }
 
-static inline int get_extra_isize(inode* inode);
+//static inline int get_extra_isize(inode* inode);
 static inline int get_inline_xattr_addrs(inode *inode);
 
 
-inline size_t MAX_INLINE_DATA(inode* inode)
-{
-	return (sizeof(__le32) * (CUR_ADDRS_PER_INODE(inode) - get_inline_xattr_addrs(inode) - DEF_INLINE_RESERVED_SIZE));
-}
+inline size_t MAX_INLINE_DATA(f2fs_inode_info* iinode);
 
 inline size_t MAX_INLINE_DATA(f2fs_inode* node);
 //{
 //	return (sizeof(__le32) * (DEF_ADDRS_PER_INODE - get_inline_xattr_addrs(&node->i) - get_extra_isize(node) - DEF_INLINE_RESERVED_SIZE)));
 //}
 
-/* for inline dir */
-#define NR_INLINE_DENTRY(inode)	(MAX_INLINE_DATA(inode) * BITS_PER_BYTE / \
-				((SIZE_OF_DIR_ENTRY + F2FS_SLOT_LEN) * \
-				BITS_PER_BYTE + 1))
 
-#define INLINE_DENTRY_BITMAP_SIZE(inode) DIV_ROUND_UP<size_t>(NR_INLINE_DENTRY(inode), BITS_PER_BYTE)
-
-#define INLINE_RESERVED_SIZE(inode)	(MAX_INLINE_DATA(inode) - \
-				((SIZE_OF_DIR_ENTRY + F2FS_SLOT_LEN) * \
-				NR_INLINE_DENTRY(inode) + \
-				INLINE_DENTRY_BITMAP_SIZE(inode)))
 
 /* For INODE and NODE manager */
 /* for directory operations */
@@ -514,31 +498,31 @@ struct f2fs_dentry_ptr {
 	size_t nr_bitmap;
 };
 
-static inline void make_dentry_ptr_block(inode *iinode, f2fs_dentry_ptr *d, f2fs_dentry_block *t)
-{
-	d->inode = iinode;
-	d->max = NR_DENTRY_IN_BLOCK;
-	d->nr_bitmap = SIZE_OF_DENTRY_BITMAP;
-	d->bitmap = t->dentry_bitmap;
-	d->dentry = t->dentry;
-	d->filename = t->filename;
-}
+//static inline void make_dentry_ptr_block(inode *iinode, f2fs_dentry_ptr *d, f2fs_dentry_block *t)
+//{
+//	d->inode = iinode;
+//	d->max = NR_DENTRY_IN_BLOCK;
+//	d->nr_bitmap = SIZE_OF_DENTRY_BITMAP;
+//	d->bitmap = t->dentry_bitmap;
+//	d->dentry = t->dentry;
+//	d->filename = t->filename;
+//}
 
-static inline void make_dentry_ptr_inline(inode *iinode, f2fs_dentry_ptr *d, void *t)
-{
-	size_t entry_cnt = NR_INLINE_DENTRY(iinode);
-	size_t bitmap_size = INLINE_DENTRY_BITMAP_SIZE(iinode);
-	size_t reserved_size = INLINE_RESERVED_SIZE(iinode);
-
-	d->inode = iinode;
-	d->max = entry_cnt;
-	d->nr_bitmap = bitmap_size;
-	d->bitmap = t;
-	d->dentry = reinterpret_cast<f2fs_dir_entry*>((BYTE*)t + bitmap_size + reserved_size);
-//	memcpy_s(d->filename, 8, (BYTE*)t + bitmap_size + reserved_size + SIZE_OF_DIR_ENTRY * entry_cnt, 8);
-//	d->filename = reinterpret_cast<__u8**>(t) + bitmap_size + reserved_size + SIZE_OF_DIR_ENTRY * entry_cnt;
-	d->_f = reinterpret_cast<BYTE*>(t) + bitmap_size + reserved_size + SIZE_OF_DIR_ENTRY * entry_cnt;
-}
+//static inline void make_dentry_ptr_inline(inode *iinode, f2fs_dentry_ptr *d, void *t)
+//{
+//	size_t entry_cnt = NR_INLINE_DENTRY(iinode);
+//	size_t bitmap_size = INLINE_DENTRY_BITMAP_SIZE(iinode);
+//	size_t reserved_size = INLINE_RESERVED_SIZE(iinode);
+//
+//	d->inode = iinode;
+//	d->max = entry_cnt;
+//	d->nr_bitmap = bitmap_size;
+//	d->bitmap = t;
+//	d->dentry = reinterpret_cast<f2fs_dir_entry*>((BYTE*)t + bitmap_size + reserved_size);
+////	memcpy_s(d->filename, 8, (BYTE*)t + bitmap_size + reserved_size + SIZE_OF_DIR_ENTRY * entry_cnt, 8);
+////	d->filename = reinterpret_cast<__u8**>(t) + bitmap_size + reserved_size + SIZE_OF_DIR_ENTRY * entry_cnt;
+//	d->_f = reinterpret_cast<BYTE*>(t) + bitmap_size + reserved_size + SIZE_OF_DIR_ENTRY * entry_cnt;
+//}
 /*
  * XATTR_NODE_OFFSET stores xattrs to one node block per file keeping -1
  * as its node offset to distinguish from index node blocks.
@@ -736,6 +720,16 @@ enum {
 
 #include "f2fs-inode.h"
 
+inline f2fs_inode_info* F2FS_I(inode* iinode)
+{
+	return dynamic_cast<f2fs_inode_info*>(iinode);
+}
+
+
+inline size_t MAX_INLINE_DATA(f2fs_inode_info* iinode)
+{
+	return (sizeof(__le32) * (CUR_ADDRS_PER_INODE(iinode) - get_inline_xattr_addrs(iinode) - DEF_INLINE_RESERVED_SIZE));
+}
 
 static inline void get_extent_info(struct extent_info *ext,	struct f2fs_extent *i_ext)
 {
@@ -806,13 +800,7 @@ static inline void __try_update_largest_extent(struct extent_tree *et, struct ex
 	}
 }
 
-static inline f2fs_inode_info* F2FS_I(inode* inode)
-{
-	//	return container_of<f2fs_inode_info>(inode, offsetof(f2fs_inode_info, vfs_inode) );
-	f2fs_inode_info* fi = dynamic_cast<f2fs_inode_info*>(inode);
-	JCASSERT(fi);
-	return fi;
-}
+
 
 #include "node-manager.h"
 
@@ -1529,23 +1517,26 @@ static inline void clear_ckpt_flags(struct f2fs_sb_info *sbi, unsigned int f)
 	spin_unlock_irqrestore(&sbi->cp_lock, flags);
 }
 
-static inline void disable_nat_bits(f2fs_sb_info *sbi, bool lock)
+//static inline void disable_nat_bits(f2fs_sb_info *sbi, bool lock)
+inline void f2fs_nm_info::disable_nat_bits(bool lock)
 {
 //	unsigned long flags;	<UNUSE>
-	unsigned char *nat_bits;
+//	unsigned char *_nat_bits;
 
 	/* In order to re-enable nat_bits we need to call fsck.f2fs by set_sbi_flag(sbi, SBI_NEED_FSCK). 
 	But it may give huge cost, so let's rely on regular fsck or unclean shutdown. */
 
-	if (lock)		spin_lock_irqsave(&sbi->cp_lock, flags);
-	__clear_ckpt_flags(sbi->F2FS_CKPT(), CP_NAT_BITS_FLAG);
-	nat_bits = NM_I(sbi)->nat_bits;
-	NM_I(sbi)->nat_bits = NULL;
-	if (lock) spin_unlock_irqrestore(&sbi->cp_lock, flags);
-
+	if (lock)		spin_lock_irqsave(&m_sbi->cp_lock, flags);
+	__clear_ckpt_flags(m_sbi->F2FS_CKPT(), CP_NAT_BITS_FLAG);
+	//nat_bits = NM_I(sbi)->nat_bits;
+	//NM_I(sbi)->nat_bits = NULL;
+	unsigned char * _nat_bits = this->nat_bits;
+	this->nat_bits = nullptr;
+	if (lock) spin_unlock_irqrestore(&m_sbi->cp_lock, flags);
 //	kvfree(nat_bits);
-	delete[] nat_bits;
+	delete[] _nat_bits;
 }
+
 static inline bool enabled_nat_bits(f2fs_sb_info *sbi, cp_control *cpc)
 {
 	bool set = sbi->is_set_ckpt_flags(CP_NAT_BITS_FLAG);
@@ -2073,7 +2064,7 @@ static inline block_t data_blkaddr(struct inode *inode,	struct page *node_page, 
 	if (is_inode) 
 	{
 		if (!inode)	/* from GC path only */		base = offset_in_addr(&raw_node->i);
-		else if (f2fs_has_extra_attr(inode))	base = get_extra_isize(inode);
+		else if (f2fs_has_extra_attr(inode))	base = F2FS_I(inode)->get_extra_isize();
 	}
 	addr_array = blkaddr_in_node(raw_node);
 	return le32_to_cpu(addr_array[base + offset]);
@@ -2342,7 +2333,7 @@ static inline bool f2fs_need_compress_data(struct inode *inode)
 
 static inline unsigned int addrs_per_inode(struct inode *inode)
 {
-	unsigned int addrs = CUR_ADDRS_PER_INODE(inode) -	get_inline_xattr_addrs(inode);
+	unsigned int addrs = CUR_ADDRS_PER_INODE(F2FS_I(inode)) -	get_inline_xattr_addrs(inode);
 
 	if (!f2fs_compressed_file(inode))		return addrs;
 	return ALIGN_DOWN(addrs, F2FS_I(inode)->i_cluster_size);
@@ -2423,12 +2414,12 @@ static inline bool f2fs_is_drop_cache(struct inode *inode)
 	return is_inode_flag_set(inode, FI_DROP_CACHE);
 }
 
-static inline void *inline_data_addr(inode *inode, struct page *page)
-{
-	struct f2fs_inode *ri = F2FS_INODE(page);
-	int extra_size = get_extra_isize(inode);
-	return (void *)&(ri->_u.i_addr[extra_size + DEF_INLINE_RESERVED_SIZE]);
-}
+//static inline void *inline_data_addr(inode *inode, struct page *page)
+//{
+//	struct f2fs_inode *ri = F2FS_INODE(page);
+//	int extra_size = get_extra_isize(inode);
+//	return (void *)&(ri->_u.i_addr[extra_size + DEF_INLINE_RESERVED_SIZE]);
+//}
 
 //<YUAN> move to member
 //static inline int f2fs_has_inline_dentry(inode *inode)
@@ -2619,21 +2610,21 @@ inline T* kmemdup(T* data, size_t size, gfp_t flats)
 	return new_buf;
 }
 
-inline int get_extra_isize(f2fs_inode_info* iinode)
-{
-	return iinode->i_extra_isize / sizeof(__le32);
-}
+//inline int get_extra_isize(f2fs_inode_info* iinode)
+//{
+//	return iinode->i_extra_isize / sizeof(__le32);
+//}
 
 inline int get_extra_isize(f2fs_inode* node)
 {
 	return node->_u._s.i_extra_isize / sizeof(__le32);
 }
 
-static inline int get_extra_isize(inode *inode)
-{
-	return get_extra_isize(F2FS_I(inode));
-//	->i_extra_isize / sizeof(__le32);
-}
+//static inline int get_extra_isize(inode *inode)
+//{
+//	return get_extra_isize(F2FS_I(inode));
+////	->i_extra_isize / sizeof(__le32);
+//}
 
 static inline int get_inline_xattr_addrs(struct inode *inode)
 {
@@ -2738,8 +2729,8 @@ static inline void f2fs_clear_page_private(page *ppage)
 int f2fs_sync_file(struct file *file, loff_t start, loff_t end, int datasync);
 #endif
 void f2fs_truncate_data_blocks(dnode_of_data *dn);
-int f2fs_do_truncate_blocks(struct inode *inode, UINT64 from, bool lock);
-int f2fs_truncate_blocks(struct inode *inode, UINT64 from, bool lock);
+int f2fs_do_truncate_blocks(f2fs_inode_info *inode, UINT64 from, bool lock);
+int f2fs_truncate_blocks(f2fs_inode_info *inode, UINT64 from, bool lock);
 int f2fs_truncate(f2fs_inode_info *inode);
 //int f2fs_getattr(user_namespace *mnt_userns, const path *path, kstat *stat, u32 request_mask, unsigned int flags);
 //int f2fs_setattr(user_namespace *mnt_userns, dentry *dentry, iattr *attr);
@@ -2812,15 +2803,14 @@ int f2fs_room_for_filename(const void *bitmap, int slots, int max_slots);
 //<YUAN> move to member
 // f2fs_dir_entry* __f2fs_find_entry(inode* dir, const f2fs_filename* fname, page** res_page);
 void f2fs_drop_nlink(f2fs_inode_info *dir, f2fs_inode_info *inode);
-struct f2fs_dir_entry *f2fs_find_entry(struct inode *dir,
-			const struct qstr *child, struct page **res_page);
-struct f2fs_dir_entry *f2fs_parent_dir(struct inode *dir, struct page **p);
+//f2fs_dir_entry *f2fs_find_entry(inode *dir, const qstr *child, page **res_page);
+
+//struct f2fs_dir_entry *f2fs_parent_dir(struct inode *dir, struct page **p);
+
 ino_t f2fs_inode_by_name(struct inode *dir, const struct qstr *qstr,
 			struct page **page);
-void f2fs_set_link(struct inode *dir, struct f2fs_dir_entry *de,
-			struct page *page, struct inode *inode);
-bool f2fs_has_enough_room(struct inode *dir, struct page *ipage,
-			  const struct f2fs_filename *fname);
+//void f2fs_set_link(struct inode *dir, struct f2fs_dir_entry *de, struct page *page, struct inode *inode);
+//bool f2fs_has_enough_room(struct inode *dir, struct page *ipage, const struct f2fs_filename *fname);
 void f2fs_update_dentry(nid_t ino, umode_t mode, f2fs_dentry_ptr *d, const fscrypt_str *name, f2fs_hash_t name_hash,
 			unsigned int bit_pos);
 #if 0
@@ -2829,7 +2819,7 @@ int f2fs_add_regular_entry(struct inode *dir, const struct f2fs_filename *fname,
 #endif
 inline int f2fs_add_dentry(inode *dir, const f2fs_filename *fname, inode *inode, nid_t ino, umode_t mode) UNSUPPORT_1(int);
 //int f2fs_do_add_link(inode *dir, const qstr *name, struct inode *inode, nid_t ino, umode_t mode);
-void f2fs_delete_entry(f2fs_dir_entry* dentry, page* page, f2fs_inode_info* dir, f2fs_inode_info* inode);
+//void f2fs_delete_entry(f2fs_dir_entry* dentry, page* page, f2fs_inode_info* dir, f2fs_inode_info* inode);
 #if 0
 int f2fs_do_tmpfile(struct inode *inode, struct inode *dir);
 bool f2fs_empty_dir(struct inode *dir);
@@ -2847,7 +2837,7 @@ bool f2fs_empty_dir(struct inode *dir);
 
 //// ==== super.c */
 //int f2fs_inode_dirtied(struct inode* inode, bool sync);
-void f2fs_inode_synced(struct inode* inode);
+//void f2fs_inode_synced(struct inode* inode);
 int f2fs_enable_quota_files(struct f2fs_sb_info *sbi, bool rdonly);
 int f2fs_quota_sync(super_block* sb, int type);
 loff_t max_file_blocks(struct inode *inode);
@@ -3012,13 +3002,11 @@ void f2fs_add_ino_entry(struct f2fs_sb_info *sbi, nid_t ino, int type);
 void f2fs_remove_ino_entry(struct f2fs_sb_info *sbi, nid_t ino, int type);
 void f2fs_release_ino_entry(struct f2fs_sb_info *sbi, bool all);
 bool f2fs_exist_written_data(struct f2fs_sb_info *sbi, nid_t ino, int mode);
-void f2fs_set_dirty_device(struct f2fs_sb_info *sbi, nid_t ino,
-					unsigned int devidx, int type);
-bool f2fs_is_dirty_device(struct f2fs_sb_info *sbi, nid_t ino,
-					unsigned int devidx, int type);
+void f2fs_set_dirty_device(struct f2fs_sb_info *sbi, nid_t ino,	unsigned int devidx, int type);
+bool f2fs_is_dirty_device(struct f2fs_sb_info *sbi, nid_t ino,	unsigned int devidx, int type);
 int f2fs_sync_inode_meta(struct f2fs_sb_info *sbi);
-int f2fs_acquire_orphan_inode(struct f2fs_sb_info *sbi);
-void f2fs_release_orphan_inode(f2fs_sb_info *sbi);
+//int f2fs_acquire_orphan_inode(struct f2fs_sb_info *sbi);
+//void f2fs_release_orphan_inode(f2fs_sb_info *sbi);
 //void f2fs_add_orphan_inode(f2fs_inode_info *inode);
 void f2fs_remove_orphan_inode(struct f2fs_sb_info *sbi, nid_t ino);
 int f2fs_recover_orphan_inodes(struct f2fs_sb_info* sbi);
@@ -3368,21 +3356,19 @@ extern struct kmem_cache *f2fs_inode_entry_slab;
 bool f2fs_may_inline_data(struct inode *inode);
 bool f2fs_may_inline_dentry(struct inode *inode);
 void f2fs_do_read_inline_data(struct page *page, struct page *ipage);
-inline void f2fs_truncate_inline_inode(inode *inode, page *ipage, UINT64 from)UNSUPPORT_0;
+void f2fs_truncate_inline_inode(f2fs_inode_info* inode, page* ipage, UINT64 from);
 int f2fs_read_inline_data(struct inode *inode, struct page *page);
 int f2fs_convert_inline_page(struct dnode_of_data *dn, struct page *page);
 //int f2fs_convert_inline_inode(struct inode *inode);
-int f2fs_try_convert_inline_dir(struct inode *dir, struct dentry *dentry);
+//int f2fs_try_convert_inline_dir(struct inode *dir, struct dentry *dentry);
 int f2fs_write_inline_data(struct inode *inode, struct page *page);
-int f2fs_recover_inline_data(struct inode *inode, struct page *npage);
-struct f2fs_dir_entry *f2fs_find_in_inline_dir(struct inode *dir,
-					const struct f2fs_filename *fname,
-					struct page **res_page);
+int f2fs_recover_inline_data(f2fs_inode_info *inode, page *npage);
+f2fs_dir_entry *f2fs_find_in_inline_dir(inode *dir, const struct f2fs_filename *fname, page **res_page);
 //<YUAN> move to Cf2fsDirInode member
 //int f2fs_make_empty_inline_dir(struct inode *inode, struct inode *parent, struct page *ipage);
 //int f2fs_add_inline_entry(inode *dir, const f2fs_filename *fname, f2fs_inode_info *inode, nid_t ino, umode_t mode);
 void f2fs_delete_inline_entry(f2fs_dir_entry *dentry, page *ppage, f2fs_inode_info *dir, f2fs_inode_info *iinode);
-bool f2fs_empty_inline_dir(struct inode *dir);
+//bool f2fs_empty_inline_dir(struct inode *dir);
 int f2fs_read_inline_dir(struct file *file, struct dir_context *ctx,
 			struct fscrypt_str *fstr);
 int f2fs_inline_data_fiemap(struct inode *inode,
@@ -3788,3 +3774,9 @@ inline T* new_and_zero_array(size_t size)
 }
 
 
+inline void* f2fs_inode_info::inline_data_addr(page* ppage) const
+{
+	f2fs_inode* ri = F2FS_INODE(ppage);
+	int extra_size = get_extra_isize();
+	return (void*)&(ri->_u.i_addr[extra_size + DEF_INLINE_RESERVED_SIZE]);
+}

@@ -3812,7 +3812,7 @@ int f2fs_sb_info::build_sit_entries(void)
 
 		unsigned int start = start_blk * sit_i->sents_per_block;
 		unsigned int  end = (start_blk + readed) * sit_i->sents_per_block;
-		LOG_DEBUG(L"check segment from=%d, to=%d or %d", start, end, MAIN_SECS());
+		LOG_DEBUG_(1, L"check segment from=%d, to=%d or %d", start, end, MAIN_SECS());
 
 		for (; start < end && start < MAIN_SEGS(); start++)
 		{
@@ -3824,8 +3824,8 @@ int f2fs_sb_info::build_sit_entries(void)
 			if (IS_ERR(ppage))				return (int)PTR_ERR(ppage);
 			f2fs_sit_block * sit_blk = page_address<f2fs_sit_block>(ppage);
 			f2fs_sit_entry& sit = sit_blk->entries[SIT_ENTRY_OFFSET(sit_i, start)];
-			LOG_DEBUG(L"read sit block, page=%p, index=0x%X, seg no=%d", ppage, ppage->index, start);
-			LOG_DEBUG_(0, L"seg no=%d, type=%d, valid blocks=%d", start, 
+			LOG_DEBUG_(1, L"read sit block, page=%p, index=0x%X, seg no=%d", ppage, ppage->index, start);
+			LOG_DEBUG_(1, L"seg no=%d, type=%d, valid blocks=%d", start, 
 				(sit_blk->entries[start].vblocks >>10), (sit_blk->entries[start].vblocks & 0x3FF));
 			f2fs_put_page(ppage, 1);
 
@@ -3838,7 +3838,7 @@ int f2fs_sb_info::build_sit_entries(void)
 			seg_info_from_raw_sit(se, &sit);
 			if (IS_NODESEG(se->type))
 			{
-				LOG_DEBUG(L"count node block, seg_no=%d, +%d, total_node_block=%d", start, se->valid_blocks, total_node_blocks);
+				LOG_DEBUG_(1, L"count node block, seg_no=%d, +%d, total_node_block=%d", start, se->valid_blocks, total_node_blocks);
 				total_node_blocks += se->valid_blocks;
 			}
 
@@ -3876,7 +3876,7 @@ int f2fs_sb_info::build_sit_entries(void)
 		old_valid_blocks = se->valid_blocks;
 		if (IS_NODESEG(se->type))
 		{
-			LOG_DEBUG(L"remove old node block, -%d, total_node_block=%d", old_valid_blocks, total_node_blocks);
+			LOG_DEBUG_(1, L"remove old node block, -%d, total_node_block=%d", old_valid_blocks, total_node_blocks);
 			total_node_blocks -= old_valid_blocks;
 		}
 
@@ -3889,7 +3889,7 @@ int f2fs_sb_info::build_sit_entries(void)
 		seg_info_from_raw_sit(se, &sit);
 		if (IS_NODESEG(se->type))
 		{
-			LOG_DEBUG(L"count node block, +%d, total_node_block=%d", se->valid_blocks, total_node_blocks);
+			LOG_DEBUG_(1, L"count node block, +%d, total_node_block=%d", se->valid_blocks, total_node_blocks);
 			total_node_blocks += se->valid_blocks;
 		}
 

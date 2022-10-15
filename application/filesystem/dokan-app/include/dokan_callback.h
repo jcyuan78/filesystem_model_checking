@@ -4,6 +4,7 @@
 #include <dokan.h>
 
 int StartDokan(IFileSystem* fs, const std::wstring & mount);
+int StartDokanAsync(IFileSystem* fs, const std::wstring& mount);
 
 class CDokanFindFileCallback : public EnumFileListener
 {

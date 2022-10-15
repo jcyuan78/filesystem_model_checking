@@ -35,6 +35,7 @@ protected:
 	HANDLE m_thread_dokan;
 
 public:
+	std::wstring m_config_fn;
 	std::wstring m_device;
 	std::wstring m_mount;
 	std::wstring m_volume_name;

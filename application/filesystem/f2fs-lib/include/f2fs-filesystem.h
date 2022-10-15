@@ -1,5 +1,6 @@
-#pragma once
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#pragma once
+
 #include <dokanfs-lib.h>
 #include <linux-fs-wrapper.h>
 #include "f2fs_fs.h"
@@ -24,7 +25,7 @@ public:
 
 	virtual bool LockFile(LONGLONG offset, LONGLONG len) {UNSUPPORT_1(bool);}
 	virtual bool UnlockFile(LONGLONG offset, LONGLONG len) {UNSUPPORT_1(bool);}
-	virtual bool EnumerateFiles(EnumFileListener* listener) const {UNSUPPORT_1(bool);}
+	virtual bool EnumerateFiles(EnumFileListener* listener) const;
 
 	virtual bool GetFileInformation(LPBY_HANDLE_FILE_INFORMATION fileinfo) const;
 	virtual std::wstring GetFileName(void) const;
@@ -33,6 +34,7 @@ public:
 	virtual bool DokanSetFileSecurity(PSECURITY_INFORMATION psinfo, PSECURITY_DESCRIPTOR psdesc, ULONG buf_size) {UNSUPPORT_1(bool);}
 	// for dir only
 	virtual bool IsDirectory(void) const {	return m_inode->is_dir();	}
+	virtual bool IsEmpty(void) const;			// 对于目录，返回目录是否为空；对于非目录，返回true.
 
 	virtual bool SetAllocationSize(LONGLONG size);
 	virtual bool SetEndOfFile(LONGLONG);
@@ -52,10 +54,14 @@ public:
 
 public:
 	friend class CF2fsFileSystem;
+	template <class T> T* GetInode(void) { return dynamic_cast<T*>(m_inode); }
+	dentry* GetDentry(void) { return m_dentry; }
 protected:
 	bool _OpenChildEx(CF2fsFile*& file, const wchar_t* fn, size_t len);
-	void _DeleteChild(CF2fsFile* child);
+	//void _DeleteChild(CF2fsFile* child);
+	int _DeleteChild(const std::wstring & fn);
 	bool _OpenChild(CF2fsFile*& file, const wchar_t* fn, UINT32 mode) const;
+	static void InodeToInfo(BY_HANDLE_FILE_INFORMATION& info, f2fs_inode_info* iinode);
 
 protected:
 	dentry* m_dentry;
@@ -77,12 +83,13 @@ public:
 
 public:
 	friend struct f2fs_sb_info;
+	friend class CF2fsFile;
 
 public:
 	// 创建一个相同类型的file system object。创建的对象时空的，需要初始化。
 	// 考虑将这个方法放到IJCInterface中
 	virtual bool CreateObject(IJCInterface*& fs) { JCASSERT(0); return 0; }
-	virtual ULONG GetFileSystemOption(void) const { JCASSERT(0); return 0; }
+	virtual ULONG GetFileSystemOption(void) const;
 	//virtual bool ConnectToDevice(IVirtualDisk * dev) = 0;
 	//virtual void Disconnect(void) = 0;
 	virtual bool Mount(IVirtualDisk* dev);
@@ -95,15 +102,15 @@ public:
 	virtual bool GetVolumnInfo(std::wstring& vol_name, DWORD& sn, DWORD& max_fn_len, DWORD& fs_flag, std::wstring& fs_name);
 
 	// file attribute (attr) and create disposition (disp) is in user mode 
-	virtual bool DokanCreateFile(IFileInfo*& file, const std::wstring& fn, ACCESS_MASK access_mask,
+	virtual NTSTATUS DokanCreateFile(IFileInfo*& file, const std::wstring& fn, ACCESS_MASK access_mask,
 		DWORD attr, FsCreateDisposition disp, ULONG share, ULONG opt, bool isdir);
 	virtual bool MakeDir(const std::wstring& dir) { JCASSERT(0); return 0; }
 	//virtual bool OpenFile(IFileInfo * & file, UINT32 f_inode) = 0;
 
-	virtual bool DokanDeleteFile(const std::wstring& fn, IFileInfo* file, bool isdir);
+	virtual NTSTATUS DokanDeleteFile(const std::wstring& fn, IFileInfo* file, bool isdir);
 	//virtual void FindFiles(void) = 0;
 	virtual void FindStreams(void) { JCASSERT(0); }
-	virtual bool DokanMoveFile(const std::wstring& src_fn, const std::wstring& dst_fn, bool replace, IFileInfo* file) { JCASSERT(0); return 0; }
+	virtual NTSTATUS DokanMoveFile(const std::wstring& src_fn, const std::wstring& dst_fn, bool replace, IFileInfo* file);
 
 	virtual bool HardLink(const std::wstring& src, const std::wstring& dst) { JCASSERT(0); return 0; }
 	virtual bool Unlink(const std::wstring& fn) { JCASSERT(0); return 0; }
@@ -140,7 +147,7 @@ public:
 	}
 	unsigned int addrs_per_inode(f2fs_inode* i)
 	{
-		unsigned int addrs = CUR_ADDRS_PER_INODE(i) - get_inline_xattr_addrs(i);
+		unsigned int addrs = CUR_ADDRS_PER_INODE_(i) - get_inline_xattr_addrs(i);
 		if (!LINUX_S_ISREG(le16_to_cpu(i->i_mode)) || !(le32_to_cpu(i->i_flags) & F2FS_COMPR_FL))	return addrs;
 		return ALIGN_DOWN(addrs, 1 << i->_u._s.i_log_cluster_size);
 	}
@@ -377,43 +384,36 @@ protected:
 public:
 //	f2fs_inode_info* f2fs_iget(unsigned long ino);
 //	inode * iget_locked(unsigned long ino) {return m_inodes.iget_locked() }
-	int do_read_inode(inode* inode);
+	//int do_read_inode(inode* inode);
 protected:
 	// 读取inode page，并且根据类型，创建相应的inode对象
 	//int do_create_read_inode(f2fs_inode_info * & ptr_inode, unsigned long ino);
 
 protected:
-	CInodeManager m_inodes;
 	//template <class NODE_TYPE> NODE_TYPE* GetInodeLocked(bool thp_support, unsigned long ino, address_space * mapping)
-	template <class NODE_TYPE> NODE_TYPE* GetInodeLocked(bool thp_support, unsigned long ino, address_space * mapping)
-	{
-		// 对于NODE和META类型的node, 利用f2fs_inode_info。mapping再f2fs_inode_info的创建函数中，根据ino生成。
-		JCASSERT(mapping == nullptr);
-		NODE_TYPE* node = new NODE_TYPE(m_sb_info, ino);
+	//{
+	//	// 对于NODE和META类型的node, 利用f2fs_inode_info。mapping再f2fs_inode_info的创建函数中，根据ino生成。
+	//	JCASSERT(mapping == nullptr);
+	//	NODE_TYPE* node = new NODE_TYPE(m_sb_info, ino);
 
-		inode* base_node = static_cast<inode*>(node);
-		// base_node->i_mapping和mapping有且必有一个非空；
-		//JCASSERT(!base_node->i_mapping || !mapping);	// assert两者至少有一个是NULL
-		//if (mapping && !base_node->i_mapping) base_node->i_mapping = mapping;
-		//// 当两者都空是，会在后续调用中报错。
-		//JCASSERT(base_node->i_mapping);
-		base_node->i_sb = m_sb_info;
-		m_inodes.internal_iget_locked(base_node, thp_support, ino);
-		m_inodes.init_inode_mapping(base_node, NULL, thp_support);
-//		mapping->host = static_cast<inode*>(node);
-		return node;
-	}
+	//	inode* base_node = static_cast<inode*>(node);
+	//	base_node->i_sb = m_sb_info;
+	//	m_sb_info->m_inodes.internal_iget_locked(base_node, thp_support, ino);
+	//	m_sb_info->m_inodes.init_inode_mapping(base_node, NULL, thp_support);
+	//	return node;
+	//}
 
-	template <class NODE_TYPE> NODE_TYPE* GetInodeLocked(bool thp_support, unsigned long ino)
-	{
-		NODE_TYPE* node = new NODE_TYPE(m_sb_info);
-		inode* base_node = static_cast<inode*>(node);
-		base_node->i_sb = m_sb_info;
-		m_inodes.internal_iget_locked(base_node, thp_support, ino);
-		m_inodes.init_inode_mapping(base_node, NULL, thp_support);
-		return node;
-	}	
+	//template <class NODE_TYPE> NODE_TYPE* GetInodeLocked(bool thp_support, unsigned long ino)
+	//{
+	//	NODE_TYPE* node = new NODE_TYPE(m_sb_info);
+	//	inode* base_node = static_cast<inode*>(node);
+	//	base_node->i_sb = m_sb_info;
+	//	m_sb_info->m_inodes.internal_iget_locked(base_node, thp_support, ino);
+	//	m_sb_info->m_inodes.init_inode_mapping(base_node, NULL, thp_support);
+	//	return node;
+	//}	
 	
+#if 0
 	template <class NODE_TYPE> NODE_TYPE* NewInode(void)
 	{
 		NODE_TYPE* node = new NODE_TYPE(m_sb_info);
@@ -424,7 +424,6 @@ protected:
 //	f2fs_inode_info* _internal_new_inode(f2fs_inode_info* new_node, f2fs_inode_info* dir, umode_t mode);
 
 
-public:
 	template <class INODE_T>
 	f2fs_inode_info* f2fs_new_inode(f2fs_inode_info* dir, umode_t mode)
 	{
@@ -447,12 +446,14 @@ public:
 		}
 		return node;
 	}
-	inode* ilookup(nid_t ino) { return m_inodes.ilookup(ino); }
-	inode* find_inode_nowait(unsigned long hashval, int (*match)(struct inode*, unsigned long, void*),
-		void* data)
-	{
-		return m_inodes.find_inode_nowait(hashval, match, data);
-	}
+#endif
+public:
+	//inode* ilookup(nid_t ino) { return m_inodes.ilookup(ino); }
+	//inode* find_inode_nowait(unsigned long hashval, int (*match)(struct inode*, unsigned long, void*),
+	//	void* data)
+	//{
+	//	return m_inodes.find_inode_nowait(hashval, match, data);
+	//}
 
 
 

@@ -958,10 +958,7 @@ void f2fs_record_iostat(struct f2fs_sb_info *sbi)
 {
 	unsigned long long iostat_diff[NR_IO_TYPE];
 	int i;
-	INT64 jiffies = jcvos::GetTimeStamp();
-
 	if (time_after(sbi->iostat_next_period, jiffies))		return;
-
 	/* Need double check under the lock */
 	spin_lock(&sbi->iostat_lock);
 	if (time_after(sbi->iostat_next_period, jiffies))
