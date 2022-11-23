@@ -656,7 +656,7 @@ pgoff_t f2fs_get_next_page_offset(dnode_of_data *dn, pgoff_t pgofs)
 
 /* The maximum depth is four. Offset[0] will have raw inode offset.*/
 // 获取逻辑地址block在map中的路径，返回路径保存在offset中。返回深度。
-static int get_node_path(struct inode *inode, long block, int offset[4], unsigned int noffset[4])
+static int get_node_path(f2fs_inode_info *inode, long block, int offset[4], unsigned int noffset[4])
 {
 	const long direct_index = ADDRS_PER_INODE(inode);	// i_addr的数量，92
 	const long direct_blks = ADDRS_PER_BLOCK(inode);	// 一个indirect block做包含的block数量
@@ -1058,7 +1058,7 @@ fail:
 }
 
 /* All the block addresses of data and nodes should be nullified. */
-int f2fs_truncate_inode_blocks(inode *iinode, pgoff_t from)
+int f2fs_truncate_inode_blocks(f2fs_inode_info*iinode, pgoff_t from)
 {
 	f2fs_sb_info *sbi = F2FS_I_SB(iinode);
 	int err = 0, cont = 1;
@@ -1401,7 +1401,7 @@ repeat:
 #ifdef _DEBUG
 	jcvos::Utf8ToUnicode(ptr_page->m_type, "node");
 #endif
-	LOG_DEBUG(L"[page_track], page=%p, addr=%p, type=node, index=%d", ptr_page, ptr_page->virtual_add, nid);
+	F_LOG_DEBUG(L"page", L"page=%p, addr=%p, type=node, index=%d", ptr_page, ptr_page->virtual_add, nid);
 	err = read_node_page(ptr_page, 0);
 	if (err < 0) 
 	{
@@ -1485,7 +1485,6 @@ static void flush_inline_data(f2fs_sb_info* sbi, nid_t ino)
 
 void f2fs_inode_info::flush_inline_data(void)
 {
-
 	int ret;
 	page * ppage = f2fs_pagecache_get_page(i_mapping, 0, FGP_LOCK|FGP_NOWAIT, 0);
 	if (!ppage)						goto iput_out;
@@ -1494,6 +1493,7 @@ void f2fs_inode_info::flush_inline_data(void)
 	if (!clear_page_dirty_for_io(ppage))		goto page_out;
 
 	ret = f2fs_write_inline_data(this, ppage);
+	F_LOG_DEBUG(L"page.dirty", L" dec: inode=%d, page=%d", i_ino, ppage->index);
 	inode_dec_dirty_pages(this);
 	f2fs_remove_dirty_inode(this);
 	if (ret)	set_page_dirty(ppage);
@@ -1726,8 +1726,7 @@ int Cf2fsNodeMapping::write_page(page * page, writeback_control * wbc)
 #endif
 }
 
-int f2fs_fsync_node_pages(f2fs_sb_info *sbi, struct inode *inode, struct writeback_control *wbc, bool atomic,
-			unsigned int *seq_id)
+int f2fs_fsync_node_pages(f2fs_sb_info *sbi, f2fs_inode_info *inode, writeback_control *wbc, bool atomic, unsigned int *seq_id)
 {
 	pgoff_t index;
 	struct pagevec pvec;
@@ -1748,29 +1747,29 @@ retry:
 	pagevec_init(&pvec);
 	index = 0;
 
-	while ((nr_pages = pagevec_lookup_tag(&pvec, NODE_MAPPING(sbi), &index,
-				PAGECACHE_TAG_DIRTY))) {
+	while ((nr_pages = pagevec_lookup_tag(&pvec, NODE_MAPPING(sbi), &index,	PAGECACHE_TAG_DIRTY))) 
+	{
 		int i;
-
-		for (i = 0; i < nr_pages; i++) {
+		for (i = 0; i < nr_pages; i++)
+		{
 			struct page *page = pvec.pages[i];
 			bool submitted = false;
 
-			if (unlikely(sbi->f2fs_cp_error())) {
+			if (unlikely(sbi->f2fs_cp_error())) 
+			{
 				f2fs_put_page(last_page, 0);
 				pagevec_release(&pvec);
 				ret = -EIO;
 				goto out;
 			}
 
-			if (!IS_DNODE(page) || !is_cold_node(page))
-				continue;
-			if (ino_of_node(page) != ino)
-				continue;
+			if (!IS_DNODE(page) || !is_cold_node(page))		continue;
+			if (ino_of_node(page) != ino)					continue;
 
 			lock_page(page);
 
-			if (unlikely(page->mapping != NODE_MAPPING(sbi))) {
+			if (unlikely(page->mapping != NODE_MAPPING(sbi))) 
+			{
 continue_unlock:
 				unlock_page(page);
 				continue;
@@ -1778,7 +1777,8 @@ continue_unlock:
 			if (ino_of_node(page) != ino)
 				goto continue_unlock;
 
-			if (!PageDirty(page) && page != last_page) {
+			if (!PageDirty(page) && page != last_page) 
+			{
 				/* someone wrote it for us */
 				goto continue_unlock;
 			}
@@ -1793,8 +1793,7 @@ continue_unlock:
 				set_fsync_mark(page, 1);
 				if (IS_INODE(page)) 
 				{
-					if (is_inode_flag_set(inode, FI_DIRTY_INODE))
-						F2FS_I(inode)->f2fs_update_inode(page);
+					if (is_inode_flag_set(inode, FI_DIRTY_INODE))	inode->f2fs_update_inode(page);
 					set_dentry_mark(page, f2fs_need_dentry_mark(sbi, ino));
 				}
 				/* may be written by other thread */
@@ -1805,19 +1804,17 @@ continue_unlock:
 			if (!clear_page_dirty_for_io(page))
 				goto continue_unlock;
 
-			ret = __write_node_page(page, atomic &&
-						page == last_page,
-						&submitted, wbc, true,
-						FS_NODE_IO, seq_id);
-			if (ret) {
+			ret = __write_node_page(page, atomic && page == last_page, &submitted, wbc, true, FS_NODE_IO, seq_id);
+			if (ret) 
+			{
 				unlock_page(page);
 				f2fs_put_page(last_page, 0);
 				break;
-			} else if (submitted) {
-				nwritten++;
 			}
+			else if (submitted) {	nwritten++;	}
 
-			if (page == last_page) {
+			if (page == last_page) 
+			{
 				f2fs_put_page(page, 0);
 				marked = true;
 				break;
@@ -1850,7 +1847,7 @@ static int f2fs_match_ino(inode *iinode, unsigned long ino, void *data)
 
 	if (iinode->i_ino != ino)	return 0;
 
-	if (!is_inode_flag_set(iinode, FI_DIRTY_INODE))		return 0;
+	if (!is_inode_flag_set(F2FS_I(iinode), FI_DIRTY_INODE))		return 0;
 
 	spin_lock(&sbi->inode_lock[DIRTY_META]);
 //	clean = list_empty(&F2FS_I(iinode)->gdirty_list);
@@ -1859,8 +1856,8 @@ static int f2fs_match_ino(inode *iinode, unsigned long ino, void *data)
 
 	if (clean)		return 0;
 
-	iinode = igrab(iinode);
-	if (!iinode)		return 0;
+	inode * ii = igrab(iinode);
+	if (!ii)		return 0;
 	return 1;
 }
 
@@ -1898,7 +1895,7 @@ void f2fs_flush_inline_data(f2fs_sb_info *sbi)
 			page *ppage = pvec.pages[i];
 			if (!IS_DNODE(ppage))			continue;
 
-			auto_lock<page_auto_lock> page_locker(*ppage);
+			auto_lock_<page> page_locker(*ppage);
 			//lock_page(ppage);
 
 			if (unlikely(ppage->mapping != NODE_MAPPING(sbi))) 
@@ -2621,7 +2618,7 @@ int f2fs_try_to_free_nids(struct f2fs_sb_info *sbi, int nr_shrink)
 	return nr - nr_shrink;
 }
 #endif
-int f2fs_recover_inline_xattr(struct inode *inode, struct page *page)
+int f2fs_recover_inline_xattr(f2fs_inode_info *inode, struct page *page)
 {
 	void *src_addr, *dst_addr;
 	size_t inline_size;
@@ -2993,10 +2990,7 @@ int f2fs_flush_nat_entries(f2fs_sb_info *sbi, cp_control *cpc)
 	LIST_HEAD(sets);
 	int err = 0;
 
-	/*
-	 * during unmount, let's flush nat_bits before checking
-	 * nat_cnt[DIRTY_NAT].
-	 */
+	/* during unmount, let's flush nat_bits before checking nat_cnt[DIRTY_NAT].	 */
 	if (enabled_nat_bits(sbi, cpc)) {
 		down_write(&nm_i->nat_tree_lock);
 		remove_nats_in_journal(sbi);
@@ -3044,7 +3038,7 @@ int f2fs_flush_nat_entries(f2fs_sb_info *sbi, cp_control *cpc)
 //static int __get_nat_bitmaps(struct f2fs_sb_info *sbi)
 int f2fs_nm_info::__get_nat_bitmaps(void)
 {
-	struct f2fs_checkpoint *ckpt = m_sbi->F2FS_CKPT();
+	f2fs_checkpoint *ckpt = m_sbi->F2FS_CKPT();
 //	struct f2fs_nm_info *nm_i = NM_I(sbi);
 	unsigned int nat_bits_bytes = nat_blocks / BITS_PER_BYTE;
 	unsigned int i;
@@ -3060,13 +3054,11 @@ int f2fs_nm_info::__get_nat_bitmaps(void)
 	nat_bits_addr = m_sbi->__start_cp_addr() + m_sbi->blocks_per_seg - nat_bits_blocks;
 	for (i = 0; i < nat_bits_blocks; i++) 
 	{
-		struct page *page;
-
-		page = m_sbi->f2fs_get_meta_page(nat_bits_addr++);
-		if (IS_ERR(page))		return PTR_ERR(page);
-
-		memcpy(nat_bits + (i << F2FS_BLKSIZE_BITS), page_address<BYTE>(page), F2FS_BLKSIZE);
-		f2fs_put_page(page, 1);
+		page *ppage;
+		ppage = m_sbi->f2fs_get_meta_page(nat_bits_addr++);
+		if (IS_ERR(ppage))		return PTR_ERR(ppage);
+		memcpy(nat_bits + (i << F2FS_BLKSIZE_BITS), page_address<BYTE>(ppage), F2FS_BLKSIZE);
+		f2fs_put_page(ppage, 1);
 	}
 
 	cp_ver |= (cur_cp_crc(ckpt) << 32);
@@ -3215,88 +3207,9 @@ int f2fs_sb_info::f2fs_build_node_manager(void)
 
 void f2fs_sb_info::f2fs_destroy_node_manager()
 {
-#if 0 //移植到f2fs_nm_info()的析构函数中
-	f2fs_nm_info *nm_i = NM_I(sbi);
-	free_nid *i, *next_i;
-	struct nat_entry *natvec[NATVEC_SIZE];
-	struct nat_entry_set *setvec[SETVEC_SIZE];
-	nid_t nid = 0;
-	unsigned int found;
-
-	if (!nm_i)
-		return;
-
-	/* destroy free nid list */
-	spin_lock(&nm_i->nid_list_lock);
-	list_for_each_entry_safe(free_nid, i, next_i, &nm_i->free_nid_list, list) 
-	{
-		nm_i->__remove_free_nid(i, FREE_NID);
-		spin_unlock(&nm_i->nid_list_lock);
-		kmem_cache_free(free_nid_slab, i);
-		spin_lock(&nm_i->nid_list_lock);
-	}
-	f2fs_bug_on(sbi, nm_i->nid_cnt[FREE_NID]);
-	f2fs_bug_on(sbi, nm_i->nid_cnt[PREALLOC_NID]);
-	f2fs_bug_on(sbi, !list_empty(&nm_i->free_nid_list));
-	spin_unlock(&nm_i->nid_list_lock);
-
-	/* destroy nat cache */
-	down_write(&nm_i->nat_tree_lock);
-	while ((found = __gang_lookup_nat_cache(nm_i, nid, NATVEC_SIZE, natvec))) 
-	{
-		unsigned idx;
-
-		nid = nat_get_nid(natvec[found - 1]) + 1;
-		for (idx = 0; idx < found; idx++) {
-			spin_lock(&nm_i->nat_list_lock);
-			list_del(&natvec[idx]->list);
-			spin_unlock(&nm_i->nat_list_lock);
-
-			__del_from_nat_cache(nm_i, natvec[idx]);
-		}
-	}
-	f2fs_bug_on(sbi, nm_i->nat_cnt[TOTAL_NAT]);
-
-	/* destroy nat set cache */
-	nid = 0;
-	while ((found = __gang_lookup_nat_set(nm_i, nid, SETVEC_SIZE, setvec))) 
-	{
-		unsigned idx;
-
-		nid = setvec[found - 1]->set + 1;
-		for (idx = 0; idx < found; idx++) {
-			/* entry_cnt is not zero, when cp_error was occurred */
-			f2fs_bug_on(sbi, !list_empty(&setvec[idx]->entry_list));
-			radix_tree_delete<nat_entry_set>(&nm_i->nat_set_root, setvec[idx]->set);
-			kmem_cache_free(nat_entry_set_slab, setvec[idx]);
-		}
-	}
-	up_write(&nm_i->nat_tree_lock);
-
-	f2fs_kvfree(nm_i->nat_block_bitmap);	//在init_free_nid()中alloc
-
-	if (nm_i->free_nid_bitmap) 
-	{
-		int i;
-		for (i = 0; i < nm_i->nat_blocks; i++)
-		{
-			f2fs_kvfree(nm_i->free_nid_bitmap[i]);
-		}
-		f2fs_kvfree(nm_i->free_nid_bitmap);
-
-	}
-	f2fs_kvfree(nm_i->free_nid_count);
-
-	f2fs_kvfree(nm_i->nat_bitmap);
-	f2fs_kvfree(nm_i->nat_bits);
-#ifdef CONFIG_F2FS_CHECK_FS
-	kvfree(nm_i->nat_bitmap_mir);
-#endif
-
-#endif
+	//移植到f2fs_nm_info()的析构函数中
 	delete nm_info;
 	nm_info = NULL;
-//	f2fs_kfree(nm_i);
 //	delete nm_i;	//在f2fs_sb_info::f2fs_build_node_manager()中alloc
 }
 #if 0
@@ -3406,13 +3319,13 @@ f2fs_nm_info::~f2fs_nm_info(void)
 //	if (!this)	return;
 
 	/* destroy free nid list */
-	spin_lock(&this->nid_list_lock);
-	list_for_each_entry_safe(free_nid, i, next_i, &this->free_nid_list, list)
+	spin_lock(&nid_list_lock);
+	list_for_each_entry_safe(free_nid, i, next_i, &free_nid_list, list)
 	{
-		this->__remove_free_nid(i, FREE_NID);
-		spin_unlock(&this->nid_list_lock);
+		__remove_free_nid(i, FREE_NID);
+		spin_unlock(&nid_list_lock);
 		kmem_cache_free(free_nid_slab, i);
-		spin_lock(&this->nid_list_lock);
+		spin_lock(&nid_list_lock);
 	}
 	f2fs_bug_on(m_sbi, this->nid_cnt[FREE_NID]);
 	f2fs_bug_on(m_sbi, this->nid_cnt[PREALLOC_NID]);
@@ -3434,50 +3347,38 @@ f2fs_nm_info::~f2fs_nm_info(void)
 			__del_from_nat_cache(this, natvec[idx]);
 		}
 	}
-	f2fs_bug_on(m_sbi, this->nat_cnt[TOTAL_NAT]);
+	f2fs_bug_on(m_sbi, nat_cnt[TOTAL_NAT]);
 
 	/* destroy nat set cache */
 	nid = 0;
 	while ((found = __gang_lookup_nat_set(this, nid, SETVEC_SIZE, setvec)))
 	{
 		unsigned idx;
-
 		nid = setvec[found - 1]->set + 1;
 		for (idx = 0; idx < found; idx++) {
 			/* entry_cnt is not zero, when cp_error was occurred */
 			f2fs_bug_on(m_sbi, !list_empty(&setvec[idx]->entry_list));
-			radix_tree_delete<nat_entry_set>(&this->nat_set_root, setvec[idx]->set);
+			radix_tree_delete<nat_entry_set>(&nat_set_root, setvec[idx]->set);
 			kmem_cache_free(nat_entry_set_slab, setvec[idx]);
 		}
 	}
-	up_write(&this->nat_tree_lock);
+	up_write(&nat_tree_lock);
 
-	f2fs_kvfree(this->nat_block_bitmap);	//在init_free_nid()中alloc
+	f2fs_kvfree(nat_block_bitmap);	//在init_free_nid()中alloc
 
-	if (this->free_nid_bitmap)
+	if (free_nid_bitmap)
 	{
 		int i;
-		for (i = 0; i < this->nat_blocks; i++)		f2fs_kvfree(this->free_nid_bitmap[i]);
-		f2fs_kvfree(this->free_nid_bitmap);
+		for (i = 0; i < nat_blocks; i++)		f2fs_kvfree(free_nid_bitmap[i]);
+		f2fs_kvfree(free_nid_bitmap);
 	}
-	f2fs_kvfree(this->free_nid_count);
+	f2fs_kvfree(free_nid_count);
 
 	f2fs_kvfree(nat_bitmap);
 	f2fs_kvfree(nat_bits);
 #ifdef CONFIG_F2FS_CHECK_FS
-	kvfree(this->nat_bitmap_mir);
+	kvfree(nat_bitmap_mir);
 #endif
-
-
-
-//	f2fs_kvfree(nat_block_bitmap);
-//	f2fs_kvfree(free_nid_count);
-
-	//for (UINT i = 0; i < nat_blocks; i++)
-	//{
-	//	f2fs_kvfree(free_nid_bitmap[i]);
-	//}
-	//f2fs_kvfree(free_nid_bitmap);
 
 	LOG_DEBUG(L"[build_lock] destory");
 	mutex_destory(&build_lock);

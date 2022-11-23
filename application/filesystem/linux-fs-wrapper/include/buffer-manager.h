@@ -27,7 +27,7 @@ public:
 	bool buffer_uptodate(void) const { return false; }
 	int read_slow(void);
 
-	void SetDirty() { set_bit(BH_Dirty, &b_state); }
+	void SetDirty() { set_bit(BH_Dirty, b_state); }
 	int SyncDirty(int op_flat) { JCASSERT(0); return 0; }
 	void Release(void) {}
 	void AddRef(void) {}

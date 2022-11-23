@@ -53,10 +53,13 @@ int set_page_dirty(page* page)
 }
 
 
-page::page(void) 
+page::page(CPageManager * manager) : m_manager(manager)
 {
 //	LOG_STACK_TRACE();
-	memset(this, 0, sizeof(page));
+//	memset(this, 0, sizeof(page));
+	mapping = nullptr;
+	index = 0;
+	private_data = 0;
 	_refcount = 1;
 	index = -1;
 	virtual_add = VirtualAlloc(0, PAGE_SIZE, MEM_COMMIT, PAGE_READWRITE);
@@ -65,6 +68,29 @@ page::page(void)
 	LOG_DEBUG(L"page allocated, page=0x%llX, add=0x%llX", this, virtual_add);
 	back_add = virtual_add;
 #endif
+	InitializeCriticalSection(&m_lock);
+//	m_event_state = CreateEvent(NULL, FALSE, FALSE, NULL);
+	InitializeConditionVariable(&m_state_condition);
+}
+
+page::page(void) : m_manager(nullptr), virtual_add(nullptr)
+{
+	//	LOG_STACK_TRACE();
+	//	memset(this, 0, sizeof(page));
+	mapping = nullptr;
+	index = 0;
+	private_data = 0;
+	_refcount = 1;
+	index = -1;
+//	virtual_add = VirtualAlloc(0, PAGE_SIZE, MEM_COMMIT, PAGE_READWRITE);
+//	if (virtual_add == 0) THROW_WIN32_ERROR(L"failed on allocate page");
+//#ifdef _DEBUG
+//	LOG_DEBUG(L"page allocated, page=0x%llX, add=0x%llX", this, virtual_add);
+//	back_add = virtual_add;
+//#endif
+	InitializeCriticalSection(&m_lock);
+	//	m_event_state = CreateEvent(NULL, FALSE, FALSE, NULL);
+	InitializeConditionVariable(&m_state_condition);
 }
 
 page::~page(void)
@@ -75,7 +101,29 @@ page::~page(void)
 	if (back_add != virtual_add) LOG_ERROR(L"[err] page address changed, org=0x%llX, new=0x%llX", back_add, virtual_add);
 //		THROW_ERROR(ERR_APP, L"page address changed, org=0x%llX, new=0x%llX", back_add, virtual_add);
 #endif
-	VirtualFree(virtual_add, PAGE_SIZE, MEM_RELEASE);
+//	VirtualFree(virtual_add, PAGE_SIZE, MEM_RELEASE);
+	DeleteCriticalSection(&m_lock);
+//	CloseHandle(m_event_state);
+}
+
+void page::init(CPageManager* manager, void* vmem)
+{
+	m_manager = manager;
+	virtual_add = vmem;
+#ifdef _DEBUG
+	back_add = virtual_add;
+#endif
+
+}
+
+void page::reinit(void)
+{	// 重新初始化 page
+	mapping = nullptr;
+	index = -1;
+	private_data = 0;
+	_refcount = 1;
+	flags = 0;
+	page_type = 0;
 }
 
 /**

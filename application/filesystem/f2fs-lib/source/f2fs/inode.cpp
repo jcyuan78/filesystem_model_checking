@@ -44,26 +44,40 @@ bool is_dentry_equal(dentry* src, dentry* dst)
 
 dentry* f2fs_inode_info::splice_alias(dentry* entry)
 {
+	dentry* new_entry = nullptr;
+#if 0
 	EnterCriticalSection(&m_alias_lock);
 	for (auto it = m_alias.begin(); it != m_alias.end(); ++it)
 	{
 		if (is_dentry_equal(*it, entry))
 		{
+			F_LOG_DEBUG(L"dentry", L" dentry=%p, inode=%p, ref=%d, found entry, old entry=%p", new_entry, this, new_entry->d_lockref.count, entry);
 			LeaveCriticalSection(&m_alias_lock);
-			return dget(*it);
+			new_entry = dget(*it);
+			return new_entry;
 		}
 	}
 	m_alias.push_back(entry);
 	entry->d_inode = this;
+	new_entry = dget(entry);
+	F_LOG_DEBUG(L"dentry", L" dentry=%p, inode=%p, ref=%d, add to alias, old entry=%p", new_entry, this, new_entry->d_lockref.count, entry);
 	LeaveCriticalSection(&m_alias_lock);
-	return dget(entry);
+#else
+	entry->d_inode = this;
+	__iget(this);
+	new_entry = dget(entry);
+	F_LOG_DEBUG(L"inode_lock", L" inode=%p, ref=%d", this, i_count);
+	F_LOG_DEBUG(L"dentry", L" dentry=%p, inode=%p, ref=%d, add to alias, old entry=%p", new_entry, this, new_entry->d_lockref.count, entry);
+#endif
+	return new_entry;
 }
 
 void f2fs_inode_info::remove_alias(dentry* ddentry)
 {
-	EnterCriticalSection(&m_alias_lock);
-	m_alias.remove(ddentry);
-	LeaveCriticalSection(&m_alias_lock);
+	//EnterCriticalSection(&m_alias_lock);
+	//m_alias.remove(ddentry);
+	//F_LOG_DEBUG(L"dentry", L" dentry=%p, inode=%p, ref=%d, remove alias", ddentry, this, ddentry->d_lockref.count);
+	//LeaveCriticalSection(&m_alias_lock);
 }
 
 //void f2fs_mark_inode_dirty_sync(inode *inode, bool sync)
@@ -168,7 +182,7 @@ void f2fs_inode_info::__set_inode_rdev( f2fs_inode* ri)
 	}
 }
 
-static void __recover_inline_status(struct inode *inode, struct page *ipage)
+static void __recover_inline_status(f2fs_inode_info *inode, struct page *ipage)
 {
 	f2fs_inode_info* fi = F2FS_I(inode);
 	void *inline_data = fi->inline_data_addr(ipage);
@@ -258,7 +272,7 @@ void f2fs_inode_chksum_set(f2fs_sb_info *sbi, page *pp)
 	ri->_u._s.i_inode_checksum = cpu_to_le32(sbi->m_fs->f2fs_inode_chksum(pp));
 }
 
-static bool sanity_check_inode(struct inode *inode, struct page *node_page)
+static bool sanity_check_inode(f2fs_inode_info *inode, struct page *node_page)
 {
 	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
 	f2fs_inode_info *fi = F2FS_I(inode);
@@ -613,7 +627,7 @@ int f2fs_sb_info::do_create_read_inode(f2fs_inode_info*& out_inode, unsigned lon
 	ptr_inode->set_nlink(le32_to_cpu(ri->i_links));
 	ptr_inode->i_size = le64_to_cpu(ri->i_size);
 	ptr_inode->i_blocks = SECTOR_FROM_BLOCK(le64_to_cpu(ri->i_blocks) - 1);
-	LOG_DEBUG(L"[inode_track] addr=%p, ino=%d, link=%d - read from disk", ptr_inode, ptr_inode->i_ino, ptr_inode->i_nlink);
+	F_LOG_DEBUG(L"inode", L" addr=%p, ino=%d, link=%d - read from disk", ptr_inode, ptr_inode->i_ino, ptr_inode->i_nlink);
 #ifdef DOTIME
 	ptr_inode->i_atime = le64_to_cpu(ri->i_atime);
 	ptr_inode->i_ctime = le64_to_cpu(ri->i_ctime);
@@ -848,7 +862,7 @@ f2fs_inode_info* f2fs_sb_info::f2fs_iget(nid_t ino)
 	new_node = m_inodes.iget_locked<f2fs_inode_info>(true, ino);
 	if (new_node && !new_node->TestState(I_NEW))
 	{	// 找到已经存在的ino，直接返回
-		LOG_DEBUG(L"[inode_track] addr=%p, ino=%d, - got inode from cache", new_node, new_node->i_ino);
+		F_LOG_DEBUG(L"inode", L" addr=%p, ino=%d, - got inode from cache", new_node, new_node->i_ino);
 		return new_node;
 	}
 
@@ -860,7 +874,7 @@ f2fs_inode_info* f2fs_sb_info::f2fs_iget(nid_t ino)
 	if (ino == F2FS_NODE_INO() || ino == F2FS_META_INO())
 	{
 		new_node = GetInodeLocked<f2fs_inode_info>((s_type->fs_flags & FS_THP_SUPPORT), ino/*, nullptr*/);
-		LOG_DEBUG(L"[inode_track] addr=%p, ino=%d, - create for meta/node", new_node, ino);
+		F_LOG_DEBUG(L"inode", L" addr=%p, ino=%d, - create for meta/node", new_node, ino);
 		if (!(new_node->TestState(I_NEW))) { return new_node; }
 	}
 	else
@@ -873,7 +887,7 @@ f2fs_inode_info* f2fs_sb_info::f2fs_iget(nid_t ino)
 		// （2）如果不存在，创建并且读取
 //		LOG_DEBUG(L"read inode by ino=%d", ino);
 		ret = do_create_read_inode(new_node, ino);
-		LOG_DEBUG(L"[inode_track] add=%p, ino=%d, mode=%X, - read inode from disk", new_node, ino, new_node->i_mode);
+		F_LOG_DEBUG(L"inode", L" add=%p, ino=%d, mode=%X, - read inode from disk", new_node, ino, new_node->i_mode);
 		if (ret)
 		{
 			LOG_ERROR(L"[err] failed on reading inode, ino=%d, err=%d", ino, ret);
@@ -962,7 +976,7 @@ void f2fs_inode_info::f2fs_update_inode(page* node_page)
 	ri->i_links = cpu_to_le32(i_nlink);
 	ri->i_size = cpu_to_le64(i_size_read(this));
 	ri->i_blocks = cpu_to_le64(SECTOR_TO_BLOCK(i_blocks) + 1);
-	LOG_DEBUG(L"[inode_track] addr=%p, ino=%d, mode =%X, link=%d - store inode", this, i_ino, ri->i_mode, i_nlink);
+	F_LOG_DEBUG(L"inode", L" addr=%p, ino=%d, mode =%X, link=%d - store inode", this, i_ino, ri->i_mode, i_nlink);
 
 	if (et) 
 	{
@@ -1116,15 +1130,15 @@ int f2fs_inode_info::f2fs_write_inode(writeback_control *wbc)
 //void f2fs_evict_inode(struct inode *inode)	
 void f2fs_sb_info::evict_inode(inode* iinode)
 {
-	LOG_DEBUG(L"[inode_track] addr=%p, ino=%d, link=%d - evict", iinode, iinode->i_ino, iinode->i_nlink);
+	F_LOG_DEBUG(L"inode", L" addr=%p, ino=%d, link=%d - evict", iinode, iinode->i_ino, iinode->i_nlink);
 //	struct f2fs_sb_info *sbi = F2FS_I_SB(iinode);
 	f2fs_inode_info* fi = F2FS_I(iinode);
 	nid_t xnid = F2FS_I(iinode)->i_xattr_nid;
 	int err = 0;
 
 	/* some remained atomic pages should discarded */
-	if (f2fs_is_atomic_file(iinode))
-		f2fs_drop_inmem_pages(iinode);
+	if (f2fs_is_atomic_file(fi))
+		f2fs_drop_inmem_pages(fi);
 
 //	trace_f2fs_evict_inode(iinode);
 	address_space* mapping = iinode->get_mapping();
@@ -1134,7 +1148,7 @@ void f2fs_sb_info::evict_inode(inode* iinode)
 		goto out_clear;
 
 	f2fs_bug_on(this, get_dirty_pages(iinode));
-	f2fs_remove_dirty_inode(iinode);
+	f2fs_remove_dirty_inode(fi);
 
 	f2fs_destroy_extent_tree(iinode);
 
@@ -1155,8 +1169,7 @@ void f2fs_sb_info::evict_inode(inode* iinode)
 	fi->set_inode_flag(FI_NO_ALLOC);
 	i_size_write(iinode, 0);
 retry:
-	if (F2FS_HAS_BLOCKS(iinode))
-		err = f2fs_truncate(fi);
+	if (F2FS_HAS_BLOCKS(iinode)) err = fi->f2fs_truncate();
 
 	if (time_to_inject(this, FAULT_EVICT_INODE))
 	{
@@ -1199,7 +1212,7 @@ no_delete:
 	stat_sub_compr_blocks(iinode, atomic_read(&F2FS_I(iinode)->i_compr_blocks));
 
 	if (likely(!f2fs_cp_error() &&	!is_sbi_flag_set( SBI_CP_DISABLED)))
-		f2fs_bug_on(this, is_inode_flag_set(iinode, FI_DIRTY_INODE));
+		f2fs_bug_on(this, is_inode_flag_set(fi, FI_DIRTY_INODE));
 	else
 		fi->f2fs_inode_synced();
 
@@ -1210,12 +1223,12 @@ no_delete:
 		invalidate_mapping_pages(NODE_MAPPING(this), xnid, xnid);
 	if (iinode->i_nlink)
 	{
-		if (is_inode_flag_set(iinode, FI_APPEND_WRITE))
+		if (is_inode_flag_set(fi, FI_APPEND_WRITE))
 			f2fs_add_ino_entry(this, iinode->i_ino, APPEND_INO);
-		if (is_inode_flag_set(iinode, FI_UPDATE_WRITE))
+		if (is_inode_flag_set(fi, FI_UPDATE_WRITE))
 			f2fs_add_ino_entry(this, iinode->i_ino, UPDATE_INO);
 	}
-	if (is_inode_flag_set(iinode, FI_FREE_NID))
+	if (is_inode_flag_set(fi, FI_FREE_NID))
 	{
 		f2fs_alloc_nid_failed(this, iinode->i_ino);
 		clear_inode_flag(fi, FI_FREE_NID);

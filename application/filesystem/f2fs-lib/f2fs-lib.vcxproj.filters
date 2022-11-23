@@ -108,9 +108,6 @@
     <ClCompile Include="source\f2fs\hash.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="source\lru.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
     <ClCompile Include="source\unit_test.cpp">
       <Filter>源文件</Filter>
     </ClCompile>

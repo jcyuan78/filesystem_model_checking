@@ -141,7 +141,6 @@ DWORD f2fs_gc_kthread::gc_thread_func(void)
 		if (foreground) wake_up_all(&fggc_wq);
 #endif 
 //		trace_f2fs_background_gc(sbi->sb, wait_ms, sbi->prefree_segments(), sbi->free_segments());
-
 		/* balancing f2fs's metadata periodically */
 		f2fs_balance_fs_bg(sbi, true);
 	next:
@@ -324,7 +323,7 @@ static unsigned int check_bg_victims(f2fs_sb_info *sbi)
 	for_each_set_bit(secno, dirty_i->victim_secmap, sbi->MAIN_SECS()) 
 	{
 		if (sec_usage_check(sbi, secno))		continue;
-		clear_bit(secno, dirty_i->victim_secmap);
+		__clear_bit(secno, dirty_i->victim_secmap);
 		return GET_SEG_FROM_SEC(sbi, secno);
 	}
 	return NULL_SEGNO;
@@ -384,7 +383,7 @@ static unsigned int count_bits(const unsigned long *addr, unsigned int offset, u
 
 	while (offset < end) 
 	{
-		if (test_bit(offset++, addr))		++sum;
+		if (__test_bit(offset++, addr))		++sum;
 	}
 	return sum;
 }
@@ -771,7 +770,7 @@ retry:
 			}
 		}
 
-		if (gc_type == BG_GC && test_bit(secno, dirty_i->victim_secmap))
+		if (gc_type == BG_GC && __test_bit(secno, dirty_i->victim_secmap))
 			goto next;
 
 		if (is_atgc) {
@@ -810,24 +809,22 @@ next:
 		goto retry;
 	}
 
-	if (p.min_segno != NULL_SEGNO) {
+	if (p.min_segno != NULL_SEGNO) 
+	{
 got_it:
 		*result = (p.min_segno / p.ofs_unit) * p.ofs_unit;
 got_result:
-		if (p.alloc_mode == LFS) {
+		if (p.alloc_mode == LFS) 
+		{
 			secno = GET_SEC_FROM_SEG(sbi, p.min_segno);
-			if (gc_type == FG_GC)
-				sbi->cur_victim_sec = secno;
-			else
-				set_bit(secno, dirty_i->victim_secmap);
+			if (gc_type == FG_GC)	sbi->cur_victim_sec = secno;
+			else					__set_bit(secno, dirty_i->victim_secmap);
 		}
 		ret = 0;
-
 	}
 out:
 	//if (p.min_segno != NULL_SEGNO)
-	//	trace_f2fs_get_victim(sbi->sb, type, gc_type, &p, sbi->cur_victim_sec,
-	//			sbi->prefree_segments(), sbi->free_segments());
+	//	trace_f2fs_get_victim(sbi->sb, type, gc_type, &p, sbi->cur_victim_sec,	sbi->prefree_segments(), sbi->free_segments());
 	mutex_unlock(&dirty_i->seglist_lock);
 
 	return ret;
@@ -913,7 +910,7 @@ next_step:
 		int err;
 
 		/* stop BG_GC if there is not enough free sections. */
-		if (gc_type == BG_GC && has_not_enough_free_secs(sbi, 0, 0))
+		if (gc_type == BG_GC && sbi->has_not_enough_free_secs( 0, 0))
 			return submitted;
 
 		if (check_valid_map(sbi, segno, off) == 0)
@@ -966,12 +963,9 @@ next_step:
 	return submitted;
 }
 
-/*
- * Calculate start block index indicating the given node offset.
- * Be careful, caller should give this node offset only indicating direct node blocks. If any node offsets, which point
-   the other types of node blocks such as indirect or double indirect node blocks, are given, it must be a caller's bug.
- */
-block_t f2fs_start_bidx_of_node(unsigned int node_ofs, struct inode *inode)
+/* Calculate start block index indicating the given node offset.
+ * Be careful, caller should give this node offset only indicating direct node blocks. If any node offsets, which point the other types of node blocks such as indirect or double indirect node blocks, are given, it must be a caller's bug. */
+block_t f2fs_start_bidx_of_node(unsigned int node_ofs, f2fs_inode_info *inode)
 {
 	unsigned int indirect_blks = 2 * NIDS_PER_BLOCK + 4;
 	unsigned int bidx;
@@ -1284,9 +1278,7 @@ int f2fs_inode_info::move_data_block(block_t bidx, int gc_type, unsigned int seg
 put_page_out:
 	f2fs_put_page(fio.encrypted_page, 1);
 recover_block:
-	if (err)
-		f2fs_do_replace_block(fio.sbi, &sum, newaddr, fio.old_blkaddr,
-							true, true, true);
+	if (err) fio.sbi->f2fs_do_replace_block(&sum, newaddr, fio.old_blkaddr, true, true, true);
 up_out:
 	if (lfs_mode)
 		up_write(&fio.sbi->io_order_lock);
@@ -1299,12 +1291,12 @@ out:
 
 static int move_data_page(f2fs_inode_info *inode, block_t bidx, int gc_type, unsigned int segno, int off)
 {
-	struct page *page;
+	page *ppage;
 	int err = 0;
 
-	page = inode->f2fs_get_lock_data_page(bidx, true);
-	if (IS_ERR(page))
-		return PTR_ERR(page);
+	ppage = inode->f2fs_get_lock_data_page(bidx, true);
+	if (IS_ERR(ppage))
+		return PTR_ERR(ppage);
 
 	if (!check_valid_map(F2FS_I_SB(inode), segno, off)) {
 		err = -ENOENT;
@@ -1326,12 +1318,12 @@ static int move_data_page(f2fs_inode_info *inode, block_t bidx, int gc_type, uns
 
 	if (gc_type == BG_GC) 
 	{
-		if (PageWriteback(page)) {
+		if (PageWriteback(ppage)) {
 			err = -EAGAIN;
 			goto out;
 		}
-		set_page_dirty(page);
-		set_cold_data(page);
+		set_page_dirty(ppage);
+		set_cold_data(ppage);
 	} 
 	else 
 	{
@@ -1343,28 +1335,29 @@ static int move_data_page(f2fs_inode_info *inode, block_t bidx, int gc_type, uns
 		fio.op = REQ_OP_WRITE;
 		fio.op_flags = REQ_SYNC;
 		fio.old_blkaddr = NULL_ADDR;
-		fio.page = page;
+		fio.page = ppage;
 		fio.encrypted_page = NULL;
 		fio.need_lock = LOCK_REQ;
 		fio.io_type = FS_GC_DATA_IO;
 
-		bool is_dirty = PageDirty(page);
+		bool is_dirty = PageDirty(ppage);
 
 retry:
-		f2fs_wait_on_page_writeback(page, DATA, true, true);
+		f2fs_wait_on_page_writeback(ppage, DATA, true, true);
 
-		set_page_dirty(page);
-		if (clear_page_dirty_for_io(page)) 
+		set_page_dirty(ppage);
+		if (clear_page_dirty_for_io(ppage)) 
 		{
+			F_LOG_DEBUG(L"page.dirty", L" dec: inode=%d, page=%d", inode->i_ino, ppage->index);
 			inode_dec_dirty_pages(inode);
 			f2fs_remove_dirty_inode(inode);
 		}
 
-		set_cold_data(page);
+		set_cold_data(ppage);
 
 		err = f2fs_do_write_data_page(&fio);
 		if (err) {
-			clear_cold_data(page);
+			clear_cold_data(ppage);
 			if (err == -ENOMEM) 
 			{
 #if 0
@@ -1373,11 +1366,11 @@ retry:
 				goto retry;
 			}
 			if (is_dirty)
-				set_page_dirty(page);
+				set_page_dirty(ppage);
 		}
 	}
 out:
-	f2fs_put_page(page, 1);
+	f2fs_put_page(ppage, 1);
 	return err;
 }
 
@@ -1412,7 +1405,7 @@ next_step:
 		nid_t nid = le32_to_cpu(entry->nid);
 
 		/* stop BG_GC if there is not enough free sections.  Or, stop GC if the segment becomes fully valid caused by race condition along with SSR block allocation.	 */
-		if ((gc_type == BG_GC && has_not_enough_free_secs(sbi, 0, 0)) ||
+		if ((gc_type == BG_GC && sbi->has_not_enough_free_secs( 0, 0)) ||
 			(!force_migrate && get_valid_blocks(sbi, segno, true) ==
 							BLKS_PER_SEC(sbi)))
 			return submitted;
@@ -1681,7 +1674,7 @@ gc_more:
 		goto stop;
 	}
 
-	if (gc_type == BG_GC && has_not_enough_free_secs(sbi, 0, 0)) 
+	if (gc_type == BG_GC && sbi->has_not_enough_free_secs( 0, 0)) 
 	{	/* For example, if there are many prefree_segments below given threshold, we can make them free by checkpoint.
 		   Then, we secure free segments which doesn't need fggc any more.		 */
 		if (sbi->prefree_segments() && !sbi->is_sbi_flag_set( SBI_CP_DISABLED)) 
@@ -1689,7 +1682,7 @@ gc_more:
 			ret = sbi->f2fs_write_checkpoint( &cpc);
 			if (ret)		goto stop;
 		}
-		if (has_not_enough_free_secs(sbi, 0, 0))	gc_type = FG_GC;
+		if (sbi->has_not_enough_free_secs( 0, 0))	gc_type = FG_GC;
 	}
 
 	/* f2fs_balance_fs doesn't need to do BG_GC in critical path. */
@@ -1716,7 +1709,7 @@ gc_more:
 
 	if (sync)		goto stop;
 
-	if (has_not_enough_free_secs(sbi, sec_freed, 0)) {
+	if (sbi->has_not_enough_free_secs( sec_freed, 0)) {
 		if (skipped_round <= MAX_SKIP_GC_COUNT ||
 					skipped_round * 2 < round) {
 			segno = NULL_SEGNO;
@@ -1858,7 +1851,7 @@ static int free_segment_range(struct f2fs_sb_info *sbi,
 	if (err)
 		goto out;
 
-	next_inuse = find_next_inuse(FREE_I(sbi), end + 1, start);
+	next_inuse = find_next_inuse(sbi->FREE_I(), end + 1, start);
 	if (next_inuse <= end) {
 		f2fs_err(sbi, "segno %u should be free but still inuse!",
 			 next_inuse);
@@ -1912,8 +1905,8 @@ static void update_fs_metadata(struct f2fs_sb_info *sbi, int secs)
 	sbi->SM_I()->segment_count = (int)sbi->SM_I()->segment_count + segs;
 	sbi->MAIN_SEGS() = (int)sbi->MAIN_SEGS() + segs;
 	sbi->MAIN_SECS() += secs;
-	FREE_I(sbi)->free_sections = (int)FREE_I(sbi)->free_sections + secs;
-	FREE_I(sbi)->free_segments = (int)FREE_I(sbi)->free_segments + segs;
+	sbi->FREE_I()->free_sections = (int)sbi->FREE_I()->free_sections + secs;
+	sbi->FREE_I()->free_segments = (int)sbi->FREE_I()->free_segments + segs;
 	sbi->F2FS_CKPT()->user_block_count = cpu_to_le64(user_block_count + blks);
 
 	if (sbi->f2fs_is_multi_device()) {

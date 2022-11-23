@@ -207,7 +207,7 @@ static inline void wait_on_inode(inode *iinode)
 {
 //	might_sleep();
 //	wait_on_bit(&inode->i_state, __I_NEW, TASK_UNINTERRUPTIBLE);
-	iinode->WaitForState(__I_NEW);
+	iinode->WaitForStateClear(__I_NEW);
 }
 
 
@@ -307,10 +307,11 @@ static inline void inode_detach_wb(struct inode *inode)
 {
 }
 
-static inline void wbc_attach_and_unlock_inode(struct writeback_control *wbc, struct inode *inode)
+static inline void wbc_attach_and_unlock_inode(writeback_control *wbc, inode *iinode)
 //	__releases(&inode->i_lock)
 {
-	spin_unlock(&inode->i_lock);
+	//spin_unlock(&inode->i_lock);
+	iinode->unlock();
 }
 
 static inline void wbc_attach_fdatawrite_inode(struct writeback_control *wbc, struct inode *inode)

@@ -47,8 +47,8 @@ static inline void mapping_set_error(address_space *mapping, int error)
 	if (mapping->host)		errseq_set(&mapping->host->i_sb->s_wb_err, error);
 #endif
 	/* Record it in flags for now, for legacy callers */
-	if (error == -ENOSPC)		set_bit(AS_ENOSPC, &mapping->flags);
-	else		set_bit(AS_EIO, &mapping->flags);
+	if (error == -ENOSPC)		set_bit(AS_ENOSPC, mapping->flags);
+	else		set_bit(AS_EIO, mapping->flags);
 }
 #if 0 //<TODO>
 
@@ -69,7 +69,7 @@ static inline bool mapping_unevictable(struct address_space *mapping)
 #endif //<TODO>
 static inline void mapping_set_exiting(address_space *mapping)
 {
-	set_bit(AS_EXITING, &mapping->flags);
+	set_bit(AS_EXITING, mapping->flags);
 }
 #if 0 //<TODO>
 static inline int mapping_exiting(struct address_space *mapping)
@@ -280,7 +280,7 @@ static inline void *detach_page_private(struct page *page)
 #endif //<TODO>
 
 #ifdef CONFIG_NUMA
-extern struct page *__page_cache_alloc(gfp_t gfp);
+inline page* __page_cache_alloc(gfp_t gfp, CPageManager* manager);
 #else
 static inline struct page *__page_cache_alloc(gfp_t gfp)
 {
@@ -290,7 +290,7 @@ static inline struct page *__page_cache_alloc(gfp_t gfp)
 
 static inline struct page *page_cache_alloc(address_space *x)
 {
-	return __page_cache_alloc(mapping_gfp_mask(x));
+	return __page_cache_alloc(mapping_gfp_mask(x), x->GetPageManager());
 }
 
 
@@ -794,30 +794,24 @@ static inline int add_to_page_cache(struct page *page,
 
 #endif //<TODO>
 
-/**
- * struct readahead_control - Describes a readahead request.
+/** struct readahead_control - Describes a readahead request.
  *
- * A readahead request is for consecutive pages.  Filesystems which
- * implement the ->readahead method should call readahead_page() or
- * readahead_page_batch() in a loop and attempt to start I/O against
- * each page in the request.
+ * A readahead request is for consecutive pages.  Filesystems which implement the ->readahead method should call readahead_page() or readahead_page_batch() in a loop and attempt to start I/O against each page in the request.
  *
- * Most of the fields in this struct are private and should be accessed
- * by the functions below.
+ * Most of the fields in this struct are private and should be accessed by the functions below.
  *
- * @file: The file, used primarily by network filesystems for authentication.
- *	  May be NULL if invoked internally by the filesystem.
+ * @file: The file, used primarily by network filesystems for authentication. May be NULL if invoked internally by the filesystem.
  * @mapping: Readahead this filesystem object.
- * @ra: File readahead state.  May be NULL.
- */
-struct readahead_control {
+ * @ra: File readahead state.  May be NULL. */
+struct readahead_control 
+{
 	struct file *file;
 	address_space *mapping;
 	file_ra_state *ra;
 /* private: use the readahead_* accessors instead */
 	pgoff_t _index;
-	unsigned int _nr_pages;
-	unsigned int _batch_count;
+	unsigned int _nr_pages = 0;
+	unsigned int _batch_count = 0;
 };
 
 #define DEFINE_READAHEAD(ractl, f, r, m, i)		\
@@ -842,15 +836,11 @@ void readahead_expand(readahead_control *ractl, loff_t new_start, size_t new_len
  * @index: Index of first page to be read.
  * @req_count: Total number of pages being read by the caller.
  *
- * page_cache_sync_readahead() should be called when a cache miss happened:
- * it will submit the read.  The readahead logic may decide to piggyback more
- * pages onto the read request if access patterns suggest it will improve
- * performance.
- */
-static inline void page_cache_sync_readahead(address_space *mapping, file_ra_state *ra, struct file *file, pgoff_t index,
+ * page_cache_sync_readahead() should be called when a cache miss happened: it will submit the read.  The readahead logic may decide to piggyback more pages onto the read request if access patterns suggest it will improve performance. */
+static inline void page_cache_sync_readahead(address_space *mapping, file_ra_state *ra, file *ffile, pgoff_t index,
 		unsigned long req_count)
 {
-	DEFINE_READAHEAD(ractl, file, ra, mapping, index);
+	DEFINE_READAHEAD(ractl, ffile, ra, mapping, index);
 	page_cache_sync_ra(&ractl, req_count);
 }
 

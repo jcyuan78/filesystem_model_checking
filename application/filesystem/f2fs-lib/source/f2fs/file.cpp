@@ -197,7 +197,7 @@ int f2fs_inode_info::get_parent_ino(nid_t *pino)
 	return 1;
 }
 
-static inline enum cp_reason_type need_do_checkpoint(struct inode *inode)
+static inline enum cp_reason_type need_do_checkpoint(f2fs_inode_info *inode)
 {
 	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
 	enum cp_reason_type cp_reason = CP_NO_NEEDED;
@@ -573,9 +573,9 @@ void f2fs_truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 		dn->data_blkaddr = NULL_ADDR;
 		f2fs_set_data_blkaddr(dn);
 
-		if (__is_valid_data_blkaddr(blkaddr)) {
-			if (!sbi->f2fs_is_valid_blkaddr( blkaddr,
-					DATA_GENERIC_ENHANCE))
+		if (__is_valid_data_blkaddr(blkaddr)) 
+		{
+			if (!sbi->f2fs_is_valid_blkaddr( blkaddr, DATA_GENERIC_ENHANCE))
 				continue;
 			if (compressed_cluster)
 				valid_blocks++;
@@ -604,9 +604,7 @@ void f2fs_truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 	dn->ofs_in_node = ofs;
 
 	sbi->f2fs_update_time( REQ_TIME);
-#if 0
-	trace_f2fs_truncate_data_blocks_range(dn->inode, dn->nid, dn->ofs_in_node, nr_free);
-#endif
+	//trace_f2fs_truncate_data_blocks_range(dn->inode, dn->nid, dn->ofs_in_node, nr_free);
 }
 
 void f2fs_truncate_data_blocks(dnode_of_data *dn)
@@ -621,10 +619,10 @@ int f2fs_inode_info::truncate_partial_data_page(u64 from, bool cache_only)
 //	address_space *mapping = inode->i_mapping;
 	struct page *page;
 
-	if (!offset && !cache_only)
-		return 0;
+	if (!offset && !cache_only)		return 0;
 
-	if (cache_only) {
+	if (cache_only) 
+	{
 		page = find_lock_page(i_mapping, index);
 		if (page && PageUptodate(page))
 			goto truncate_out;
@@ -646,9 +644,8 @@ truncate_out:
 	return 0;
 }
 
-int f2fs_do_truncate_blocks(f2fs_inode_info *inode, u64 from, bool lock)
+int f2fs_inode_info::f2fs_do_truncate_blocks(u64 from, bool lock)
 {
-	f2fs_sb_info *sbi = F2FS_I_SB(inode);
 	dnode_of_data dn;
 	pgoff_t free_from;
 	int count = 0, err = 0;
@@ -659,28 +656,27 @@ int f2fs_do_truncate_blocks(f2fs_inode_info *inode, u64 from, bool lock)
 
 	free_from = (pgoff_t)F2FS_BLK_ALIGN(from);
 
-	if (free_from >= max_file_blocks(inode))
+	if (free_from >= max_file_blocks(this))
 		goto free_partial;
 
-	if (lock)	sbi->f2fs_lock_op();
-	//auto_lock<semaphore_read_lock> lock_op(sbi->cp_rwsem);
+	if (lock)	m_sbi->f2fs_lock_op();
 
-	ipage = sbi->f2fs_get_node_page(inode->i_ino);
+	ipage = m_sbi->f2fs_get_node_page(i_ino);
 	if (IS_ERR(ipage)) 
 	{
 		err = PTR_ERR(ipage);
 		goto out;
 	}
 
-	if (f2fs_has_inline_data(inode)) 
+	if (f2fs_has_inline_data(this)) 
 	{
-		f2fs_truncate_inline_inode(inode, ipage, from);
+		f2fs_truncate_inline_inode(this, ipage, from);
 		f2fs_put_page(ipage, 1);
 		truncate_page = true;
 		goto out;
 	}
 
-	dn.set_new_dnode(inode, ipage, NULL, 0);
+	dn.set_new_dnode(this, ipage, NULL, 0);
 	err = f2fs_get_dnode_of_data(&dn, free_from, LOOKUP_NODE_RA);
 	if (err) 
 	{
@@ -688,10 +684,10 @@ int f2fs_do_truncate_blocks(f2fs_inode_info *inode, u64 from, bool lock)
 		goto out;
 	}
 
-	count = ADDRS_PER_PAGE(dn.node_page, inode);
+	count = ADDRS_PER_PAGE(dn.node_page, this);
 
 	count -= dn.ofs_in_node;
-	f2fs_bug_on(sbi, count < 0);
+	f2fs_bug_on(m_sbi, count < 0);
 
 	if (dn.ofs_in_node || IS_INODE(dn.node_page)) 
 	{
@@ -701,18 +697,20 @@ int f2fs_do_truncate_blocks(f2fs_inode_info *inode, u64 from, bool lock)
 
 	f2fs_put_dnode(&dn);
 free_next:
-	err = f2fs_truncate_inode_blocks(inode, free_from);
+	err = f2fs_truncate_inode_blocks(this, free_from);
 out:
-	if (lock)	sbi->f2fs_unlock_op();
+	if (lock)	m_sbi->f2fs_unlock_op();
+
 free_partial:
 	/* lastly zero out the first data page */
-	if (!err)		err = inode->truncate_partial_data_page(from, truncate_page);
+	if (!err)		err = truncate_partial_data_page(from, truncate_page);
 
-//	trace_f2fs_truncate_blocks_exit(inode, err);
+//	trace_f2fs_truncate_blocks_exit(this, err);
 	return err;
 }
 
-int f2fs_truncate_blocks(f2fs_inode_info *inode, u64 from, bool lock)
+//int f2fs_truncate_blocks(f2fs_inode_info *this, u64 from, bool lock)
+int f2fs_inode_info::f2fs_truncate_blocks(u64 from, bool lock)
 {
 	u64 free_from = from;
 	int err;
@@ -724,7 +722,7 @@ int f2fs_truncate_blocks(f2fs_inode_info *inode, u64 from, bool lock)
 				F2FS_I(inode)->i_cluster_size << PAGE_SHIFT);
 #endif
 
-	err = f2fs_do_truncate_blocks(inode, free_from, lock);
+	err = f2fs_do_truncate_blocks(free_from, lock);
 	if (err) return err;
 
 #ifdef CONFIG_F2FS_FS_COMPRESSION
@@ -734,43 +732,42 @@ int f2fs_truncate_blocks(f2fs_inode_info *inode, u64 from, bool lock)
 			return err;
 	}
 #endif
-
 	return 0;
 }
 
-int f2fs_truncate(f2fs_inode_info*inode)
+//int f2fs_truncate(f2fs_inode_info*inode)
+int f2fs_inode_info::f2fs_truncate(void)
 {
 	int err;
-	f2fs_sb_info* sbi = F2FS_I_SB(inode);
-	if (unlikely(sbi->f2fs_cp_error()))		return -EIO;
+//	f2fs_sb_info* sbi = F2FS_I_SB(this);
+	if (unlikely(m_sbi->f2fs_cp_error()))		return -EIO;
 
-	if (!(S_ISREG(inode->i_mode) || S_ISDIR(inode->i_mode) || S_ISLNK(inode->i_mode)))
+	if (!(S_ISREG(i_mode) || S_ISDIR(i_mode) || S_ISLNK(i_mode)))
 		return 0;
 
-//	trace_f2fs_truncate(inode);
+//	trace_f2fs_truncate(this);
 
-	if (time_to_inject(sbi, FAULT_TRUNCATE)) 
+	if (time_to_inject(m_sbi, FAULT_TRUNCATE)) 
 	{
-		f2fs_show_injection_info(sbi, FAULT_TRUNCATE);
+		f2fs_show_injection_info(m_sbi, FAULT_TRUNCATE);
 		return -EIO;
 	}
 
-	err = dquot_initialize(inode);
+	err = dquot_initialize(this);
 	if (err)	return err;
 
 	/* we should check inline_data size */
-	if (!f2fs_may_inline_data(inode))
+	if (!f2fs_may_inline_data(this))
 	{
-		err = inode->f2fs_convert_inline_inode();
+		err = f2fs_convert_inline_inode();
 		if (err)	return err;
 	}
 
-	err = f2fs_truncate_blocks(inode, i_size_read(inode), true);
-	if (err)
-		return err;
+	err = f2fs_truncate_blocks(i_size_read(this), true);
+	if (err) return err;
 
-	inode->i_mtime = inode->i_ctime = current_time(inode);
-	inode->f2fs_mark_inode_dirty_sync( false);
+	i_mtime = i_ctime = current_time(this);
+	f2fs_mark_inode_dirty_sync(false);
 	return 0;
 }
 
@@ -907,21 +904,26 @@ int f2fs_inode_info::setattr(user_namespace* mnt_userns, dentry* ddentry, iattr*
 	{
 		loff_t old_size = i_size_read(this);
 		if (attr->ia_size > MAX_INLINE_DATA(this)) 
-		{
-			/* should convert inline inode before i_size_write to keep smaller than inline_data size with inline flag. */
+		{/* should convert inline inode before i_size_write to keep smaller than inline_data size with inline flag. */
 			err = f2fs_convert_inline_inode();
 			if (err)		return err;
 		}
 
+		
 		down_write(&i_gc_rwsem[WRITE]);
 		down_write(&i_mmap_sem);
+//		lock();
 
 		truncate_setsize(this, attr->ia_size);
-
-		if (attr->ia_size <= old_size)			err = f2fs_truncate(this);
+		if (attr->ia_size <= old_size)			err = f2fs_truncate();
 		/* do not trim all blocks after i_size if target size is larger than i_size. */
+
+//		unlock();
+
 		up_write(&i_mmap_sem);
 		up_write(&i_gc_rwsem[WRITE]);
+
+
 		if (err)		return err;
 
 		spin_lock(&i_size_lock);
@@ -1089,8 +1091,7 @@ int Cf2fsFileNode::punch_hole(loff_t offset, loff_t len)
 	return ret;
 }
 
-static int __read_out_blkaddrs(struct inode *inode, block_t *blkaddr,
-				int *do_replace, pgoff_t off, pgoff_t len)
+static int __read_out_blkaddrs(f2fs_inode_info *inode, block_t *blkaddr, int *do_replace, pgoff_t off, pgoff_t len)
 {
 	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
 	struct dnode_of_data dn;
@@ -1104,15 +1105,13 @@ next_dnode:
 	} else if (ret == -ENOENT) {
 		if (dn.max_level == 0)
 			return -ENOENT;
-		done = min((pgoff_t)ADDRS_PER_BLOCK(inode) -
-						dn.ofs_in_node, len);
+		done = min((pgoff_t)ADDRS_PER_BLOCK(inode) - dn.ofs_in_node, len);
 		blkaddr += done;
 		do_replace += done;
 		goto next;
 	}
 
-	done = min((pgoff_t)ADDRS_PER_PAGE(dn.node_page, inode) -
-							dn.ofs_in_node, len);
+	done = min((pgoff_t)ADDRS_PER_PAGE(dn.node_page, inode) - dn.ofs_in_node, len);
 	for (i = 0; i < done; i++, blkaddr++, do_replace++, dn.ofs_in_node++) {
 		*blkaddr = f2fs_data_blkaddr(&dn);
 
@@ -1549,7 +1548,7 @@ int Cf2fsFileNode::f2fs_insert_range(loff_t offset, loff_t len)
 	m_sbi->f2fs_balance_fs( true);
 
 	down_write(&i_mmap_sem);
-	ret = f2fs_truncate_blocks(this, i_size_read(this), true);
+	ret = f2fs_truncate_blocks(i_size_read(this), true);
 	up_write(&i_mmap_sem);
 	if (ret)
 		return ret;
@@ -1637,7 +1636,7 @@ int Cf2fsFileNode::expand_inode_data(loff_t offset,	loff_t len, int mode)
 
 		map.m_len = sec_blks;
 next_alloc:
-		if (has_not_enough_free_secs(sbi, 0, GET_SEC_FROM_SEG(sbi,sbi->overprovision_segments())))
+		if (sbi->has_not_enough_free_secs(0, GET_SEC_FROM_SEG(sbi,sbi->overprovision_segments())))
 		{
 			down_write(&sbi->gc_lock);
 			err = f2fs_gc(sbi, true, false, false, NULL_SEGNO);
@@ -2579,7 +2578,7 @@ static int f2fs_defragment_range(struct f2fs_sb_info *sbi,
 	 * avoid defragment running in SSR mode when free section are allocated
 	 * intensively
 	 */
-	if (has_not_enough_free_secs(sbi, 0, sec_num)) {
+	if (sbi->has_not_enough_free_secs( 0, sec_num)) {
 		err = -EAGAIN;
 		goto out;
 	}
@@ -4292,7 +4291,7 @@ write:
 		{
 			down_write(&i_gc_rwsem[WRITE]);
 			down_write(&i_mmap_sem);
-			f2fs_truncate(this);
+			f2fs_truncate();
 			up_write(&i_mmap_sem);
 			up_write(&i_gc_rwsem[WRITE]);
 		}

@@ -27,5 +27,6 @@
 
 #include "include/xarray.h"
 #include "include/bio.h"
+#include "include/page-manager.h"
 
 #pragma comment (lib, "linux-fs-wrapper.lib")

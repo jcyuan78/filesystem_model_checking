@@ -32,11 +32,19 @@ class CF2fsFileSystem;
 struct f2fs_nm_info;
 struct seg_entry;
 
+struct MOUNT_OPTION
+{
+	size_t m_page_cache_num;		// page cache大小，以page数单位，必须是16的倍数
+	size_t m_dentry_cache_num;		// dentry cache的数量
+
+};
+
+
 
 struct f2fs_sb_info : public super_block
 {
 public:
-	f2fs_sb_info(CF2fsFileSystem * fs, file_system_type * type);
+	f2fs_sb_info(CF2fsFileSystem * fs, file_system_type * type, const MOUNT_OPTION & opt);
 	virtual ~f2fs_sb_info(void);
 
 // 
@@ -73,7 +81,7 @@ public:
 //	virtual void	destroy_inode(inode*) {}
 	virtual void	free_inode(inode*);
 
-	virtual void	dirty_inode(inode*, int flags);
+	virtual void	dirty_inode(inode *, int flags);
 	virtual int		write_inode(inode* iinode, writeback_control* wbc)
 	{
 		f2fs_inode_info* fi = F2FS_I(iinode);
@@ -107,69 +115,69 @@ public:
 
 public:
 
-//	super_block* sb;						/* pointer to VFS super block */
 	struct proc_dir_entry* s_proc = NULL;			/* proc entry */
-	f2fs_super_block* raw_super = NULL;		/* raw super block pointer */
-	rw_semaphore  sb_lock;		/* lock for raw super block */
-	int valid_super_block = 0;					/* valid super block no */
-	unsigned long s_flag = 0;					/* flags for sbi */
-	mutex writepages = 0;			/* mutex for writepages() */
+	f2fs_super_block* raw_super = NULL;				/* raw super block pointer */
+	rw_semaphore  sb_lock;							/* lock for raw super block */
+	int valid_super_block = 0;						/* valid super block no */
+	unsigned long s_flag = 0;						/* flags for sbi */
+	mutex writepages = 0;							/* mutex for writepages() */
 
 #ifdef CONFIG_BLK_DEV_ZONED
-	unsigned int blocks_per_blkz;		/* F2FS blocks per zone */
-	unsigned int log_blocks_per_blkz;	/* log2 F2FS blocks per zone */
+	unsigned int blocks_per_blkz;					/* F2FS blocks per zone */
+	unsigned int log_blocks_per_blkz;				/* log2 F2FS blocks per zone */
 #endif
 
 	/* for node-related operations */
-	f2fs_nm_info* nm_info;		/* node manager */
-	inode* node_inode = NULL;			/* cache node blocks */
+	f2fs_nm_info* nm_info;							/* node manager */
+	inode* node_inode = NULL;						/* cache node blocks */
 
 	/* for segment-related operations */
-	f2fs_sm_info* sm_info = NULL;		/* segment manager */
+	f2fs_sm_info* sm_info = NULL;					/* segment manager */
 
 	/* for bio operations */
-	f2fs_bio_info* write_io[NR_PAGE_TYPE];	/* for write bios */
+	f2fs_bio_info* write_io[NR_PAGE_TYPE];			/* for write bios */
 	/* keep migration IO order for LFS mode */
 	rw_semaphore  io_order_lock;
 #if 0	//<TODO>
-	mempool_t* write_io_dummy = NULL;		/* Dummy pages */
+	mempool_t* write_io_dummy = NULL;				/* Dummy pages */
 #endif
 	/* for checkpoint */
-	f2fs_checkpoint* ckpt = NULL;		/* raw checkpoint pointer */
-	int cur_cp_pack = 0;			/* remain current cp pack */
-	CRITICAL_SECTION cp_lock;			/* for flag in ckpt */
-	inode* meta_inode = NULL;		/* cache meta blocks */
-	rw_semaphore  cp_global_sem;	/* checkpoint procedure lock */
-	rw_semaphore  cp_rwsem;		/* blocking FS operations */
-	rw_semaphore  node_write;		/* locking node writes */
-	rw_semaphore  node_change;	/* locking node change */
-//	wait_queue_head_t cp_wait;
+	f2fs_checkpoint* ckpt = NULL;					/* raw checkpoint pointer */
+	int cur_cp_pack = 0;							/* remain current cp pack */
+	CRITICAL_SECTION cp_lock;						/* for flag in ckpt */
+	inode* meta_inode = NULL;						/* cache meta blocks */
+	rw_semaphore  cp_global_sem;					/* checkpoint procedure lock */
+protected:
+	rw_semaphore  cp_rwsem;							/* blocking FS operations */
+public:
+	rw_semaphore  node_write;						/* locking node writes */
+	rw_semaphore  node_change;						/* locking node change */
 
 	//<YUAN> 用CPU时钟替换
 	LONGLONG last_time[MAX_TIME];
 	LONGLONG interval_time[MAX_TIME];
 	//	unsigned long last_time[MAX_TIME];	/* to store time in jiffies */
 	//	long interval_time[MAX_TIME];		/* to store thresholds */
-	ckpt_req_control cprc_info;	/* for checkpoint request control */
+	ckpt_req_control cprc_info;						/* for checkpoint request control */
 
-	inode_management im[MAX_INO_ENTRY];	/* manage inode cache */
+	inode_management im[MAX_INO_ENTRY];				/* manage inode cache */
 
-	CRITICAL_SECTION fsync_node_lock;		/* for node entry lock */
-	list_head fsync_node_list;	/* node list head */
-	unsigned int fsync_seg_id =0;		/* sequence id */
-	unsigned int fsync_node_num =0;		/* number of node entries */
+	CRITICAL_SECTION fsync_node_lock;				/* for node entry lock */
+	list_head fsync_node_list;						/* node list head */
+	unsigned int fsync_seg_id =0;					/* sequence id */
+	unsigned int fsync_node_num =0;					/* number of node entries */
 
 	/* for orphan inode, use 0'th array */
-	unsigned int max_orphans =0;		/* max orphan inodes */
+	unsigned int max_orphans =0;					/* max orphan inodes */
 
 	/* for inode management */
-//	list_head inode_list[NR_INODE_TYPE];	/* dirty inode list */
-	spinlock_t inode_lock[NR_INODE_TYPE];	/* for dirty inode list lock */
-	mutex flush_lock = nullptr;		/* for flush exclusion */
+//	list_head inode_list[NR_INODE_TYPE];			/* dirty inode list */
+	spinlock_t inode_lock[NR_INODE_TYPE];			/* for dirty inode list lock */
+	mutex flush_lock = nullptr;						/* for flush exclusion */
 
 	/* for extent tree cache */
-	radix_tree_root extent_tree_root;/* cache extent cache entries */
-	mutex extent_tree_lock = nullptr;	/* locking extent radix tree */
+	radix_tree_root extent_tree_root;				/* cache extent cache entries */
+	mutex extent_tree_lock = nullptr;				/* locking extent radix tree */
 	list_head extent_list;		/* lru list for shrinker */
 	CRITICAL_SECTION extent_lock;			/* locking extent lru list */
 	atomic_t total_ext_tree = 0;		/* extent tree count */
@@ -178,29 +186,29 @@ public:
 	atomic_t total_ext_node = 0;		/* extent info count */
 
 	/* basic filesystem units */
-	unsigned int log_sectors_per_block = 0;	/* log2 sectors per block */
-	unsigned int log_blocksize = 0;		/* log2 block size */
-	unsigned int blocksize = 0;			/* block size */
-	unsigned int root_ino_num = 0;		/* root inode number*/
-	unsigned int node_ino_num = 0;		/* node inode number*/
-	unsigned int meta_ino_num = 0;		/* meta inode number*/
-	unsigned int log_blocks_per_seg = 0;	/* log2 blocks per segment */
-	unsigned int blocks_per_seg = 0;		/* blocks per segment */
-	unsigned int segs_per_sec = 0;		/* segments per section */
-	unsigned int secs_per_zone = 0;		/* sections per zone */
-	unsigned int total_sections = 0;		/* total section count */
-	unsigned int total_node_count = 0;		/* total node block count */
-	unsigned int total_valid_node_count = 0;	/* valid node block count */
-	int dir_level = 0;				/* directory level */
-	int readdir_ra = 0;				/* readahead inode in readdir */
-	UINT64 max_io_bytes = 0;			/* max io bytes to merge IOs */
+	unsigned int log_sectors_per_block = 0;			/* log2 sectors per block */
+	unsigned int log_blocksize = 0;					/* log2 block size */
+	unsigned int blocksize = 0;						/* block size */
+	unsigned int root_ino_num = 0;					/* root inode number*/
+	unsigned int node_ino_num = 0;					/* node inode number*/
+	unsigned int meta_ino_num = 0;					/* meta inode number*/
+	unsigned int log_blocks_per_seg = 0;			/* log2 blocks per segment */
+	unsigned int blocks_per_seg = 0;				/* blocks per segment */
+	unsigned int segs_per_sec = 0;					/* segments per section */
+	unsigned int secs_per_zone = 0;					/* sections per zone */
+	unsigned int total_sections = 0;				/* total section count */
+	unsigned int total_node_count = 0;				/* total node block count */
+	unsigned int total_valid_node_count = 0;		/* valid node block count */
+	int dir_level = 0;								/* directory level */
+	int readdir_ra = 0;								/* readahead inode in readdir */
+	UINT64 max_io_bytes = 0;						/* max io bytes to merge IOs */
 
-	block_t user_block_count = 0;		/* # of user blocks */
-	block_t total_valid_block_count = 0;	/* # of valid blocks */
-	block_t discard_blks = 0;			/* discard command candidats */
-	block_t last_valid_block_count = 0;		/* for recovery */
-	block_t reserved_blocks = 0;		/* configurable reserved blocks */
-	block_t current_reserved_blocks = 0;	/* current reserved blocks */
+	block_t user_block_count = 0;					/* # of user blocks */
+	block_t total_valid_block_count = 0;			/* # of valid blocks */
+	block_t discard_blks = 0;						/* discard command candidats */
+	block_t last_valid_block_count = 0;				/* for recovery */
+	block_t reserved_blocks = 0;					/* configurable reserved blocks */
+	block_t current_reserved_blocks = 0;			/* current reserved blocks */
 
 	/* Additional tracking for no checkpoint mode */
 	block_t unusable_block_count = 0;		/* # of blocks saved by last cp */
@@ -208,9 +216,6 @@ public:
 	unsigned int nquota_files = 0;		/* # of quota sysfile */
 	rw_semaphore  quota_sem;		/* blocking cp for flags */
 
-protected:
-	/* # of pages, see count_type */
-	atomic_t nr_pages[NR_COUNT_TYPE];
 public:
 	/* # of allocated blocks */
 	percpu_counter alloc_valid_block_count;
@@ -248,6 +253,8 @@ public:
 
 	//== lists
 protected:
+	/* # of pages, see count_type */
+	atomic_t nr_pages[NR_COUNT_TYPE];
 	std::list<f2fs_inode_info*> m_inode_list[NR_INODE_TYPE];
 public:
 	void sb_list_add_tail(f2fs_inode_info* iinode, inode_type type)
@@ -270,6 +277,11 @@ public:
 		m_inode_list[type].push_back(iinode);
 	}
 	bool list_empty(inode_type type) const { return m_inode_list[type].empty(); }
+
+protected:
+	CPageManager m_page_manager;
+public:
+	CPageManager* GetPageManager(void) { return &m_page_manager; }
 
 public:
 
@@ -454,7 +466,28 @@ protected:
 	inline void check_seg_range(unsigned int segno);
 	inline void get_sit_bitmap(void* dst_addr);
 
+	inline void __set_free(unsigned int segno);
+	inline void __set_inuse(unsigned int segno);
+	inline void __set_test_and_free(unsigned int segno, bool inmem);
+	inline void __set_test_and_inuse(unsigned int segno);
+
+	friend  void get_new_segment(struct f2fs_sb_info* sbi, unsigned int* newseg, bool new_sec, int dir);
+	friend  void __f2fs_restore_inmem_curseg(struct f2fs_sb_info* sbi, int type);
+	friend  void __f2fs_save_inmem_curseg(f2fs_sb_info* sbi, int type);
+	friend void change_curseg(f2fs_sb_info* sbi, int type, bool flush);
+	friend void set_prefree_as_free_segments(f2fs_sb_info* sbi);
+
+	inline int __f2fs_get_curseg(unsigned int segno);
+	//{
+	//	int i;
+	//	for (i = CURSEG_HOT_DATA; i < NO_CHECK_TYPE; i++) {	if (CURSEG_I(i)->segno == segno)	break;	}
+	//	return i;
+	//}
+
+
 public:
+	inline free_segmap_info* FREE_I(void) {	return (sm_info->free_info); }
+
 	int f2fs_build_segment_manager(void);
 	int f2fs_create_flush_cmd_control(void);
 	DWORD _issue_flush_thread(void);
@@ -464,11 +497,13 @@ public:
 	int f2fs_ra_meta_pages(block_t start, int nrpages, int type, bool sync);
 	int f2fs_npages_for_summary_flush(bool for_ra);
 	//inline block_t written_block_count(void){	return (sm_info->sit_info->written_valid_blocks); }
-	//inline unsigned int free_segments(void) {	return sm_info->free_info->free_segments;	}
 	//inline int overprovision_segments(void)	{	return sm_info->ovp_segments;	}
 	//inline unsigned int prefree_segments(void)	{		return sm_info->dirty_info->nr_dirty[PRE];	}
 	block_t written_block_count(void);
-	unsigned int free_segments(void);
+	unsigned int free_segments(void) const;
+	inline unsigned int free_sections(void) const;
+
+
 	int overprovision_segments(void);
 	unsigned int prefree_segments(void);
 	void f2fs_balance_fs(bool need);
@@ -506,6 +541,11 @@ public:
 	virtual void	dentry_list_lru_del(dentry* dd) { m_dentry_lru.remove(dd); }
 	virtual void	dentry_list_lru_add(dentry* dd)	{	m_dentry_lru.push_back(dd);	}
 	inline seg_entry* get_seg_entry(unsigned int segno);
+	bool has_not_enough_free_secs(int freed, int needed);
+	inline bool has_curseg_enough_space(void);
+
+	void f2fs_do_replace_block(struct f2fs_summary* sum, block_t old_blkaddr, block_t new_blkaddr,
+		bool recover_curseg, bool recover_newaddr, bool from_gc);
 
 
 // ==== data.cpp ====
@@ -572,8 +612,7 @@ public:
 	f2fs_inode_info* f2fs_new_inode(Cf2fsDirInode* dir, umode_t mode, inode_type type);
 	int f2fs_rename(Cf2fsDirInode* old_dir, dentry* old_dentry, Cf2fsDirInode* new_dir, dentry* new_dentry, unsigned int flags);
 	inode* ilookup(nid_t ino) { return m_inodes.ilookup(ino); }
-	inode* find_inode_nowait(unsigned long hashval, int (*match)(struct inode*, unsigned long, void*),
-		void* data)
+	inode* find_inode_nowait(unsigned long hashval, int (*match)(inode*, unsigned long, void*), void* data)
 	{
 		return m_inodes.find_inode_nowait(hashval, match, data);
 	}
@@ -595,16 +634,30 @@ public:
 	inline f2fs_super_block* F2FS_RAW_SUPER(void)	{ return raw_super; }
 	inline f2fs_checkpoint* F2FS_CKPT(void)			{ return ckpt; }
 	inline f2fs_sm_info* SM_I(void)			{ return sm_info; 	}
-	inline unsigned int reserved_segments(void)		{ return sm_info->reserved_segments; }
+	inline unsigned int reserved_segments(void)	const	{ return sm_info->reserved_segments; }
 	inline block_t valid_user_blocks(void)			{ return total_valid_block_count;	}
+
+
 	inline void f2fs_lock_op(void)					{ down_read(&cp_rwsem);	}
 	inline void f2fs_unlock_op(void)				{ up_read(&cp_rwsem);	}
+	inline int f2fs_trylock_op(void) { return down_read_trylock(&cp_rwsem); }
+	inline void f2fs_lock_all(void)					{ down_write(&cp_rwsem);	}
+	inline void f2fs_unlock_all(void)				{ up_write(&cp_rwsem);	}
+	class auto_lock_op {
+	public:
+		auto_lock_op(f2fs_sb_info& sb) : m_sb(sb) {};
+		void lock(void) { m_sb.f2fs_lock_op(); }
+		void unlock(void) { m_sb.f2fs_unlock_op(); }
+	protected:
+		f2fs_sb_info& m_sb;
+	};
+
 	inline int utilization()				
 	{
 		//	return div_u64((u64)valid_user_blocks(sbi) * 100, sbi->user_block_count);
 		return boost::numeric_cast<int>((UINT64)total_valid_block_count *100 / user_block_count);
 	}
-	inline int reserved_sections(void)
+	inline int reserved_sections(void) const
 	{
 		UINT segno = reserved_segments();
 		return (((segno) == -1) ? -1 : (segno) / segs_per_sec);
@@ -671,8 +724,8 @@ public:
 
 // ==== f2fs.h ====
 
-	inline bool is_sbi_flag_set(unsigned int type)	{	return test_bit(type, &s_flag);		}
-	inline void set_sbi_flag(unsigned int type) 	{	set_bit(type, &s_flag);	}
+	inline bool is_sbi_flag_set(unsigned int type)	{	return test_bit(type, s_flag);		}
+	inline void set_sbi_flag(unsigned int type) 	{	set_bit(type, s_flag);	}
 
 	inline int __get_cp_reason(void)
 	{
@@ -700,8 +753,15 @@ public:
 
 	inline bool f2fs_readonly(void) const { return sb_rdonly(this); }
 
-	inline s64 get_pages(int count_type)	{	return atomic_read(&nr_pages[count_type]);	}
+	inline s64 get_pages(int count_type)	const {	return atomic_read(&const_cast<f2fs_sb_info*>(this)->nr_pages[count_type]);	}
 	inline void inc_page_count(int count_type);
 	inline void dec_page_count(int count_type);
+
+	inline int get_blocktype_secs(int block_type) const
+	{
+		unsigned int pages_per_sec = segs_per_sec * blocks_per_seg;
+		unsigned int segs = boost::numeric_cast<UINT>((get_pages(block_type) + pages_per_sec - 1) >> log_blocks_per_seg);
+		return segs / segs_per_sec;
+	}
 };
 

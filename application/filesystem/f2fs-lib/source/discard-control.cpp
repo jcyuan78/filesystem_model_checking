@@ -58,6 +58,7 @@ static void f2fs_submit_discard_endio(struct bio* bio)
 		complete_all(&dc->wait);
 	}
 	spin_unlock_irqrestore(&dc->lock, flags);
+	F_LOG_DEBUG(L"bio", L"bio=%p, call bio_put", bio);
 	bio_put(bio);
 }
 

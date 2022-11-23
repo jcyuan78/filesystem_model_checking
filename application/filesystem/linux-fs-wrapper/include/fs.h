@@ -1507,13 +1507,19 @@ struct super_block
 
 public:
 	virtual inode* alloc_inode(super_block* sb) { return NULL; }
-	virtual void	destroy_inode(inode*) {}
-	virtual void	free_inode(inode*) {}
+	virtual void	destroy_inode(inode*) {}		// default 不做处理
+	virtual void	free_inode(inode*) {}			// default 不做处理
 
 	virtual void	dirty_inode(inode*, int flags) = 0;
 	virtual int		write_inode(inode*, writeback_control* wbc) = 0;
 	virtual int		drop_inode(struct inode*) = 0;
-	virtual void	evict_inode(struct inode*) {};
+	virtual void	evict_inode(inode* iinode)
+	{
+#if 0
+		truncate_inode_pages_final(iinode->get_mapping());
+		clear_inode(iinode);
+#endif
+	}
 	virtual void	put_super(void) {};
 	virtual int		sync_fs(int wait) { return 0; };
 	virtual int		freeze_super(struct super_block*) { return 0; };
@@ -3833,7 +3839,7 @@ extern void wait_for_stable_page(struct page* page);
 
 inline void flush_dcache_page(page* pp)
 {
-	clear_bit(PG_arch_1, &pp->flags);
+	clear_bit(PG_arch_1, pp->flags);
 }
 
 extern struct page* grab_cache_page_write_begin(address_space* mapping, pgoff_t index, unsigned flags);

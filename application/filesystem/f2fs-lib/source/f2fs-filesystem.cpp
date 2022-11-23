@@ -123,7 +123,7 @@ bool CF2fsFileSystem::Mount(IVirtualDisk* dev)
 	fs_type->name = fs_name;
 	fs_type->fs_flags = FS_REQUIRES_DEV;
 	
-	m_sb_info = new f2fs_sb_info(this, fs_type);
+	m_sb_info = new f2fs_sb_info(this, fs_type, m_mount_opt);
 	ConnectToDevice(dev);
 
 	int err = m_sb_info->f2fs_fill_super(L"", 0);
@@ -156,7 +156,6 @@ bool CF2fsFileSystem::MakeFileSystem(IVirtualDisk* dev, UINT32 volume_size, cons
 #endif
 	LOG_STACK_TRACE();
 	bool br = true;
-//	struct f2fs_configuration config;
 	f2fs_init_configuration(m_config);
 	f2fs_parse_operation(volume_name, options);
 
@@ -164,7 +163,10 @@ bool CF2fsFileSystem::MakeFileSystem(IVirtualDisk* dev, UINT32 volume_size, cons
 	fs_type->name = fs_name;
 	fs_type->fs_flags = FS_REQUIRES_DEV;
 
-	m_sb_info = new f2fs_sb_info(this, fs_type);
+	m_mount_opt.m_dentry_cache_num = 128;
+	m_mount_opt.m_page_cache_num = 1024;
+
+	m_sb_info = new f2fs_sb_info(this, fs_type, m_mount_opt);
 
 	ConnectToDevice(dev);
 	f2fs_get_device_info(m_config);
@@ -185,10 +187,13 @@ bool CF2fsFileSystem::MakeFileSystem(IVirtualDisk* dev, UINT32 volume_size, cons
 bool CF2fsFileSystem::DokanGetDiskSpace(ULONGLONG& free_bytes, ULONGLONG& total_bytes, ULONGLONG& total_free_bytes)
 {
 	UINT64 block_count = le64_to_cpu(m_sb_info->raw_super->block_count);
-	UINT32 block_size = le32_to_cpu(m_sb_info->raw_super->log_blocksize);
+//	UINT32 log_block_size = le32_to_cpu(m_sb_info->raw_super->log_blocksize);
+	LOG_DEBUG(L"total blk=%d, user blk=%d, total valid blk=%d, discard blk=%d, last valid blk=%d",
+		block_count, m_sb_info->user_block_count, m_sb_info->total_valid_block_count,
+		m_sb_info->discard_blks, m_sb_info->last_valid_block_count);
 
-	total_bytes = block_count * block_size;
-	free_bytes = total_bytes - total_bytes / 10;	//(90% 总容量)
+	total_bytes = ((block_count) << (m_sb_info->log_blocksize));
+	free_bytes = ((m_sb_info->user_block_count - m_sb_info->total_valid_block_count) << (m_sb_info->log_blocksize));
 	total_free_bytes = free_bytes;
 
 	return true;
@@ -299,6 +304,7 @@ NTSTATUS CF2fsFileSystem::DokanCreateFile(IFileInfo*& file, const std::wstring& 
 	}
 
 	br = parent_dir->OpenChild(_file, str_fn.c_str(), file_mode);
+	//if (attr & FILE_FLAG_DELETE_ON_CLOSE) _file->Set
 //	if (isdir && !_file->IsDirectory()) return STATUS_NOT_A_DIRECTORY;
 	switch (disp)
 	{
@@ -393,10 +399,13 @@ NTSTATUS CF2fsFileSystem::DokanDeleteFile(const std::wstring& full_path, IFileIn
 //		f2fs_file = dynamic_cast<CF2fsFile*>(file);		JCASSERT(f2fs_file);
 //		f2fs_file->AddRef();
 //	}
+
 	CF2fsFile* ff = dynamic_cast<CF2fsFile*>(file);
-//	LOG_DEBUG(L"[fs_op] Delete, %s, path=%s", file->IsDirectory() ? L"Dir" : L"File", full_path.c_str());
+	JCASSERT(ff);
 	LOG_DEBUG(L"dentry=%p, inode=%p, fn=%S, ino=%d", ff->m_dentry, ff->m_inode, ff->m_dentry->d_name.name.c_str(), ff->m_inode->i_ino);
-	if (ff) ff->CloseFile();
+	int err = ff->DeleteThis();
+
+	/*
 	// 打开父节点，
 	jcvos::auto_interface<CF2fsFile> parent_dir;
 	std::wstring fn;
@@ -409,13 +418,12 @@ NTSTATUS CF2fsFileSystem::DokanDeleteFile(const std::wstring& full_path, IFileIn
 
 	// 调用unlink
 	int err = parent_dir->_DeleteChild(fn);
+*/
 	if (err)
 	{
 		LOG_ERROR(L"[err] failed on deleteing file: %s, err=%d", full_path.c_str(), err);
 		if (err == -ENOTEMPTY) return STATUS_DIRECTORY_NOT_EMPTY;
 	}
-
-//	f2fs_file->Release();
 	return STATUS_SUCCESS;
 
 }
@@ -494,6 +502,14 @@ bool CF2fsFileSystem::Sync(void)
 	int err = m_sb_info->sync_fs(true);
 	if (err) LOG_ERROR(L"[err] failed on sync fs, code=%d", err);
 	return err==0;
+}
+
+bool CF2fsFileSystem::ConfigFs(const boost::property_tree::wptree& pt)
+{
+	m_mount_opt.m_page_cache_num = pt.get<size_t>(L"page_cache_num", 1024 * 128);
+	m_mount_opt.m_dentry_cache_num = pt.get<size_t>(L"dentry_cache_num", 128);
+	m_debug_mode = pt.get<int>(L"debug_mode", 0);
+	return true;
 }
 
 bool CF2fsFileSystem::GetRoot(IFileInfo*& root)
@@ -719,6 +735,6 @@ bool CF2fsFactory::CreateVirtualDisk(IVirtualDisk*& dev, const boost::property_t
 bool f2fs_sb_info::f2fs_is_checkpoint_ready(void)
 {
 	if (likely(!is_sbi_flag_set(SBI_CP_DISABLED))) 	return true;
-	if (likely(!has_not_enough_free_secs(this, 0, 0)))		return true;
+	if (likely(!has_not_enough_free_secs(0, 0)))		return true;
 	return false;
 }

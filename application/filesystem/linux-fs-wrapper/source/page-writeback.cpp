@@ -365,22 +365,19 @@ static unsigned long highmem_dirtyable_memory(unsigned long total)
 #endif
 }
 
+#endif
+
 /**
  * global_dirtyable_memory - number of globally dirtyable pages
  *
- * Return: the global number of pages potentially available for dirty
- * page cache.  This is the base value for the global dirty limits.
- */
+ * Return: the global number of pages potentially available for dirty page cache.  This is the base value for the global dirty limits. */
 static unsigned long global_dirtyable_memory(void)
 {
+#if 0		//<TODO>
 	unsigned long x;
 
 	x = global_zone_page_state(NR_FREE_PAGES);
-	/*
-	 * Pages reserved for the kernel should not be considered
-	 * dirtyable, to prevent a situation where reclaim has to
-	 * clean pages in order to balance the zones.
-	 */
+	/* Pages reserved for the kernel should not be considered dirtyable, to prevent a situation where reclaim has to clean pages in order to balance the zones.	 */
 	x -= min(x, totalreserve_pages);
 
 	x += global_node_page_state(NR_INACTIVE_FILE);
@@ -390,7 +387,13 @@ static unsigned long global_dirtyable_memory(void)
 		x -= highmem_dirtyable_memory(x);
 
 	return x + 1;	/* Ensure that we never return 0 */
+#else
+	JCASSERT(0);
+	return 0;
+#endif
 }
+
+#if 0
 
 /**
  * domain_dirty_limits - calculate thresh and bg_thresh for a wb_domain
@@ -1551,9 +1554,7 @@ static inline void wb_dirty_limits(struct dirty_throttle_control *dtc)
 #endif //<TODO>
 
 /*
- * balance_dirty_pages() must be called by processes which are generating dirty data.  It looks at the number of
- dirty pages in the machine and will force the caller to wait once crossing the (background_thresh + dirty_thresh) / 2.
- If we're over `background_thresh' then the writeback threads are woken to perform some writeout. */
+ * balance_dirty_pages() must be called by processes which are generating dirty data.  It looks at the number of dirty pages in the machine and will force the caller to wait once crossing the (background_thresh + dirty_thresh) / 2. If we're over `background_thresh' then the writeback threads are woken to perform some writeout. */
 static void balance_dirty_pages(bdi_writeback *wb, unsigned long pages_dirtied)
 {
 #if 0
@@ -1592,7 +1593,8 @@ static void balance_dirty_pages(bdi_writeback *wb, unsigned long pages_dirtied)
 
 		domain_dirty_limits(gdtc);
 
-		if (unlikely(strictlimit)) {
+		if (unlikely(strictlimit)) 
+		{
 			wb_dirty_limits(gdtc);
 
 			dirty = gdtc->wb_dirty;
@@ -1627,18 +1629,9 @@ static void balance_dirty_pages(bdi_writeback *wb, unsigned long pages_dirtied)
 			}
 		}
 
-		/*
-		 * Throttle it only when the background writeback cannot
-		 * catch-up. This avoids (excessively) small writeouts
-		 * when the wb limits are ramping up in case of !strictlimit.
-		 *
-		 * In strictlimit case make decision based on the wb counters
-		 * and limits. Small writeouts when the wb limits are ramping
-		 * up are the price we consciously pay for strictlimit-ing.
-		 *
-		 * If memcg domain is in effect, @dirty should be under
-		 * both global and memcg freerun ceilings.
-		 */
+		/* Throttle it only when the background writeback cannot catch-up. This avoids (excessively) small writeouts when the wb limits are ramping up in case of !strictlimit.
+		 * In strictlimit case make decision based on the wb counters and limits. Small writeouts when the wb limits are ramping up are the price we consciously pay for strictlimit-ing.
+		 * If memcg domain is in effect, @dirty should be under both global and memcg freerun ceilings.	 */
 		if (dirty <= dirty_freerun_ceiling(thresh, bg_thresh) &&
 		    (!mdtc ||
 		     m_dirty <= dirty_freerun_ceiling(m_thresh, m_bg_thresh))) {
@@ -1725,13 +1718,7 @@ free_running:
 		pause = period;
 		if (current->dirty_paused_when)
 			pause -= now - current->dirty_paused_when;
-		/*
-		 * For less than 1s think time (ext3/4 may block the dirtier
-		 * for up to 800ms from time to time on 1-HDD; so does xfs,
-		 * however at much less frequency), try to compensate it in
-		 * future periods by updating the virtual time; otherwise just
-		 * do a reset, as it may be a light dirtier.
-		 */
+		/* For less than 1s think time (ext3/4 may block the dirtier for up to 800ms from time to time on 1-HDD; so does xfs, however at much less frequency), try to compensate it in future periods by updating the virtual time; otherwise just do a reset, as it may be a light dirtier.	 */
 		if (pause < min_pause)
 		{
 			//trace_balance_dirty_pages(wb,
@@ -1780,10 +1767,8 @@ pause:
 		/* This is typically equal to (dirty < thresh) and can also keep "1000+ dd on a slow USB stick" under control.*/
 		if (task_ratelimit)	break;
 
-		/* In the case of an unresponsive NFS server and the NFS dirty pages exceeds dirty_thresh, give the other good
-		 wb's a pipe to go through, so that tasks on them still remain responsive.
-		 * In theory 1 page is enough to keep the consumer-producer pipe going: the flusher cleans 1 page => the task
-		 dirties 1 more page. However wb_dirty has accounting errors.  So use the larger and more IO friendly wb_stat_error.*/
+		/* In the case of an unresponsive NFS server and the NFS dirty pages exceeds dirty_thresh, give the other good wb's a pipe to go through, so that tasks on them still remain responsive.
+		 * In theory 1 page is enough to keep the consumer-producer pipe going: the flusher cleans 1 page => the task dirties 1 more page. However wb_dirty has accounting errors.  So use the larger and more IO friendly wb_stat_error.*/
 		if (sdtc->wb_dirty <= wb_stat_error())	break;
 		//if (fatal_signal_pending(current))	break;
 	}
@@ -1792,12 +1777,13 @@ pause:
 
 	if (writeback_in_progress(wb))	return;
 
-	/* In laptop mode, we wait until hitting the higher threshold before starting background writeout, and then write out
-	 all the way down to the lower threshold.  So slow writers cause minimal disk activity.
+	/* In laptop mode, we wait until hitting the higher threshold before starting background writeout, and then write out all the way down to the lower threshold.  So slow writers cause minimal disk activity.
 	 * In normal mode, we start background writeout at the lower background_thresh, to keep the amount of dirty memory low. */
 	if (laptop_mode)	return;
 
 	if (nr_reclaimable > gdtc->bg_thresh)	wb_start_background_writeback(wb);
+#else
+//	JCASSERT(0);
 #endif
 }
 #if 0 //<TODO>
@@ -1825,12 +1811,8 @@ DEFINE_PER_CPU(int, dirty_throttle_leaks) = 0;
 /* balance_dirty_pages_ratelimited - balance dirty memory state
  * @mapping: address_space which was dirtied
  *
- * Processes which are dirtying memory should call in here once for each page which was newly dirtied.  The function
- will periodically check the system's dirty state and will initiate writeback if needed.
- *
- * On really big machines, get_writeback_state is expensive, so try to avoid calling it too often (ratelimiting).
- But once we're over the dirty memory limit we decrease the ratelimiting by a lot, to prevent individual processes
- from overshooting the limit by (ratelimit_pages) each. */
+ * Processes which are dirtying memory should call in here once for each page which was newly dirtied.  The function will periodically check the system's dirty state and will initiate writeback if needed.
+ * On really big machines, get_writeback_state is expensive, so try to avoid calling it too often (ratelimiting). But once we're over the dirty memory limit we decrease the ratelimiting by a lot, to prevent individual processes from overshooting the limit by (ratelimit_pages) each. */
 void balance_dirty_pages_ratelimited(address_space *mapping)
 {
 	struct inode *inode = mapping->host;
@@ -1843,14 +1825,12 @@ void balance_dirty_pages_ratelimited(address_space *mapping)
 
 	if (inode_cgwb_enabled(inode))		wb = wb_get_create_current(bdi, GFP_KERNEL);
 	if (!wb)	wb = &bdi->wb;
-#if 0
+#if 0 //<TODO>
 	ratelimit = current->nr_dirtied_pause;
 	if (wb->dirty_exceeded) 	ratelimit = min(ratelimit, 32 >> (PAGE_SHIFT - 10));
 
 	preempt_disable();
-	/* This prevents one CPU to accumulate too many dirtied pages without calling into balance_dirty_pages(), which
-	can happen when there are 1000+ tasks, all of them start dirtying pages at exactly the same time, hence all 
-	honoured too large initial task->nr_dirtied_pause. */
+	/* This prevents one CPU to accumulate too many dirtied pages without calling into balance_dirty_pages(), which can happen when there are 1000+ tasks, all of them start dirtying pages at exactly the same time, hence all honoured too large initial task->nr_dirtied_pause. */
 	p =  this_cpu_ptr(&bdp_ratelimits);
 	if (unlikely(current->nr_dirtied >= ratelimit))		*p = 0;
 	else if (unlikely(*p >= ratelimit_pages)) 
@@ -1858,8 +1838,7 @@ void balance_dirty_pages_ratelimited(address_space *mapping)
 		*p = 0;
 		ratelimit = 0;
 	}
-	/* Pick up the dirtied pages by the exited tasks. This avoids lots of short-lived tasks (eg. gcc invocations in a
-	kernel build) escaping the dirty throttling and livelock other long-run dirtiers. */
+	/* Pick up the dirtied pages by the exited tasks. This avoids lots of short-lived tasks (eg. gcc invocations in a kernel build) escaping the dirty throttling and livelock other long-run dirtiers. */
 	p = this_cpu_ptr(&dirty_throttle_leaks);
 	if (*p > 0 && current->nr_dirtied < ratelimit) 
 	{
@@ -2471,8 +2450,7 @@ int __set_page_dirty_nobuffers(struct page *page)
 EXPORT_SYMBOL(__set_page_dirty_nobuffers);
 #endif //TODO
 
-/*
- * Call this whenever redirtying a page, to de-account the dirty counters (NR_DIRTIED, WB_DIRTIED, tsk->nr_dirtied), 
+/* Call this whenever redirtying a page, to de-account the dirty counters (NR_DIRTIED, WB_DIRTIED, tsk->nr_dirtied), 
    so that they match the written counters (NR_WRITTEN, WB_WRITTEN) in long term. The mismatches will lead to systematic
    errors in balanced_dirty_ratelimit and the dirty pages position control. */
 void account_page_redirty(struct page *page)
@@ -2481,14 +2459,14 @@ void account_page_redirty(struct page *page)
 
 	if (mapping && mapping_can_writeback(mapping)) 
 	{
-#if 0 //TODO
+#if 1 //TODO
 		struct inode *inode = mapping->host;
 		struct bdi_writeback *wb;
 		struct wb_lock_cookie cookie = {};
 
 		wb = unlocked_inode_to_wb_begin(inode, &cookie);
-		current->nr_dirtied--;
-		dec_node_page_state(page, NR_DIRTIED);
+//		current->nr_dirtied--;
+//		dec_node_page_state(page, NR_DIRTIED);
 		dec_wb_stat(wb, WB_DIRTIED);
 		unlocked_inode_to_wb_end(inode, &cookie);
 #else

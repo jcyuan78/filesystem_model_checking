@@ -30,6 +30,7 @@
 #include "../include/cleancache.h"
 //#include "../include/rmap.h"
 //#include "internal.h"
+LOCAL_LOGGER_ENABLE(L"vfs.truncate", LOGGER_LEVEL_DEBUGINFO);
 
 /* Regular page slots are stabilized by the page lock even without the tree itself locked.  These unlocked entries need verification under the tree lock. */
 static inline void __clear_shadow_entry(address_space *mapping,	pgoff_t index, void *entry)
@@ -55,6 +56,7 @@ static void clear_shadow_entry(struct address_space *mapping, pgoff_t index,
 /* Unconditionally remove exceptional entries. Usually called from truncate path. Note that the pagevec may be altered by this function by removing exceptional entries similar to what pagevec_remove_exceptionals does. */
 static void truncate_exceptional_pvec_entries(address_space *mapping, pagevec *pvec, pgoff_t *indices)
 {
+	LOG_STACK_TRACE();
 	int i, j;
 	bool dax;
 
@@ -200,10 +202,7 @@ static int invalidate_complete_page(address_space *mapping, struct page *page)
 int truncate_inode_page(address_space *mapping, page *ppage)
 {
 //	VM_BUG_ON_PAGE(PageTail(ppage), ppage);
-
-	if (ppage->mapping != mapping)
-		return -EIO;
-
+	if (ppage->mapping != mapping)		return -EIO;
 	truncate_cleanup_page(ppage);
 	delete_from_page_cache(ppage);
 	return 0;
@@ -253,7 +252,7 @@ int invalidate_inode_page(struct page *page)
  * Note that since ->invalidatepage() accepts range to invalidate truncate_inode_pages_range is able to handle cases where lend + 1 is not page aligned properly. */
 void truncate_inode_pages_range(address_space *mapping, loff_t lstart, loff_t lend)
 {
-#if 1 //TODO
+	LOG_STACK_TRACE();
 	pgoff_t		start;		/* inclusive */
 	pgoff_t		end;		/* exclusive */
 	unsigned int	partial_start;	/* inclusive */
@@ -287,8 +286,11 @@ void truncate_inode_pages_range(address_space *mapping, loff_t lstart, loff_t le
 			truncate_cleanup_page(pvec.pages[i]);
 		delete_from_page_cache_batch(mapping, &pvec);
 		for (i = 0; i < pagevec_count(&pvec); i++)
-			unlock_page(pvec.pages[i]);
-		pagevec_release(&pvec);
+			if (pvec.pages[i])		unlock_page(pvec.pages[i]);
+		// pagevec_release()的主要任务是把page从LRU中移除，和delete_from_page_cache_batch()会造成ref减2，以pagevec_init()代替。把page从LRU中移除的工作，放在DeletePage()中实现。
+//		pagevec_release(&pvec);
+		pvec.percpu_pvec_drained = true;
+		pagevec_init(&pvec);
 //		cond_resched();
 	}
 
@@ -337,8 +339,7 @@ void truncate_inode_pages_range(address_space *mapping, loff_t lstart, loff_t le
 		if (!find_get_entries(mapping, index, end - 1, &pvec, indices)) 
 		{
 			/* If all gone from start onwards, we're done */
-			if (index == start)
-				break;
+			if (index == start)		break;
 			/* Otherwise restart to make sure all gone */
 			index = start;
 			continue;
@@ -346,14 +347,10 @@ void truncate_inode_pages_range(address_space *mapping, loff_t lstart, loff_t le
 
 		for (i = 0; i < pagevec_count(&pvec); i++) 
 		{
-			struct page *ppage = pvec.pages[i];
-
+			page *ppage = pvec.pages[i];
 			/* We rely upon deletion not changing ppage->index */
 			index = indices[i];
-
-			if (xa_is_value(ppage))
-				continue;
-
+			if (xa_is_value(ppage))			continue;
 			lock_page(ppage);
 //			WARN_ON(page_to_index(ppage) != index);
 			wait_on_page_writeback(ppage);
@@ -361,15 +358,14 @@ void truncate_inode_pages_range(address_space *mapping, loff_t lstart, loff_t le
 			unlock_page(ppage);
 		}
 		truncate_exceptional_pvec_entries(mapping, &pvec, indices);
-		pagevec_release(&pvec);
+//		pagevec_release(&pvec);
+		pvec.percpu_pvec_drained = true;
+		pagevec_init(&pvec);
+
 		index++;
 	}
-
 out:
 	cleancache_invalidate_inode(mapping);
-#else
-JCASSERT(0)
-#endif //TODO
 }
 //EXPORT_SYMBOL(truncate_inode_pages_range);
 
@@ -381,11 +377,7 @@ JCASSERT(0)
  *
  * Called under (and serialised by) inode->i_mutex.
  *
- * Note: When this function returns, there can be a page in the process of
- * deletion (inside __delete_from_page_cache()) in the specified range.  Thus
- * mapping->nrpages can be non-zero when this function returns even after
- * truncation of the whole mapping.
- */
+ * Note: When this function returns, there can be a page in the process of deletion (inside __delete_from_page_cache()) in the specified range.  Thus mapping->nrpages can be non-zero when this function returns even after truncation of the whole mapping. */
 void truncate_inode_pages(address_space *mapping, loff_t lstart)
 {
 	truncate_inode_pages_range(mapping, lstart, (loff_t)-1);
@@ -660,28 +652,13 @@ EXPORT_SYMBOL_GPL(invalidate_inode_pages2);
  *
  * inode's new i_size must already be written before truncate_pagecache is called.
  *
- * This function should typically be called before the filesystem
- * releases resources associated with the freed range (eg. deallocates
- * blocks). This way, pagecache will always stay logically coherent
- * with on-disk format, and the filesystem would not have to deal with
- * situations such as writepage being called for a page that has already
- * had its underlying blocks deallocated.
- */
+ * This function should typically be called before the filesystem releases resources associated with the freed range (eg. deallocates blocks). This way, pagecache will always stay logically coherent with on-disk format, and the filesystem would not have to deal with situations such as writepage being called for a page that has already had its underlying blocks deallocated. */
 void truncate_pagecache(struct inode *inode, loff_t newsize)
 {
-//	address_space *mapping = inode->i_mapping;
 	address_space* mapping = inode->get_mapping();
 	loff_t holebegin = round_up<loff_t>(newsize, PAGE_SIZE);
 
-	/*
-	 * unmap_mapping_range is called twice, first simply for
-	 * efficiency so that truncate_inode_pages does fewer
-	 * single-page unmaps.  However after this first call, and
-	 * before truncate_inode_pages finishes, it is possible for
-	 * private pages to be COWed, which remain after
-	 * truncate_inode_pages finishes, hence the second
-	 * unmap_mapping_range call must be made for correctness.
-	 */
+	/* unmap_mapping_range is called twice, first simply for efficiency so that truncate_inode_pages does fewer single-page unmaps.  However after this first call, and before truncate_inode_pages finishes, it is possible for private pages to be COWed, which remain after truncate_inode_pages finishes, hence the second unmap_mapping_range call must be made for correctness. */
 	//只有定义CONFIG_MMU的时候才实现unmap_mapping_range()函数
 //	unmap_mapping_range(mapping, holebegin, 0, 1);
 	truncate_inode_pages(mapping, newsize);

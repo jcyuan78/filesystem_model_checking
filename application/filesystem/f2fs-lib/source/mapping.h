@@ -7,7 +7,7 @@
 class Cf2fsMappingBase : public address_space
 {
 public:
-	Cf2fsMappingBase(f2fs_inode_info * inode);
+	Cf2fsMappingBase(f2fs_inode_info * inode, CPageManager * manager);
 public:
 	virtual void invalidate_page(page* page, unsigned int offset, unsigned int length);
 	virtual int release_page(page* page, gfp_t wait);
@@ -27,7 +27,7 @@ public:
 class Cf2fsNodeMapping : public Cf2fsMappingBase
 {
 public:
-	Cf2fsNodeMapping(f2fs_inode_info* inode) : Cf2fsMappingBase(inode) {}
+	Cf2fsNodeMapping(f2fs_inode_info* inode, CPageManager * manager) : Cf2fsMappingBase(inode, manager) {}
 
 public:
 	virtual void invalidate_page(page* page, unsigned int offset, unsigned int length);
@@ -41,7 +41,7 @@ public:
 class Cf2fsMetaMapping : public Cf2fsMappingBase
 {
 public:
-	Cf2fsMetaMapping(f2fs_inode_info* inode) : Cf2fsMappingBase(inode) {}
+	Cf2fsMetaMapping(f2fs_inode_info* inode, CPageManager * manager) : Cf2fsMappingBase(inode, manager) {}
 
 public:
 	virtual void invalidate_page(page* page, unsigned int offset, unsigned int length);
@@ -57,7 +57,7 @@ public:
 class Cf2fsDataMapping : public Cf2fsMappingBase
 {
 public:
-	Cf2fsDataMapping(f2fs_inode_info* inode) : Cf2fsMappingBase(inode) {}
+	Cf2fsDataMapping(f2fs_inode_info* inode, CPageManager * manager) : Cf2fsMappingBase(inode, manager) {}
 
 public:
 	virtual int write_page(page* page, writeback_control* wbc);
@@ -75,6 +75,12 @@ public:
 	virtual sector_t bmap(sector_t block);
 	virtual int swap_activate(swap_info_struct* sis, file* file, sector_t* span);
 	virtual void swap_deactivate(file* file);
+
+protected:
+	int __f2fs_write_data_pages(writeback_control* wbc, enum iostat_type io_type);
+	int f2fs_write_cache_pages(writeback_control* wbc, enum iostat_type io_type);
+
+
 
 	//
 	//const struct address_space_operations f2fs_dblock_aops = {

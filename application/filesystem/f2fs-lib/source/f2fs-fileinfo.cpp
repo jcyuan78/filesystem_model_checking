@@ -37,6 +37,32 @@ void CF2fsFile::Init(dentry* de, inode* node, CF2fsFileSystem* fs, UINT32 mode)
 //	m_dentry->dentry_trace(__FUNCTIONW__, __LINE__);
 }
 
+int CF2fsFile::DeleteThis(void)
+{
+	if (m_inode->is_dir() && !m_inode->f2fs_empty_dir())
+	{
+		LOG_ERROR(L"[err] directory %S is not empty", m_dentry->d_name.name.c_str());
+		return  -ENOTEMPTY;
+	}
+	dentry* parent_entry = m_dentry->get_parent();
+	JCASSERT(parent_entry);
+	f2fs_inode_info* parent_inode = parent_entry->get_inode<f2fs_inode_info>();
+	JCASSERT(parent_inode);
+	int err = parent_inode->unlink(m_dentry);
+	if (err)
+	{
+		LOG_ERROR(L"[err] failed on delete file %S, error=%d", m_dentry->d_name.name.c_str(), err);
+		return err;
+	}
+	d_delete(m_dentry);
+	m_inode = nullptr;
+	// d_delete之后，m_inode对象已经被删除。
+	parent_inode->m_sbi->f2fs_balance_fs(true);
+	dput(m_dentry);
+	m_dentry = nullptr;
+	return 0;
+}
+
 void CF2fsFile::CloseFile(void)
 {
 	LOG_STACK_TRACE();
@@ -44,13 +70,21 @@ void CF2fsFile::CloseFile(void)
 	//JCASSERT(m_inode);
 	if (m_inode && m_dentry)
 	{	// 有可能文件已经被删除
-//		LOG_DEBUG(L"[fs_op] close, %S", m_dentry->d_name.name.c_str());
+		if (m_delete_on_close)
+		{
+			LOG_DEBUG(L"delete on close");
+			DeleteThis();
+			return;
+		}
+		//		LOG_DEBUG(L"[fs_op] close, %S", m_dentry->d_name.name.c_str());
 		m_dentry->dentry_trace(__FUNCTIONW__, __LINE__);
 
+//		m_inode->lock();
 		m_inode->fsync(&m_file, 0, m_inode->i_size, true);
 		m_inode->release_file(&m_file);
+//		m_inode->unlock();
+
 		dput(m_dentry);
-		//LOG_DEBUG(L"[dentry_track] addr=%p, fn=%S, ref=%d, inode=%p - before close file", m_dentry, m_dentry->d_name.name.c_str(), m_dentry->d_lockref.count, m_dentry->d_inode);
 		m_dentry = nullptr;
 		m_inode = nullptr;
 	}
@@ -89,10 +123,27 @@ bool CF2fsFile::DokanReadFile(LPVOID buf, DWORD len, DWORD& read, LONGLONG offse
 bool CF2fsFile::DokanWriteFile(const void* buf, DWORD len, DWORD& written, LONGLONG offset)
 {
 	LOG_STACK_TRACE();
-//	LOG_DEBUG(L"[fs_op] write, %S, offset=%lld, len=%lld", m_dentry->d_name.name.c_str(), offset, len);
 
 	Cf2fsFileNode* file_node = dynamic_cast<Cf2fsFileNode*>(m_inode);
 	if (!file_node) THROW_ERROR(ERR_APP, L"the inode is not a file (%X) or is null", m_inode);
+	written = 0;
+	size_t new_size = offset + len;
+	size_t old_size = m_inode->GetFileSize();
+	if (old_size < new_size)
+	{	// Set new size
+		iattr attr;
+		memset(&attr, 0, sizeof(attr));
+		attr.ia_valid |= ATTR_SIZE;
+		attr.ia_size = new_size;
+
+		int err = m_inode->setattr(nullptr, m_dentry, &attr);
+		if (err)
+		{
+			LOG_ERROR(L"[err] failed on set file size to %zd, err=%d", new_size, err);
+			return false;
+		}
+	}
+
 	iovec iov;
 	iov.iov_base = const_cast<void*>(buf);
 	iov.iov_len = len;
@@ -101,17 +152,11 @@ bool CF2fsFile::DokanWriteFile(const void* buf, DWORD len, DWORD& written, LONGL
 	iov_iter iter;
 	ssize_t ret;
 
-//	file filp(file_node);
-	//filp.f_inode = static_cast<inode*>(file_node);
-
 	init_sync_kiocb(&iob, &m_file);
 	iob.ki_pos = offset;
 	iov_iter_init(&iter, WRITE, &iov, 1, len);
 
-	//	ret = call_read_iter(filp, &iob, &iter);
 	ret = file_node->write_iter(&iob, &iter);
-	//	JCASSERT(ret != -EIOCBQUEUED);
-	//	if (ppos) *ppos = iob.ki_pos;
 	written = (DWORD)ret;
 	return (INT64)ret > 0;
 }

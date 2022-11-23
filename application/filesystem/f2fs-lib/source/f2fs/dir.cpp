@@ -634,7 +634,7 @@ page* f2fs_inode_info::f2fs_init_inode_metadata(inode* dir, const f2fs_filename*
 		/* If link the tmpfile to alias through linkat path, we should remove this inode from orphan list. */
 		if (i_nlink == 0)	f2fs_remove_orphan_inode(F2FS_I_SB(dir), i_ino);
 		f2fs_i_links_write(true);
-		LOG_DEBUG(L"[inode_track] addr=%p, ino=%d, link=%d - inc_link", this, i_ino, i_nlink);
+		F_LOG_DEBUG(L"inode", L" addr=%p, ino=%d, link=%d - inc_link", this, i_ino, i_nlink);
 	}
 	return ppage;
 
@@ -653,7 +653,7 @@ void Cf2fsDirInode::f2fs_update_parent_metadata(f2fs_inode_info *inode, unsigned
 		if (S_ISDIR(inode->i_mode))
 		{
 			f2fs_i_links_write(true);
-			LOG_DEBUG(L"[inode_track] addr=%p, ino=%d, link=%d - inc_link", this, i_ino, i_nlink);
+			F_LOG_DEBUG(L"inode", L" addr=%p, ino=%d, link=%d - inc_link", this, i_ino, i_nlink);
 		}
 		clear_inode_flag(inode, FI_NEW_INODE);
 	}
@@ -912,16 +912,16 @@ void f2fs_drop_nlink(f2fs_inode_info *dir, f2fs_inode_info *iinode)
 	if (S_ISDIR(iinode->i_mode))
 	{
 		dir->f2fs_i_links_write(false);
-		LOG_DEBUG(L"[inode_track] addr=%p, ino=%d, link=%d - dec_link", dir, dir->i_ino, dir->i_nlink);
+		F_LOG_DEBUG(L"inode", L" addr=%p, ino=%d, link=%d - dec_link", dir, dir->i_ino, dir->i_nlink);
 	}
 	iinode->i_ctime = current_time(iinode);
 
 	iinode->f2fs_i_links_write(false);
-	LOG_DEBUG(L"[inode_track] addr=%p, ino=%d, link=%d - dec_link", dir, dir->i_ino, dir->i_nlink);
+	F_LOG_DEBUG(L"inode", L" addr=%p, ino=%d, link=%d - dec_link", dir, dir->i_ino, dir->i_nlink);
 	if (S_ISDIR(iinode->i_mode)) 
 	{
 		iinode->f2fs_i_links_write(false);
-		LOG_DEBUG(L"[inode_track] addr=%p, ino=%d, link=%d - dec_link", dir, dir->i_ino, dir->i_nlink);
+		F_LOG_DEBUG(L"inode", L" addr=%p, ino=%d, link=%d - dec_link", dir, dir->i_ino, dir->i_nlink);
 		iinode->f2fs_i_size_write(0);
 	}
 	up_write(&iinode->i_sem);
@@ -944,7 +944,7 @@ void Cf2fsDirInode::f2fs_delete_entry(f2fs_dir_entry* dentry, page* ppage, f2fs_
 	m_sbi->f2fs_update_time(REQ_TIME);
 
 	if (F2FS_OPTION(m_sbi).fsync_mode == FSYNC_MODE_STRICT)
-		f2fs_add_ino_entry(m_sbi, this->i_ino, TRANS_DIR_INO);
+		f2fs_add_ino_entry(m_sbi, i_ino, TRANS_DIR_INO);
 
 	if (f2fs_has_inline_dentry())
 		return f2fs_delete_inline_entry(dentry, ppage, iinode);
@@ -961,20 +961,21 @@ void Cf2fsDirInode::f2fs_delete_entry(f2fs_dir_entry* dentry, page* ppage, f2fs_
 	bit_pos = find_next_bit_le(dentry_blk->dentry_bitmap, NR_DENTRY_IN_BLOCK, 0);
 	set_page_dirty(ppage);
 
-	if (bit_pos == NR_DENTRY_IN_BLOCK && !this->f2fs_truncate_hole(ppage->index, ppage->index + 1))
+	if (bit_pos == NR_DENTRY_IN_BLOCK && !f2fs_truncate_hole(ppage->index, ppage->index + 1))
 	{
 		f2fs_clear_page_cache_dirty_tag(ppage);
 		clear_page_dirty_for_io(ppage);
 		f2fs_clear_page_private(ppage);
 		ClearPageUptodate(ppage);
 		clear_cold_data(ppage);
+		F_LOG_DEBUG(L"page.dirty", L" dec: inode=%d, page=%d", i_ino, ppage->index);
 		inode_dec_dirty_pages(this);
 		f2fs_remove_dirty_inode(this);
 	}
 	f2fs_put_page(ppage, 1);
 
-	this->i_ctime = this->i_mtime = current_time(this);
-	this->f2fs_mark_inode_dirty_sync(false);
+	i_ctime = i_mtime = current_time(this);
+	f2fs_mark_inode_dirty_sync(false);
 
 	if (iinode)	f2fs_drop_nlink(this, iinode);
 }

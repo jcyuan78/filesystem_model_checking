@@ -125,23 +125,21 @@ EXPORT_SYMBOL(read_cache_pages);
 static void read_pages(readahead_control *rac, list_head *pages, bool skip_page)
 {
 //	const struct address_space_operations *aops = rac->mapping->a_ops;
-	struct page *page;
-	struct blk_plug plug;
+	page *ppage;
+	blk_plug plug;
 
 	if (!readahead_count(rac))		goto out;
 
 	blk_start_plug(&plug);
 
-//	if (aops->readahead) 
 	if (rac->mapping->support_read_ahead())
 	{
-//		aops->readahead(rac);
 		rac->mapping->read_ahead(rac);
 		/* Clean up the remaining pages */
-		while ((page = readahead_page(rac)))
+		while ((ppage = readahead_page(rac)))
 		{
-			unlock_page(page);
-			page->put_page();
+			unlock_page(ppage);
+			ppage->put_page();
 		}
 	}
 //	else if (aops->readpages) 
@@ -157,11 +155,13 @@ static void read_pages(readahead_control *rac, list_head *pages, bool skip_page)
 #else
 		JCASSERT(0);
 #endif
-	} else {
-		while ((page = readahead_page(rac))) 
+	}
+	else
+	{
+		while ((ppage = readahead_page(rac))) 
 		{
-			rac->mapping->read_page(rac->file, page);
-			page->put_page();
+			rac->mapping->read_page(rac->file, ppage);
+			ppage->put_page();
 		}
 	}
 
@@ -182,11 +182,8 @@ out:
  * @nr_to_read: The number of pages to read.
  * @lookahead_size: Where to start the next readahead.
  *
- * This function is for filesystems to call when they want to start readahead beyond a file's stated i_size.  This is
- almost certainly not the function you want to call.  Use page_cache_async_readahead() or page_cache_sync_readahead() 
- instead.
- * Context: File is referenced by caller.  Mutexes may be held by caller.
- * May sleep, but will not reenter filesystem to reclaim memory. */
+ * This function is for filesystems to call when they want to start readahead beyond a file's stated i_size.  This is almost certainly not the function you want to call.  Use page_cache_async_readahead() or page_cache_sync_readahead() instead.
+ * Context: File is referenced by caller.  Mutexes may be held by caller. May sleep, but will not reenter filesystem to reclaim memory. */
 void page_cache_ra_unbounded(readahead_control *ractl, unsigned long nr_to_read, unsigned long lookahead_size)
 {
 	address_space *mapping = ractl->mapping;
@@ -195,54 +192,37 @@ void page_cache_ra_unbounded(readahead_control *ractl, unsigned long nr_to_read,
 	gfp_t gfp_mask = readahead_gfp_mask(mapping);
 	unsigned long i;
 
-	/*
-	 * Partway through the readahead operation, we will have added
-	 * locked pages to the page cache, but will not yet have submitted
-	 * them for I/O.  Adding another page may need to allocate memory,
-	 * which can trigger memory reclaim.  Telling the VM we're in
-	 * the middle of a filesystem operation will cause it to not
-	 * touch file-backed pages, preventing a deadlock.  Most (all?)
-	 * filesystems already specify __GFP_NOFS in their mapping's
-	 * gfp_mask, but let's be explicit here.
-	 */
+	/* Partway through the readahead operation, we will have added locked pages to the page cache, but will not yet have submitted them for I/O.  Adding another page may need to allocate memory, which can trigger memory reclaim.  Telling the VM we're in the middle of a filesystem operation will cause it to not touch file-backed pages, preventing a deadlock.  Most (all?) filesystems already specify __GFP_NOFS in their mapping's gfp_mask, but let's be explicit here.	 */
 	unsigned int nofs = memalloc_nofs_save();
 
-	/*
-	 * Preallocate as many pages as we will need.
-	 */
-	for (i = 0; i < nr_to_read; i++) {
-		struct page *page = xa_load(&mapping->i_pages, index + i);
-
-		if (page && !xa_is_value(page)) {
-			/*
-			 * Page already present?  Kick off the current batch
-			 * of contiguous pages before continuing with the
-			 * next batch.  This page may be the one we would
-			 * have intended to mark as Readahead, but we don't
-			 * have a stable reference to this page, and it's
-			 * not worth getting one just for that.
-			 */
+	/* Preallocate as many pages as we will need. */
+	for (i = 0; i < nr_to_read; i++) 
+	{
+		page *ppage = xa_load(&mapping->i_pages, index + i);
+		if (ppage && !xa_is_value(ppage))
+		{
+			/* Page already present?  Kick off the current batch of contiguous pages before continuing with the next batch.  This page may be the one we would have intended to mark as Readahead, but we don't have a stable reference to this page, and it's not worth getting one just for that.	 */
 			read_pages(ractl, &page_pool, true);
 			i = ractl->_index + ractl->_nr_pages - index - 1;
 			continue;
 		}
 
-		page = __page_cache_alloc(gfp_mask);
-		if (!page) 	break;
+		ppage = __page_cache_alloc(gfp_mask, mapping->GetPageManager());
+		if (!ppage) 	break;
 //		if (mapping->a_ops->readpages) {
 		if (mapping->support_readpages())
 		{
-			page->index = index + i;
-			list_add(&page->lru, &page_pool);
+			ppage->index = index + i;
+			list_add(&ppage->lru, &page_pool);
 		}
-		else if (add_to_page_cache_lru(page, mapping, index + i, gfp_mask) < 0) 
+		else if (add_to_page_cache_lru(ppage, mapping, index + i, gfp_mask) < 0) 
 		{
-			page->put_page();
+			ppage->put_page();
 			read_pages(ractl, &page_pool, true);
 			i = ractl->_index + ractl->_nr_pages - index - 1;
 			continue;
 		}
-		if (i == nr_to_read - lookahead_size) SetPageReadahead(page);
+		if (i == nr_to_read - lookahead_size) SetPageReadahead(ppage);
 		ractl->_nr_pages++;
 	}
 
@@ -253,14 +233,12 @@ void page_cache_ra_unbounded(readahead_control *ractl, unsigned long nr_to_read,
 }
 //EXPORT_SYMBOL_GPL(page_cache_ra_unbounded);
 
-/* do_page_cache_ra() actually reads a chunk of disk.  It allocates the pages first, then submits them for I/O. 
-This avoids the very bad behaviour which would occur if page allocations are causing VM writeback. We really don't 
-want to intermingle reads and writes like that. */
+/* do_page_cache_ra() actually reads a chunk of disk.  It allocates the pages first, then submits them for I/O. This avoids the very bad behaviour which would occur if page allocations are causing VM writeback. We really don't want to intermingle reads and writes like that. */
 void do_page_cache_ra(readahead_control *ractl, unsigned long nr_to_read, unsigned long lookahead_size)
 {
-	struct inode *inode = ractl->mapping->host;
+	inode *iinode = ractl->mapping->host;
 	unsigned long index = readahead_index(ractl);
-	loff_t isize = i_size_read(inode);
+	loff_t isize = i_size_read(iinode);
 	pgoff_t end_index;	/* The last page we want to read */
 
 	if (isize == 0)		return;
@@ -525,21 +503,17 @@ void page_cache_sync_ra(readahead_control *ractl, unsigned long req_count)
 {
 	bool do_forced_ra = ractl->file && (ractl->file->f_mode & FMODE_RANDOM);
 
-	/*
-	 * Even if read-ahead is disabled, issue this request as read-ahead
-	 * as we'll need it to satisfy the requested range. The forced
-	 * read-ahead will do the right thing and limit the read to just the
-	 * requested range, which we'll set to 1 page for this case.
-	 */
-	if (!ractl->ra->ra_pages || blk_cgroup_congested()) {
-		if (!ractl->file)
-			return;
+	/* Even if read-ahead is disabled, issue this request as read-ahead as we'll need it to satisfy the requested range. The forced read-ahead will do the right thing and limit the read to just the requested range, which we'll set to 1 page for this case. */
+	if (!ractl->ra->ra_pages || blk_cgroup_congested()) 
+	{
+		if (!ractl->file) return;
 		req_count = 1;
 		do_forced_ra = true;
 	}
 
 	/* be dumb */
-	if (do_forced_ra) {
+	if (do_forced_ra) 
+	{
 		force_page_cache_ra(ractl, req_count);
 		return;
 	}

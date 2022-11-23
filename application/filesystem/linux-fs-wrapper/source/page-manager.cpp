@@ -5,29 +5,187 @@
 #include "../include/fs.h"
 #include "../include/backing-dev.h"
 #include "../include/pagemap.h"
+#include "../include/page-manager.h"
 
 LOCAL_LOGGER_ENABLE(L"linux.page_manager", LOGGER_LEVEL_DEBUGINFO);
 
 
-//<YUAN> from mm/filemap.c
-/** unlock_page - unlock a locked page
-* @page: the page
-*
-*Unlocks the page and wakes up sleepers in wait_on_page_locked(). Also wakes sleepers in wait_on_page_writeback() because
-  the wakeup mechanism between PageLocked pages and PageWriteback pages is shared. But that's OK - sleepers in
-  wait_on_page_writeback() just go back to sleep.
-*
-*Note that this depends on PG_waiters being the sign bit in the byte that contains PG_locked - thus the BUILD_BUG_ON().
-	That allows us to clear the PG_locked bit and test PG_waiters at the same time fairly portably(architectures that do
-	LL / SC can test any bit, while x86 can test the sign bit).
-*/
-void unlock_page(page* pp)
+CPageManager::CPageManager(size_t cache_size)
 {
-	//	BUILD_BUG_ON(PG_waiters != 7);
-	//	page = compound_head(page);
-	//	VM_BUG_ON_PAGE(!PageLocked(page), page);
-	//	if (clear_bit_unlock_is_negative_byte(PG_locked, &page->flags))		wake_up_page_bit(page, PG_locked);
+	m_cache_nr = cache_size;
+	size_t mem_size = cache_size * PAGE_SIZE;
+	m_cache = new page[cache_size];
+	m_buffer = VirtualAlloc(0, mem_size, MEM_COMMIT, PAGE_READWRITE);
+
+	for (size_t ii = 0; ii < cache_size; ++ii)
+	{
+		m_cache[ii].init(this, (BYTE*)m_buffer + ii * PAGE_SIZE);
+		set_bit(PG_free, m_cache[ii].flags);
+		m_free_list.push_back(m_cache + ii);
+	}
+
+	InitializeCriticalSection(&m_page_wait_lock);
+	InitializeCriticalSection(&m_free_list_lock);
 }
+
+CPageManager::~CPageManager(void)
+{
+#ifdef _DEBUG
+	LOG_ERROR(L"buf_size=%d, active=%d, inactive=%d, free=%d", m_cache_nr, m_active.size(), m_inactive.size(), m_free_list.size());
+	JCASSERT(m_cache_nr == m_free_list.size());
+#endif
+	delete[] m_cache;
+	VirtualFree(m_buffer, m_cache_nr * PAGE_SIZE, MEM_RELEASE);
+	DeleteCriticalSection(&m_page_wait_lock);
+	DeleteCriticalSection(&m_free_list_lock);
+}
+
+page* CPageManager::NewPage(void)
+{
+//	EnterCriticalSection(&m_free_list_lock);
+	if (m_free_list.empty())
+	{
+		LeaveCriticalSection(&m_free_list_lock);
+		THROW_ERROR(ERR_MEM, L"no enough pages");
+	}
+
+	page* pp = nullptr;
+	while (1)	// retry
+	{
+		lock();
+		for (auto it = m_free_list.begin(); it != m_free_list.end(); ++it)
+		{
+			if (!PageLocked(*it)) 
+			{
+				pp = *it;
+				m_free_list.erase(it);
+				break;
+			}
+		}
+		unlock();
+		if (pp) break;
+	}
+
+//	page* pp = m_free_list.front();
+//	m_free_list.pop_front();
+//	clear_bit(PG_free, pp->flags);
+//	LeaveCriticalSection(&m_free_list_lock);
+	// 重新初始化 page
+	pp->reinit();
+	F_LOG_DEBUG(L"page", L" page=%p, index=%lld, ref=%d, flag=%X, lock_th=%04X, new page", pp, pp-m_cache, pp->_refcount, pp->flags, pp->lock_th_id);
+	return pp;
+}
+
+void CPageManager::DeletePage(page* pp)
+{
+	//JCASSERT(!PageLRU(pp));
+	lock();
+	if (PageLRU(pp))
+	{
+		if (PageActive(pp)) m_active.remove(pp);
+		else m_inactive.remove(pp);
+		ClearPageLRU(pp);
+	}
+	m_free_list.push_back(pp);
+	set_bit(PG_free, pp->flags);
+	unlock();
+//	if (PageLocked(pp)) pp->unlock();
+	F_LOG_DEBUG(L"page", L" page=%p, ref=%d, flag=%X, delete page", pp, pp->_refcount, pp->flags);
+}
+
+void CPageManager::cache_add(page* pp)
+{
+	F_LOG_DEBUG(L"page", L" page=%p, ref=%d, add to cache/inactive. flag=0X%x, inactive=%d, active=%d", pp, pp->_refcount, pp->flags, m_inactive.size(), m_active.size());
+	lock();
+	m_inactive.push_back(pp);
+	unlock();
+	SetPageLRU(pp);
+}
+
+void CPageManager::cache_activate_page(page* pp)
+{
+	F_LOG_DEBUG(L"page", L" page=%p, ref=%d, cache to active. flag=0X%x, inactive=%d, active=%d", pp, pp->_refcount, pp->flags, m_inactive.size(), m_active.size());
+
+	// 源代码中，对比cache中的每个page，是否为当前page，是的话，就设置active
+	lock();
+	m_inactive.remove(pp);
+	m_active.push_back(pp);
+	unlock();
+	SetPageActive(pp);
+	SetPageLRU(pp);
+}
+
+void CPageManager::activate_page(page* pp)
+{
+	F_LOG_DEBUG(L"page", L" page=%p, ref=%d, inactive to active. flag=0X%x, inactive=%d, active=%d", pp, pp->_refcount, pp->flags, m_inactive.size(), m_active.size());
+	lock();
+	m_inactive.remove(pp);
+	m_active.push_back(pp);
+	unlock();
+	SetPageActive(pp);
+}
+
+void CPageManager::del_page_from_lru(page* pp)
+{
+	F_LOG_DEBUG(L"page", L" page=%p, ref=%d, del from lru. flag=0X%x, inactive=%d, active=%d", pp, pp->_refcount, pp->flags, m_inactive.size(), m_active.size());
+	lock();
+	if (PageActive(pp)) m_active.remove(pp);
+	else m_inactive.remove(pp);
+//	m_free_list.push_back(pp);
+	unlock();
+}
+
+void page::del(void)
+{
+	m_manager->DeletePage(this);
+}
+
+
+void lru_cache_add(page* pp)
+{
+	pp->m_manager->cache_add(pp);
+}
+
+/* Mark a page as having seen activity.
+ *
+ * inactive,unreferenced	->	inactive,referenced
+ * inactive,referenced		->	active,unreferenced
+ * active,unreferenced		->	active,referenced
+ *
+ * When a newly allocated page is not yet visible, so safe for non-atomic ops, __SetPageReferenced(page) may be substituted for mark_page_accessed(page). */
+ // Linux的LRU管理，将page标记成active。当pg_referenced=0时，将pg_referenced置1。为1是，移入active列表
+ // https://www.cnblogs.com/muahao/p/10109712.html
+void mark_page_accessed(page* pp)
+{
+	//	pp = compound_head(pp);
+	if (!PageReferenced(pp))
+	{
+		SetPageReferenced(pp);
+	}
+	else if (PageUnevictable(pp))
+	{
+		/* Unevictable pages are on the "LRU_UNEVICTABLE" list. But, this list is never rotated or maintained, so
+		   marking an evictable page accessed has no effect.	 */
+	}
+	else if (!PageActive(pp))
+	{
+		/* If the page is on the LRU, queue it for activation via lru_pvecs.activate_page. Otherwise, assume the page
+		   is on a pagevec, mark it active and it'll be moved to the active LRU on the next drain.	 */
+		if (PageLRU(pp))		pp->m_manager->activate_page(pp);
+		else					pp->m_manager->cache_activate_page(pp);
+		ClearPageReferenced(pp);
+#if 0 //<TODO>
+		workingset_activation(pp);	//age管理
+#endif
+	}
+	if (page_is_idle(pp))		clear_page_idle(pp);
+}
+
+void del_page_from_lru_list(page* pp, lruvec* lru)
+{
+	pp->m_manager->del_page_from_lru(pp);
+}
+
 
 
 /* Mark a page as having seen activity.
@@ -176,13 +334,15 @@ page* grab_cache_page(address_space* mapping, pgoff_t index)
 inline int page::put_page_testzero(void)
 {
 //	VM_BUG_ON_PAGE(page_ref_count(page) == 0, page);
-	LOG_DEBUG_(1, L"page=%p, add=%p, type=%s, index=%d, ref=%d", this, virtual_add, m_type.c_str(), index, _refcount);
+	F_LOG_DEBUG(L"page", L" page=%p, ref=%d, type=%s, index=%d", this, _refcount, m_type.c_str(), index);
 	JCASSERT(atomic_read(&_refcount) > 0);
 //	return page_ref_dec_and_test(page);
-	return atomic_dec_and_test(&_refcount);
+	return atomic_dec_and_test(&_refcount)==0;
 }
 
-void page::put_page(void)
+
+
+page* page::put_page(void)
 {
 //	page = compound_head(page);
 	/* For devmap managed pages we need to catch refcount transition from 2 to 1, when refcount reach one it means the page is free and we need to inform the device driver through callback. See include/linux/memremap.h and HMM for details. */
@@ -191,16 +351,15 @@ void page::put_page(void)
 	//	put_devmap_managed_page(page);
 	//	return;
 	//}
-	LOG_DEBUG(L"page=0x%p, add=0x%p, ref=%d, dirty=%d", this, virtual_add, _refcount, PageDirty(this));
-	int ref = put_page_testzero();
-	if (ref == 0)	__put_page();
-	//if (atomic_dec_and_test(&page->_refcount) == 0)
-	//{
-	//	page->mapping->i_pages.erase(page->index);
-	//	delete[] page->virtual_add;
-	//	delete page;
-	//}
-	//__put_page(ppage);
+	F_LOG_DEBUG(L"page", L" page=%p, ref=%d, dirty=%d, flag=%X", this, _refcount, PageDirty(this), flags);
+	// 当count减到0时，返回true
+	if (put_page_testzero())
+	{
+//		__put_page();
+		m_manager->DeletePage(this);
+		return nullptr;
+	}
+	return this;
 }
 
 /* find_get_page - find and get a page reference
@@ -509,46 +668,121 @@ void __pagevec_release(pagevec* pvec)
  * @nr: number of pages
  *
  * Decrement the reference count on all the pages in @pages.  If it fell to zero, remove the page from the LRU and free it.*/
-inline void release_pages(page** pages, int nr)
+//inline void release_pages(page** pages, int nr)
+//{
+//	int i;
+//	LIST_HEAD(pages_to_free);
+//	struct lruvec* lruvec = NULL;
+////	unsigned long flags;
+////	unsigned int lock_batch;
+//
+//	for (i = 0; i < nr; i++)
+//	{
+//		page* ppage = pages[i];
+//		/* Make sure the IRQ-safe lock-holding time does not get excessive with a continuous string of pages from the same lruvec. The lock is held only if lruvec != NULL. */
+//#if 0
+//		//if (lruvec && ++lock_batch == SWAP_CLUSTER_MAX)
+//		//{
+//		//	unlock_page_lruvec_irqrestore(lruvec, flags);
+//		//	lruvec = NULL;
+//		//}
+//
+//		//ppage = compound_head(ppage);
+//		//if (is_huge_zero_page(ppage)) 		continue;
+//
+//		if (is_zone_device_page(ppage))
+//		{
+//			if (lruvec)
+//			{
+//				unlock_page_lruvec_irqrestore(lruvec, flags);
+//				lruvec = NULL;
+//			}
+//			/* ZONE_DEVICE pages that return 'false' from page_is_devmap_managed() do not require special processing, and instead, expect a call to put_page_testzero().	 */
+//			if (page_is_devmap_managed(ppage))
+//			{
+//				put_devmap_managed_page(ppage);
+//				continue;
+//			}
+//			if (put_page_testzero(ppage))	put_dev_pagemap(ppage->pgmap);
+//			continue;
+//		}
+//
+//		if (!put_page_testzero(ppage))		continue;
+//
+//		//if (PageCompound(ppage)) 
+//		//{
+//		//	if (lruvec) 
+//		//	{
+//		//		unlock_page_lruvec_irqrestore(lruvec, flags);
+//		//		lruvec = NULL;
+//		//	}
+//		//	__put_compound_page(ppage);
+//		//	continue;
+//		//}
+//#endif
+//
+//		if (PageLRU(ppage))
+//		{
+//			//struct lruvec* prev_lruvec = lruvec;
+//			//lruvec = relock_page_lruvec_irqsave(ppage, lruvec, &flags);
+//			//if (prev_lruvec != lruvec)	lock_batch = 0;
+//			del_page_from_lru_list(ppage, lruvec);
+//			//			__clear_page_lru_flags(ppage);
+//			ClearPageLRU(ppage);
+//			ClearPageActive(ppage);
+//			ClearPageUnevictable(ppage);
+//		}
+////		__ClearPageWaiters(ppage);
+////		list_add(&ppage->lru, &pages_to_free);
+//	}
+//	//	if (lruvec)		unlock_page_lruvec_irqrestore(lruvec, flags);
+////	mem_cgroup_uncharge_list(&pages_to_free);
+////	free_unref_page_list(&pages_to_free);
+//}
+void release_pages(page** pages, int nr)
 {
+	LOG_STACK_TRACE();
 	int i;
-	LIST_HEAD(pages_to_free);
-	struct lruvec* lruvec = NULL;
-//	unsigned long flags;
-//	unsigned int lock_batch;
+//	LIST_HEAD(pages_to_free);
+	std::list<page*> pages_to_free;
+	lruvec* lruvec = NULL;
+	//unsigned long flags;
+	//unsigned int lock_batch;
 
-	for (i = 0; i < nr; i++)
+	for (i = 0; i < nr; i++) 
 	{
 		page* ppage = pages[i];
+		if (!ppage) continue;
+
 		/* Make sure the IRQ-safe lock-holding time does not get excessive with a continuous string of pages from the same lruvec. The lock is held only if lruvec != NULL. */
-#if 0
-		//if (lruvec && ++lock_batch == SWAP_CLUSTER_MAX)
+		//if (lruvec && ++lock_batch == SWAP_CLUSTER_MAX) 
 		//{
 		//	unlock_page_lruvec_irqrestore(lruvec, flags);
 		//	lruvec = NULL;
 		//}
 
 		//ppage = compound_head(ppage);
-		//if (is_huge_zero_page(ppage)) 		continue;
+		//if (is_huge_zero_page(ppage))		continue;
 
-		if (is_zone_device_page(ppage))
-		{
-			if (lruvec)
-			{
-				unlock_page_lruvec_irqrestore(lruvec, flags);
-				lruvec = NULL;
-			}
-			/* ZONE_DEVICE pages that return 'false' from page_is_devmap_managed() do not require special processing, and instead, expect a call to put_page_testzero().	 */
-			if (page_is_devmap_managed(ppage))
-			{
-				put_devmap_managed_page(ppage);
-				continue;
-			}
-			if (put_page_testzero(ppage))	put_dev_pagemap(ppage->pgmap);
-			continue;
-		}
+		//if (is_zone_device_page(ppage)) 
+		//{
+		//	if (lruvec)
+		//	{
+		//		unlock_page_lruvec_irqrestore(lruvec, flags);
+		//		lruvec = NULL;
+		//	}
+		//	/* ZONE_DEVICE pages that return 'false' from page_is_devmap_managed() do not require special processing, and instead, expect a call to put_page_testzero(). */
+		//	if (page_is_devmap_managed(ppage)) 
+		//	{
+		//		put_devmap_managed_page(ppage);
+		//		continue;
+		//	}
+		//	if (put_page_testzero(ppage))
+		//		put_dev_pagemap(ppage->pgmap);
+		//	continue;
+		//}
 
-		if (!put_page_testzero(ppage))		continue;
+		if (!ppage->put_page_testzero())	continue;
 
 		//if (PageCompound(ppage)) 
 		//{
@@ -560,64 +794,88 @@ inline void release_pages(page** pages, int nr)
 		//	__put_compound_page(ppage);
 		//	continue;
 		//}
-#endif
 
-		if (PageLRU(ppage))
+		if (PageLRU(ppage)) 
 		{
-			//struct lruvec* prev_lruvec = lruvec;
+			//lruvec* prev_lruvec = lruvec;
 			//lruvec = relock_page_lruvec_irqsave(ppage, lruvec, &flags);
-			//if (prev_lruvec != lruvec)	lock_batch = 0;
+			//if (prev_lruvec != lruvec) lock_batch = 0;
+
 			del_page_from_lru_list(ppage, lruvec);
-			//			__clear_page_lru_flags(ppage);
+	//		__clear_page_lru_flags(ppage);
+			JCASSERT(PageLRU(ppage));
 			ClearPageLRU(ppage);
-			ClearPageActive(ppage);
-			ClearPageUnevictable(ppage);
+			if (PageActive(ppage) && PageUnevictable(ppage)) {}
+			else
+			{
+				ClearPageActive(ppage);
+				ClearPageUnevictable(ppage);
+			}
 		}
 //		__ClearPageWaiters(ppage);
+		ClearPageWaiters(ppage);
 //		list_add(&ppage->lru, &pages_to_free);
+		pages_to_free.push_back(ppage);
 	}
-	//	if (lruvec)		unlock_page_lruvec_irqrestore(lruvec, flags);
+	//if (lruvec)	unlock_page_lruvec_irqrestore(lruvec, flags);
+
 //	mem_cgroup_uncharge_list(&pages_to_free);
 //	free_unref_page_list(&pages_to_free);
+	for (auto it = pages_to_free.begin(); it != pages_to_free.end(); ++it)
+	{
+		(*it)->del();
+	}
 }
 
 /* Free a list of 0-order pages */
+#if 0
 void free_unref_page_list(list_head* list)
 {
-#if 0
-	struct page* page, * next;
+	LOG_STACK_TRACE()
+	page* ppage, * next;
 	unsigned long flags, pfn;
 	int batch_count = 0;
+#if 0
 
 	/* Prepare pages for freeing */
-	list_for_each_entry_safe(page, next, list, lru) 
+	list_for_each_entry_safe(page, ppage, next, list, lru) 
 	{
-		pfn = page_to_pfn(page);
-		if (!free_unref_page_prepare(page, pfn))	list_del(&page->lru);
-		set_page_private(page, pfn);
+		pfn = page_to_pfn(ppage);
+		if (!free_unref_page_prepare(ppage, pfn))	list_del(&ppage->lru);
+		set_page_private(ppage, pfn);
 	}
 
 //	local_irq_save(flags);
-	list_for_each_entry_safe(page, next, list, lru)
+	list_for_each_entry_safe(page, ppage, next, list, lru)
 	{
-		unsigned long pfn = page_private(page);
+		unsigned long pfn = page_private(ppage);
 
-		set_page_private(page, 0);
-//		trace_mm_page_free_batched(page);
-		free_unref_page_commit(page, pfn);
+		set_page_private(ppage, 0);
+//		trace_mm_page_free_batched(ppage);
+		free_unref_page_commit(ppage, pfn);
 
 		/* Guard against excessive IRQ disabled times when we get a large list of pages to free. */
-		if (++batch_count == SWAP_CLUSTER_MAX)
-		{
-			local_irq_restore(flags);
-			batch_count = 0;
-			local_irq_save(flags);
-		}
+		//if (++batch_count == SWAP_CLUSTER_MAX)
+		//{
+		//	local_irq_restore(flags);
+		//	batch_count = 0;
+		//	local_irq_save(flags);
+		//}
 	}
 //	local_irq_restore(flags);
+#else
+	list_for_each_entry_safe(page, ppage, next, list, lru) 
+	{
+		//pfn = page_to_pfn(ppage);
+		//if (!free_unref_page_prepare(ppage, pfn))	list_del(&ppage->lru);
+		//set_page_private(ppage, pfn);
+		ppage->del();
+	}
+
+
 #endif
 }
-
+#endif
 /*
  * Return true if this page is mapped into pagetables.
  * For compound page it returns true if any subpage of compound page is mapped.

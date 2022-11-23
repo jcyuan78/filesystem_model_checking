@@ -3,6 +3,9 @@
 #include <dokanfs-lib.h>
 #include "../include/blk_types.h"
 
+LOCAL_LOGGER_ENABLE(L"linuxfs.bio", LOGGER_LEVEL_DEBUGINFO);
+
+
 bio* CBioSet::bio_alloc_bioset(gfp_t gfp_mask, unsigned short nr_iovecs/*, void* bio_set*/)
 {
 	gfp_t saved_gfp = gfp_mask;
@@ -74,6 +77,7 @@ bio* CBioSet::bio_alloc_bioset(gfp_t gfp_mask, unsigned short nr_iovecs/*, void*
 
 void CBioSet::bio_put(bio* bb)
 {
+	F_LOG_DEBUG(L"bio", L"bio=%p, delete bio", bb);
 	if (bb->bi_io_vec != bb->bi_inline_vecs) delete[] (bb->bi_io_vec);
 	delete bb;
 }

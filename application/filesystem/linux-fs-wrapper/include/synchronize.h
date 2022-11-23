@@ -49,14 +49,51 @@ typedef LONG64 atomic64_t;
 #define write_unlock(x)				LeaveCriticalSection(x)
 #define rwlock_init(x)				InitializeCriticalSection(x)
 
+// 由于Critical Section 不会触发死锁警报，退化为spin_lock()
+inline void spin_lock_nested(spinlock_t* ll, int cc) { EnterCriticalSection(ll); }
+
+
 #define seqlock_t			CRITICAL_SECTION
 inline void write_seqlock(seqlock_t* x) { EnterCriticalSection(x); }
 inline void write_sequnlock(seqlock_t* x) { LeaveCriticalSection(x); }
 
 // seqcount_spinlock_t时Linux的顺序锁，对写入保护。
-#define seqcount_spinlock_t	CRITICAL_SECTION
-inline void	raw_write_seqcount_begin(seqcount_spinlock_t* x) { EnterCriticalSection(x); }
-inline void raw_write_seqcount_end(seqcount_spinlock_t* x) { LeaveCriticalSection(x); }
+//#define seqcount_spinlock_t	CRITICAL_SECTION
+struct seqcount_t
+{
+	unsigned sequence;
+};
+
+struct seqcount_spinlock_t
+{
+	seqcount_t seqcount;
+	spinlock_t* lock;
+};
+
+inline void seqcount_spinlock_init(seqcount_spinlock_t* s, spinlock_t* lock)
+{
+	s->seqcount.sequence = 0;
+	s->lock = lock;
+}
+
+
+inline void	raw_write_seqcount_begin(seqcount_spinlock_t* x) { x->seqcount.sequence++; }
+inline void raw_write_seqcount_end(seqcount_spinlock_t* x) { x->seqcount.sequence++; }
+
+inline void write_seqcount_begin_nested(seqcount_spinlock_t* x, int cc) 
+{
+	raw_write_seqcount_begin(x); 
+}
+inline void write_seqcount_begin(seqcount_spinlock_t* x) { write_seqcount_begin_nested(x, 0); }
+inline void write_seqcount_end(seqcount_spinlock_t* x) { raw_write_seqcount_end(x); }
+
+inline void write_seqcount_invalidate(seqcount_spinlock_t* x)
+{
+//	smp_wmb();
+//	kcsan_nestable_atomic_begin();
+	x->seqcount.sequence += 2;
+//	kcsan_nestable_atomic_end();
+}
 
 // == rwlock_t
 #define rwlock_t			CRITICAL_SECTION
@@ -175,9 +212,6 @@ inline void complete_all(HANDLE* c)
 
 
 
-inline void write_seqcount_begin_nested(seqcount_spinlock_t* x, int cc) { raw_write_seqcount_begin(x); }
-inline void write_seqcount_begin(seqcount_spinlock_t* x) { raw_write_seqcount_begin(x); }
-inline void write_seqcount_end(seqcount_spinlock_t* x) { raw_write_seqcount_end(x); }
 
 
 
@@ -216,69 +250,158 @@ protected:
 };
 
 
+#ifdef _DEBUG
 
 struct lockref
 {
+public:
+	lockref(void) { spin_lock_init(&lock); }
+	~lockref(void) { spin_lock_del(&lock); }
+public:
+	inline void lockref_get(void)
+	{
+		spin_lock(&lock);
+		locked = true;
+		count++;
+		spin_unlock(&lock);
+		locked = false;
+	}
+	/* lockref_put_or_lock - decrements count unless count <= 1 before decrement
+	 * @lockref: pointer to lockref structure
+	 * Return: 1 if count updated successfully or 0 if count <= 1 and lock taken */
+	inline int lockref_put_or_lock(void)
+	{
+		spin_lock(&lock);
+		locked = true;
+		if (count <= 1)		return 0;
+		count--;
+		spin_unlock(&lock);
+		locked = false;
+		return 1;
+	}
+
+	/* lockref_put_return - Decrement reference count if possible
+	 * @lockref: pointer to lockref structure
+	 * Decrement the reference count and return the new value. If the lockref was dead or locked, return an error. */
+	inline int lockref_put_return(void)
+	{
+		int old;
+		spin_lock(&lock);
+		locked = true;
+		old = count--;
+		spin_unlock(&lock);
+		locked = false;
+		if (old <= 0) return 1;
+		else return count;
+	}
+public:
+	spinlock_t lock;
+	int count;
+	bool locked = false;
+};
+
+#else
+
+struct lockref
+{
+public:
+	lockref(void) { spin_lock_init(&lock); }
+	~lockref(void) { spin_lock_del(&lock); }
+public:
+	inline void lockref_get(void)
+	{
+		spin_lock(&lock);
+		count++;
+		spin_unlock(&lock);
+	}
+	/* lockref_put_or_lock - decrements count unless count <= 1 before decrement
+	 * @lockref: pointer to lockref structure
+	 * Return: 1 if count updated successfully or 0 if count <= 1 and lock taken */
+	inline int lockref_put_or_lock(void)
+	{
+		spin_lock(&lock);
+		if (count <= 1)		return 0;
+		count--;
+		spin_unlock(&lock);
+		return 1;
+	}
+
+	/* lockref_put_return - Decrement reference count if possible
+	 * @lockref: pointer to lockref structure
+	 * Decrement the reference count and return the new value. If the lockref was dead or locked, return an error. */
+	inline int lockref_put_return(void)
+	{
+		int old;
+		spin_lock(&lock);
+		old = count--;
+		spin_unlock(&lock);
+		if (old <= 0) return 1;
+		else return count;
+	}
+public:
 	spinlock_t lock;
 	int count;
 };
 
-
-inline void spin_lock_nested(spinlock_t* ll, int cc)
-{
-
-}
+#endif
 
 
-inline void lockref_get(lockref* ll)
-{
-	spin_lock(&ll->lock);
-	ll->count++;
-	spin_unlock(&ll->lock);
-}
+
+
+//inline void lockref_get(lockref* ll)
+//{
+//	spin_lock(&ll->lock);
+//	ll->count++;
+//	spin_unlock(&ll->lock);
+//}
+
+inline void lockref_get(lockref* ll) { ll->lockref_get(); }
 
 /* lockref_put_or_lock - decrements count unless count <= 1 before decrement
  * @lockref: pointer to lockref structure
  * Return: 1 if count updated successfully or 0 if count <= 1 and lock taken */
-inline int lockref_put_or_lock(lockref* ll)
-{
-	//CMPXCHG_LOOP( new.count--;
-	//if (old.count <= 1)
-	//	break;
-	//,
-	//	return 1;
-	//);
-
-	spin_lock(&ll->lock);
-	if (ll->count <= 1)		return 0;
-	ll->count--;
-	spin_unlock(&ll->lock);
-	return 1;
-}
+//inline int lockref_put_or_lock(lockref* ll)
+//{
+//	//CMPXCHG_LOOP( new.count--;
+//	//if (old.count <= 1)
+//	//	break;
+//	//,
+//	//	return 1;
+//	//);
+//
+//	spin_lock(&ll->lock);
+//	if (ll->count <= 1)		return 0;
+//	ll->count--;
+//	spin_unlock(&ll->lock);
+//	return 1;
+//}
+inline int lockref_put_or_lock(lockref* ll) { return ll->lockref_put_or_lock(); }
 
 /* lockref_put_return - Decrement reference count if possible
  * @lockref: pointer to lockref structure
  *
  * Decrement the reference count and return the new value.
  * If the lockref was dead or locked, return an error. */
-inline int lockref_put_return(lockref* ll)
-{
-#if 0
-	CMPXCHG_LOOP(
-		new.count--;
-	if (old.count <= 0)
-		return -1;
-	,
-		return new.count;
-	);
-#endif
-	int old;
-	spin_lock(&ll->lock);
-	old = ll->count--;
-	spin_unlock(&ll->lock);
-	if (old <= 0) return 1;
-	else return ll->count;
-}
+//inline int lockref_put_return(lockref* ll)
+//{
+//#if 0
+//	CMPXCHG_LOOP(
+//		new.count--;
+//	if (old.count <= 0)
+//		return -1;
+//	,
+//		return new.count;
+//	);
+//#endif
+//	int old;
+//	spin_lock(&ll->lock);
+//	old = ll->count--;
+//	spin_unlock(&ll->lock);
+//	if (old <= 0) return 1;
+//	else return ll->count;
+//}
+
+inline int lockref_put_return(lockref* ll) { return ll->lockref_put_return(); }
 
 
 // ==== per cpu count ====
@@ -299,8 +422,7 @@ inline s64  percpu_counter_sum_positive(percpu_counter* c) { s64 cc = c->count; 
 inline void percpu_counter_destroy(percpu_counter* c) {}
 
 
-template <class T> 
-class auto_lock
+template <class T> class auto_lock
 {
 public:
 	template <class LOCKER_T>
@@ -309,5 +431,17 @@ public:
 	void keep_lock(void) { m_keep_lock = true; }		// 不要自动unlock
 protected:
 	T m_locker;
+	bool m_keep_lock = false;
+};
+
+// 当类型T含有lock()和unlock()函数时，使用auto_lock_
+template <class T> class auto_lock_
+{
+public:
+	auto_lock_(T& locker) : m_locker(locker) { m_locker.lock(); };
+	~auto_lock_(void) { if (!m_keep_lock) m_locker.unlock(); }
+	void keep_lock(void) { m_keep_lock = true; }		// 不要自动unlock
+protected:
+	T &m_locker;
 	bool m_keep_lock = false;
 };

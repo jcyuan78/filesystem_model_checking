@@ -15,9 +15,7 @@ enum inode_type {
 class f2fs_inode_info : public inode
 {
 public:
-	//f2fs_inode_info(f2fs_sb_info * sbi, address_space * mapping = NULL);
 	f2fs_inode_info(f2fs_sb_info * sbi, UINT32 ino, address_space * mapping = nullptr);
-//	f2fs_inode_info(const f2fs_inode_info & src);
 	virtual ~f2fs_inode_info(void);
 
 public:
@@ -117,16 +115,16 @@ public:
 //	inline void SetMapping(address_space* mapping) { JCASSERT(mapping && !i_mapping); i_mapping = mapping; }
 	inline void get_inline_info(f2fs_inode* ri)
 	{
-		if (ri->i_inline & F2FS_INLINE_XATTR)		set_bit(FI_INLINE_XATTR,  &flags);
-		if (ri->i_inline & F2FS_INLINE_DATA)		set_bit(FI_INLINE_DATA,   &flags);
-		if (ri->i_inline & F2FS_INLINE_DENTRY)		set_bit(FI_INLINE_DENTRY, &flags);
-		if (ri->i_inline & F2FS_DATA_EXIST)			set_bit(FI_DATA_EXIST,    &flags);
-		if (ri->i_inline & F2FS_INLINE_DOTS)		set_bit(FI_INLINE_DOTS,   &flags);
-		if (ri->i_inline & F2FS_EXTRA_ATTR)			set_bit(FI_EXTRA_ATTR,    &flags);
-		if (ri->i_inline & F2FS_PIN_FILE)			set_bit(FI_PIN_FILE,      &flags);
+		if (ri->i_inline & F2FS_INLINE_XATTR)		set_bit(FI_INLINE_XATTR,  flags);
+		if (ri->i_inline & F2FS_INLINE_DATA)		set_bit(FI_INLINE_DATA,   flags);
+		if (ri->i_inline & F2FS_INLINE_DENTRY)		set_bit(FI_INLINE_DENTRY, flags);
+		if (ri->i_inline & F2FS_DATA_EXIST)			set_bit(FI_DATA_EXIST,    flags);
+		if (ri->i_inline & F2FS_INLINE_DOTS)		set_bit(FI_INLINE_DOTS,   flags);
+		if (ri->i_inline & F2FS_EXTRA_ATTR)			set_bit(FI_EXTRA_ATTR,    flags);
+		if (ri->i_inline & F2FS_PIN_FILE)			set_bit(FI_PIN_FILE,      flags);
 	}
 
-	inline int is_inode_flag_set(int flag) const { return test_bit(flag, &flags);	}
+	inline int is_inode_flag_set(int flag) const { return test_bit(flag, flags);	}
 	inline int f2fs_has_inline_dentry(void) const {return is_inode_flag_set(FI_INLINE_DENTRY); }
 	inline int f2fs_has_inline_dots(void) {	return is_inode_flag_set(FI_INLINE_DOTS); }
 	inline void f2fs_i_depth_write(unsigned int depth)
@@ -186,7 +184,7 @@ public:
 	//static inline void set_inode_flag(inode* node, int flag) => 两份都保留
 	inline void set_inode_flag(int flag)
 	{
-		set_bit(flag, &flags);
+		set_bit(flag, flags);
 		__mark_inode_dirty_flag(flag, true);
 	}
 	//inline void f2fs_i_size_write(struct inode* inode, loff_t i_size)
@@ -262,6 +260,9 @@ public:
 	void try_to_fix_pino(void);
 
 	int get_parent_ino(nid_t* pino);
+	int f2fs_truncate(void);
+	int f2fs_truncate_blocks(u64 from, bool lock);
+	int f2fs_do_truncate_blocks(u64 from, bool lock);
 
 
 // ==== node.cpp ====

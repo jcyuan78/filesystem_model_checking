@@ -210,6 +210,7 @@ int CDokanFsBase::LoadFilesystem(IFileSystem*& fs, IVirtualDisk* disk, const std
 
 	br = factory->CreateFileSystem(fs, fs_name);
 	if (!br || !fs) THROW_ERROR(ERR_APP, L"failed on creating file system");
+	br = fs->ConfigFs(config);
 	return 0;
 }
 
@@ -219,25 +220,6 @@ int CDokanFsBase::LoadFilesystemByConfig(IFileSystem*& fs, IVirtualDisk*& disk, 
 	JCASSERT(disk == NULL);
 	//m_op_id = 0;
 	//// 解析config file的路径，将其设置为缺省路径
-	//wchar_t path[MAX_PATH];
-	//wchar_t filename[MAX_PATH];
-	//wchar_t cur_dir[MAX_PATH];
-	//GetCurrentDirectory(MAX_PATH - 1, cur_dir);
-	//GetFullPathName(m_config_file.c_str(), MAX_PATH, path, NULL);
-
-	//wcscpy_s(filename, path);
-	//PathRemoveFileSpec(path);
-	//SetCurrentDirectory(path);
-	//PathStripPath(filename);
-
-	//std::wstring config_path = working_dir + L"\\" + config_fn;
-
-	// load configuration
-	//std::string str_fn;
-	////jcvos::UnicodeToUtf8(str_fn, m_config_file);
-	//jcvos::UnicodeToUtf8(str_fn, config_fn);
-	//boost::property_tree::wptree pt;
-	//boost::property_tree::json_parser::read_json(str_fn, pt);
 
 	int err = 0;
 

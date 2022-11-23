@@ -44,8 +44,8 @@ struct iov_iter {
 	 * Bit 1 is the BVEC_FLAG_NO_REF bit, set if type is a bvec and the caller isn't expecting to drop a page 
 	 reference when done. */
 	unsigned int type;
-	size_t iov_offset;
-	size_t count;			//以字节为单位的data size
+	size_t iov_offset;		// iov->iov_base中，下次数据传续的起始位置
+	size_t count;			// 以字节为单位的data size (剩余还需要读取的大小）
 	union {
 		const struct iovec *iov;
 		const struct kvec *kvec;

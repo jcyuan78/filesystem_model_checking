@@ -354,7 +354,7 @@ static void __drop_largest_extent(extent_tree *et, pgoff_t fofs, unsigned int le
 }
 
 /* return true, if inode page is changed */
-static void __f2fs_init_extent_tree(struct inode *inode, struct page *ipage)
+static void __f2fs_init_extent_tree(f2fs_inode_info *inode, struct page *ipage)
 {
 	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
 	struct f2fs_extent *i_ext = ipage ? &F2FS_INODE(ipage)->i_ext : NULL;
@@ -362,9 +362,10 @@ static void __f2fs_init_extent_tree(struct inode *inode, struct page *ipage)
 	struct extent_node *en;
 	struct extent_info ei;
 
-	if (!f2fs_may_extent_tree(inode)) {
-		/* drop largest extent */
-		if (i_ext && i_ext->len) {
+	if (!f2fs_may_extent_tree(inode)) 
+	{	/* drop largest extent */
+		if (i_ext && i_ext->len) 
+		{
 			f2fs_wait_on_page_writeback(ipage, NODE, true, true);
 			i_ext->len = 0;
 			set_page_dirty(ipage);
@@ -394,7 +395,7 @@ out:
 }
 
 
-void f2fs_init_extent_tree(struct inode *inode, struct page *ipage)
+void f2fs_init_extent_tree(f2fs_inode_info *inode, struct page *ipage)
 {
 	__f2fs_init_extent_tree(inode, ipage);
 	f2fs_inode_info* fi = F2FS_I(inode);
@@ -796,7 +797,7 @@ void f2fs_destroy_extent_tree(struct inode *inode)
 //	trace_f2fs_destroy_extent_tree(inode, node_cnt);
 }
 
-bool f2fs_lookup_extent_cache(struct inode *inode, pgoff_t pgofs, extent_info *ei)
+bool f2fs_lookup_extent_cache(f2fs_inode_info*inode, pgoff_t pgofs, extent_info *ei)
 {
 	if (!f2fs_may_extent_tree(inode))	return false;
 	return f2fs_lookup_extent_tree(inode, pgofs, ei);

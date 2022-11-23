@@ -85,21 +85,21 @@ public:
 	unsigned int nid_cnt[MAX_NID_STATE];	/* the number of free node id */
 	CRITICAL_SECTION nid_list_lock;	/* protect nid lists ops */
 	mutex build_lock;	/* lock for build free nids */
-	unsigned char** free_nid_bitmap;
-	unsigned char* nat_block_bitmap;
-	unsigned short* free_nid_count;	/* free nid count of NAT block */
+	unsigned char** free_nid_bitmap = nullptr;
+	unsigned char* nat_block_bitmap = nullptr;
+	unsigned short* free_nid_count = nullptr;	/* free nid count of NAT block */
 
 	/* for checkpoint */
-	BYTE* nat_bitmap;		/* NAT bitmap pointer */
+	BYTE* nat_bitmap = nullptr;		/* NAT bitmap pointer */
 
-	unsigned int nat_bits_blocks;	/* # of nat bits blocks */
-	unsigned char* nat_bits;	/* NAT bits blocks */
-	unsigned char* full_nat_bits;	/* full NAT pages */
-	unsigned char* empty_nat_bits;	/* empty NAT pages */
+	unsigned int nat_bits_blocks = 0;	/* # of nat bits blocks */
+	unsigned char* nat_bits = nullptr;	/* NAT bits blocks */
+	unsigned char* full_nat_bits = nullptr;	/* full NAT pages */
+	unsigned char* empty_nat_bits =  nullptr;	/* empty NAT pages */
 #ifdef CONFIG_F2FS_CHECK_FS
-	char* nat_bitmap_mir;		/* NAT bitmap mirror */
+	char* nat_bitmap_mir = nullptr;		/* NAT bitmap mirror */
 #endif
-	int bitmap_size;		/* bitmap size */
+	int bitmap_size = 0;		/* bitmap size */
 
 	f2fs_sb_info* m_sbi;
 };

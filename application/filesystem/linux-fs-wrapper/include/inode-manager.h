@@ -87,7 +87,8 @@ public:
 	inode* find_inode_nowait(unsigned long hashval, int (*match)(struct inode*, unsigned long, void*), void* data);
 	void remove_inode_hash(inode* iinode);
 
-
+	void lock(void) { spin_lock(&m_inode_hash_lock); }
+	void unlock(void) { spin_unlock(&m_inode_hash_lock); }
 
 protected:
 	inode* _iget_locked(bool thp_support, UINT ino);
@@ -102,6 +103,7 @@ protected:
 		tmp = tmp ^ ((tmp ^ GOLDEN_RATIO_PRIME) >> i_hash_shift);
 		return tmp & i_hash_mask;
 	}
+	void __wait_on_freeing_inode(inode* iinode);
 
 protected:
 	static const UINT32 i_hash_mask = 255;

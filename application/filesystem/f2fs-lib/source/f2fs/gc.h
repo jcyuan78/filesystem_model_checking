@@ -118,21 +118,15 @@ struct victim_entry {
  */
 
 /*
- * On a Zoned device zone-capacity can be less than zone-size and if
- * zone-capacity is not aligned to f2fs segment size(2MB), then the segment
- * starting just before zone-capacity has some blocks spanning across the
- * zone-capacity, these blocks are not usable.
- * Such spanning segments can be in free list so calculate the sum of usable
- * blocks in currently free segments including normal and spanning segments.
- */
+ * On a Zoned device zone-capacity can be less than zone-size and if zone-capacity is not aligned to f2fs segment size(2MB), then the segment starting just before zone-capacity has some blocks spanning across the zone-capacity, these blocks are not usable. Such spanning segments can be in free list so calculate the sum of usable blocks in currently free segments including normal and spanning segments. */
 static inline block_t free_segs_blk_count_zoned(struct f2fs_sb_info *sbi)
 {
 	block_t free_seg_blks = 0;
-	struct free_segmap_info *free_i = FREE_I(sbi);
+	free_segmap_info *free_i = sbi->FREE_I();
 
 	spin_lock(&free_i->segmap_lock);
 	for (UINT j = 0; j < sbi->MAIN_SEGS(); j++)
-		if (!test_bit(j, free_i->free_segmap))
+		if (!__test_bit(j, free_i->free_segmap))
 			free_seg_blks += f2fs_usable_blks_in_seg(sbi, j);
 	spin_unlock(&free_i->segmap_lock);
 

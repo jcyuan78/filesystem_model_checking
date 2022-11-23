@@ -93,7 +93,7 @@ static inline unsigned long *node_marks(xa_node *node, xa_mark_t mark)
 
 static inline bool node_get_mark(xa_node *node, unsigned int offset, xa_mark_t mark)
 {
-	return test_bit(offset, node_marks(node, mark));
+	return __test_bit(offset, node_marks(node, mark));
 }
 
 /* returns true if the bit was set */

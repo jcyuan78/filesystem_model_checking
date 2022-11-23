@@ -4,6 +4,9 @@
 #include <linux-fs-wrapper.h>
 #include <list>
 
+LOCAL_LOGGER_ENABLE(L"linux.page_lru", LOGGER_LEVEL_DEBUGINFO);
+
+
 class CLRU
 {
 public:
@@ -65,21 +68,21 @@ void CLRU::cache_add(page* pp)
 
 void CLRU::activate_page(page* pp)
 {
+	LOG_DEBUG(L"[lru track] page=%p, inactive to active. flag=0X%x, inactive=%d, active=%d", pp, pp->flags, m_inactive.size(), m_active.size());
 	lock();
 	m_inactive.remove(pp);
 	m_active.push_back(pp);
 	unlock();
 	SetPageActive(pp);
-//	SetPageLRU(pp);
 }
 
 void CLRU::del_page_from_lru(page* pp)
 {
+	LOG_DEBUG(L"[lru track] page=%p, del from lru. flag=0X%x, inactive=%d, active=%d", pp, pp->flags, m_inactive.size(), m_active.size());
 	lock();
 	if (PageActive(pp)) m_active.remove(pp);
 	else m_inactive.remove(pp);
 	unlock();
-
 }
 
 void CLRU::cache_activate_page(page* pp)

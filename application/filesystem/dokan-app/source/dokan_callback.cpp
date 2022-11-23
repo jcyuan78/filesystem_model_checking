@@ -168,11 +168,6 @@ NTSTATUS DOKAN_CALLBACK dokancb_CreateFile(LPCWSTR fn,                    // Fil
 //	IFileInfo * file = NULL;
 	jcvos::auto_interface<IFileInfo> file;
 	bool dir = option & FILE_DIRECTORY_FILE;
-	//if (dir)
-	//{
-	//	LOG_DEBUG(L"create directory");
-	//	dir = true;
-	//}
 	LOG_DEBUG(L"is directory info=%d, option=%d, %s", info->IsDirectory, dir,
 		user_attribute & FILE_FLAG_DELETE_ON_CLOSE?L"delete":L"-");
 	LOG_DEBUG(L"[fs_op] Create, %s, disp=%s, fn=%s", dir ? L"Dir" : L"File", DispToString(create_disposition), fn);
@@ -191,6 +186,11 @@ NTSTATUS DOKAN_CALLBACK dokancb_CreateFile(LPCWSTR fn,                    // Fil
 			return STATUS_ACCESS_DENIED;
 		}
 #endif
+		if (user_attribute & FILE_FLAG_DELETE_ON_CLOSE)
+		{
+			LOG_DEBUG(L"set delete on close, file=%p", (IFileInfo*)file);
+			file->SetDeleteOnClose(true);
+		}
 		info->IsDirectory = file->IsDirectory();
 		info->Context = reinterpret_cast<ULONG64>((IFileInfo*)file);
 		file->AddRef();
@@ -219,8 +219,8 @@ void DOKAN_CALLBACK dokancb_Cleanup(LPCWSTR fn, // FileName
 void DOKAN_CALLBACK dokancb_CloseFile(LPCWSTR fn, PDOKAN_FILE_INFO info)
 {
 	LOG_STACK_TRACE();
-	LOG_DEBUG(L"[fs_op] Close File, fn=%s", fn);
 	IFileInfo * file = AchieveFileInfo(info);
+	LOG_DEBUG(L"[fs_op] Close File, fn=%s, , file=%p", fn, file);
 //	LOG_DEBUG(L"file=%s, object=0x%p", fn, file);
 	if (!file) return;
 	file->CloseFile();
@@ -636,15 +636,16 @@ NTSTATUS DOKAN_CALLBACK dokancb_FindStreams(LPCWSTR FileName, PFillFindStreamDat
 	return STATUS_SUCCESS;
 }
 
-int StartDokan(IFileSystem* fs, const std::wstring & mount)
+void PrepareDokan(IFileSystem* fs, const std::wstring& mount, DOKAN_OPTIONS & opt, DOKAN_OPERATIONS & oper)
 {
-	DOKAN_OPTIONS opt;
 	memset(&opt, 0, sizeof(opt));
 	opt.Version = DOKAN_VERSION;
-//	opt.ThreadCount = 1;	// for debug
-							//opt.Options = DOKAN_OPTION_WRITE_PROTECT | DOKAN_OPTION_DEBUG | DOKAN_OPTION_STDERR;
+	//	opt.ThreadCount = 1;	// for debug
+								//opt.Options = DOKAN_OPTION_WRITE_PROTECT | DOKAN_OPTION_DEBUG | DOKAN_OPTION_STDERR;
 #ifdef _DEBUG
-	opt.Options = fs->GetFileSystemOption() | DOKAN_OPTION_DEBUG | DOKAN_OPTION_STDERR;
+	opt.Options = fs->GetFileSystemOption() /*| DOKAN_OPTION_DEBUG | DOKAN_OPTION_STDERR*/;
+	int debug_mode = fs->GetDebugMode();
+	if (debug_mode) opt.Options |= (DOKAN_OPTION_DEBUG | DOKAN_OPTION_STDERR);
 #else
 	opt.Options = fs->GetFileSystemOption();
 #endif
@@ -654,7 +655,6 @@ int StartDokan(IFileSystem* fs, const std::wstring & mount)
 	opt.UNCName = L"";
 	opt.Timeout = 10000000;
 
-	DOKAN_OPERATIONS oper;
 	memset(&oper, 0, sizeof(oper));
 	oper.ZwCreateFile = dokancb_CreateFile;
 	oper.Cleanup = dokancb_Cleanup;
@@ -682,26 +682,18 @@ int StartDokan(IFileSystem* fs, const std::wstring & mount)
 	oper.SetFileSecurityW = dokancb_SetFileSecurity;
 	oper.FindStreams = dokancb_FindStreams;
 
-	//DOKAN_HANDLE hh;
+
+}
+
+int StartDokan(IFileSystem* fs, const std::wstring & mount)
+{
+	DOKAN_OPTIONS opt;
+	DOKAN_OPERATIONS oper;
+	PrepareDokan(fs, mount, opt, oper);
+
 	DokanInit();
-	//int err = DokanCreateFileSystem(&opt, &oper, &hh);
-	//if (err)
-	//{
-	//	LOG_ERROR(L"failed on creating dokan file system, err=%d", err);
-	//	return err;
-	//}
-	//DokanWaitForFileSystemClosed(hh, 100000000);
-
-
 	int ir = 0;
-	//try {
 	ir = DokanMain(&opt, &oper);
-	//}
-	//catch (...)
-	//{
-	//	LOG_ERROR(L"[err] failed on start dokan");
-	//}
-
 	LOG_NOTICE(L"DokanMain returns %d", ir);
 	fs->Release();
 	return ir;
@@ -710,48 +702,8 @@ int StartDokan(IFileSystem* fs, const std::wstring & mount)
 int StartDokanAsync(IFileSystem* fs, const std::wstring& mount)
 {
 	DOKAN_OPTIONS opt;
-	memset(&opt, 0, sizeof(opt));
-	opt.Version = DOKAN_VERSION;
-	//	opt.ThreadCount = 1;	// for debug
-								//opt.Options = DOKAN_OPTION_WRITE_PROTECT | DOKAN_OPTION_DEBUG | DOKAN_OPTION_STDERR;
-#ifdef _DEBUG
-	opt.Options = fs->GetFileSystemOption() | DOKAN_OPTION_DEBUG | DOKAN_OPTION_STDERR;
-#else
-	opt.Options = fs->GetFileSystemOption();
-#endif
-	opt.GlobalContext = (ULONG64)(fs);
-	fs->AddRef();
-	opt.MountPoint = mount.c_str();
-	opt.UNCName = L"";
-	opt.Timeout = 10000000;
-
 	DOKAN_OPERATIONS oper;
-	memset(&oper, 0, sizeof(oper));
-	oper.ZwCreateFile = dokancb_CreateFile;
-	oper.Cleanup = dokancb_Cleanup;
-	oper.CloseFile = dokancb_CloseFile;
-	oper.ReadFile = dokancb_ReadFile;
-	oper.WriteFile = dokancb_WriteFile;
-	oper.FlushFileBuffers = dokancb_FlushFileBuffers;
-	oper.GetFileInformation = dokancb_GetFileInformation;
-	oper.FindFiles = dokancb_FindFiles;
-	oper.FindFilesWithPattern = NULL;
-	oper.SetFileAttributesW = dokancb_SetFileAttributes;
-	oper.SetFileTime = dokancb_SetFileTime;
-	oper.DeleteFile = dokancb_DeleteFile;
-	oper.DeleteDirectory = dokancb_DeleteDirectory;
-	oper.MoveFile = dokancb_MoveFile;
-	oper.SetEndOfFile = dokancb_SetEndOfFile;
-	oper.SetAllocationSize = dokancb_SetAllocationSize;
-	oper.LockFile = dokancb_LockFile;
-	oper.UnlockFile = dokancb_UnlockFile;
-	oper.GetDiskFreeSpace = dokancb_GetDiskFreeSpace;
-	oper.GetVolumeInformation = dokancb_GetVolumeInformation;
-	oper.Mounted = dokancb_Mounted;
-	oper.Unmounted = dokancb_Unmounted;
-	oper.GetFileSecurityW = dokancb_GetFileSecurity;
-	oper.SetFileSecurityW = dokancb_SetFileSecurity;
-	oper.FindStreams = dokancb_FindStreams;
+	PrepareDokan(fs, mount, opt, oper);
 
 	DOKAN_HANDLE hh;
 	DokanInit();

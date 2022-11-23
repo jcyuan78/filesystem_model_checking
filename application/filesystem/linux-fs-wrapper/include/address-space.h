@@ -10,6 +10,7 @@
 #include "list.h"
 //#include "writeback.h"
 #include <map>
+//#include "page-manager.h"
 
 struct page;
 struct inode;
@@ -24,6 +25,7 @@ struct swap_info_struct;
 
 struct writeback_control;
 struct readahead_control;
+class CPageManager;
 
 /**
  * address_space - Contents of a cacheable, mappable object.
@@ -46,13 +48,15 @@ struct readahead_control;
 class address_space
 {
 public:
+	address_space(CPageManager * manager): m_page_manager(manager) {}
+public:
 	virtual int write_page(page* page, writeback_control* wbc) = 0;
 	virtual int write_pages(/*address_space* mapping,*/ writeback_control* wbc) = 0;
 	virtual int set_node_page_dirty(page* page) = 0;
 	// default = block_invalidatepage()
 	virtual void invalidate_page(page* ppage, unsigned int offset, unsigned int length);
 	virtual int release_page(page* page, gfp_t wait) = 0;
-	virtual void freepage(page*) UNSUPPORT_0;
+	virtual void freepage(page*) {}
 	virtual int migrate_page(page* newpage, page* page, enum migrate_mode mode)	UNSUPPORT_1(int);
 	virtual int read_page(file* file, struct page* page) = 0;
 	/* Reads in the requested pages. Unlike ->readpage(), this is PURELY used for read-ahead!. */
@@ -84,6 +88,7 @@ public:
 	int do_writepages(writeback_control* wbc);
 	int __filemap_fdatawrite_range(loff_t start, loff_t end, int sync_mode);
 	int filemap_fdatawrite(void);
+	CPageManager* GetPageManager(void) { return m_page_manager; }
 
 protected:
 	inline int __filemap_fdatawrite(int sync_mode)	{return __filemap_fdatawrite_range(0, LLONG_MAX, sync_mode); }
@@ -109,6 +114,9 @@ public:
 	spinlock_t		private_lock;
 	struct list_head	private_list;
 	void* private_data;
+
+protected:
+	CPageManager* m_page_manager;
 };
 
 

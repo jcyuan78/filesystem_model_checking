@@ -51,11 +51,15 @@ public:
 	virtual bool OpenChild(IFileInfo*& file, const wchar_t* fn, UINT32 mode) const;
 	virtual bool OpenChildEx(IFileInfo*& file, const wchar_t* fn, size_t len);
 	virtual bool CreateChild(IFileInfo*& file, const wchar_t* fn, bool dir, UINT32 mode);
+	// 当Close文件时，删除此文件。判断条件由DokanApp实现。有些应用（Explorer）会通过这个方法删除文件。
+	virtual void SetDeleteOnClose(bool del) { m_delete_on_close = del; }
+
 
 public:
 	friend class CF2fsFileSystem;
 	template <class T> T* GetInode(void) { return dynamic_cast<T*>(m_inode); }
 	dentry* GetDentry(void) { return m_dentry; }
+	int DeleteThis(void);	// 删除此文件
 protected:
 	bool _OpenChildEx(CF2fsFile*& file, const wchar_t* fn, size_t len);
 	//void _DeleteChild(CF2fsFile* child);
@@ -68,11 +72,13 @@ protected:
 	f2fs_inode_info* m_inode;
 	CF2fsFileSystem* m_fs;
 	file m_file;
+	bool m_delete_on_close = false;
 };
 
 typedef UINT64 off64_t;
 
 #define DIR_SEPARATOR	('\\')
+
 
 
 class CF2fsFileSystem : public IFileSystem/*, public CLinuxFsBase*/
@@ -115,6 +121,8 @@ public:
 	virtual bool HardLink(const std::wstring& src, const std::wstring& dst) { JCASSERT(0); return 0; }
 	virtual bool Unlink(const std::wstring& fn) { JCASSERT(0); return 0; }
 	virtual bool Sync(void);
+	virtual bool ConfigFs(const boost::property_tree::wptree& pt);
+	virtual int GetDebugMode(void) const { return m_debug_mode; }
 
 public:
 	virtual bool GetRoot(IFileInfo* &root);
@@ -123,6 +131,11 @@ protected:
 	bool OpenParent(CF2fsFile*& dir, const std::wstring & path, std::wstring &fn);
 	bool _GetRoot(CF2fsFile*& root);
 
+
+protected:
+	// 文件系统参数, mount 参数
+	MOUNT_OPTION m_mount_opt;
+	int m_debug_mode=0;
 	// other functions
 public:
 	inline int get_inline_xattr_addrs(f2fs_inode* inode)
@@ -293,7 +306,7 @@ public:
 // == data.cpp
 public:
 //	int f2fs_submit_page_bio(f2fs_io_info* fio);
-	bio* f2fs_grab_read_bio(inode* inode, block_t blkaddr, unsigned nr_pages, unsigned op_flag, pgoff_t first_idx, bool for_write);
+	bio* f2fs_grab_read_bio(f2fs_inode_info* inode, block_t blkaddr, unsigned nr_pages, unsigned op_flag, pgoff_t first_idx, bool for_write);
 
 	//int sync_filesystem(void) { JCASSERT(0); return 0; }
 	unsigned int sb_set_blocksize(unsigned int size)
@@ -376,42 +389,8 @@ protected:
 	list_head m_f2fs_list;
 	CRITICAL_SECTION m_f2fs_list_lock;
 
-//static DEFINE_SPINLOCK(f2fs_list_lock);
-//static unsigned int shrinker_run_no;
-
-
-// == inode.cpp inode related
-public:
-//	f2fs_inode_info* f2fs_iget(unsigned long ino);
-//	inode * iget_locked(unsigned long ino) {return m_inodes.iget_locked() }
-	//int do_read_inode(inode* inode);
 protected:
-	// 读取inode page，并且根据类型，创建相应的inode对象
-	//int do_create_read_inode(f2fs_inode_info * & ptr_inode, unsigned long ino);
 
-protected:
-	//template <class NODE_TYPE> NODE_TYPE* GetInodeLocked(bool thp_support, unsigned long ino, address_space * mapping)
-	//{
-	//	// 对于NODE和META类型的node, 利用f2fs_inode_info。mapping再f2fs_inode_info的创建函数中，根据ino生成。
-	//	JCASSERT(mapping == nullptr);
-	//	NODE_TYPE* node = new NODE_TYPE(m_sb_info, ino);
-
-	//	inode* base_node = static_cast<inode*>(node);
-	//	base_node->i_sb = m_sb_info;
-	//	m_sb_info->m_inodes.internal_iget_locked(base_node, thp_support, ino);
-	//	m_sb_info->m_inodes.init_inode_mapping(base_node, NULL, thp_support);
-	//	return node;
-	//}
-
-	//template <class NODE_TYPE> NODE_TYPE* GetInodeLocked(bool thp_support, unsigned long ino)
-	//{
-	//	NODE_TYPE* node = new NODE_TYPE(m_sb_info);
-	//	inode* base_node = static_cast<inode*>(node);
-	//	base_node->i_sb = m_sb_info;
-	//	m_sb_info->m_inodes.internal_iget_locked(base_node, thp_support, ino);
-	//	m_sb_info->m_inodes.init_inode_mapping(base_node, NULL, thp_support);
-	//	return node;
-	//}	
 	
 #if 0
 	template <class NODE_TYPE> NODE_TYPE* NewInode(void)
@@ -448,15 +427,6 @@ protected:
 	}
 #endif
 public:
-	//inode* ilookup(nid_t ino) { return m_inodes.ilookup(ino); }
-	//inode* find_inode_nowait(unsigned long hashval, int (*match)(struct inode*, unsigned long, void*),
-	//	void* data)
-	//{
-	//	return m_inodes.find_inode_nowait(hashval, match, data);
-	//}
-
-
-
 	CBioSet m_bio_set;
 
 // ==== 全局变量局部化
@@ -470,7 +440,7 @@ protected:
 	//super_block		m_super_block;
 
 	f2fs_super_block m_raw_sb;
-	f2fs_super_block* sb = &m_raw_sb;
+//	f2fs_super_block* sb = &m_raw_sb;
 
 	f2fs_checkpoint* cp = nullptr;
 	f2fs_configuration m_config;

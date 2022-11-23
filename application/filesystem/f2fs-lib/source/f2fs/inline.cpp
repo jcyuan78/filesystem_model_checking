@@ -23,7 +23,7 @@
 LOCAL_LOGGER_ENABLE(L"f2fs.inline", LOGGER_LEVEL_DEBUGINFO);
 
 
-bool f2fs_may_inline_data(struct inode *inode)
+bool f2fs_may_inline_data(f2fs_inode_info *inode)
 {
 	if (f2fs_is_atomic_file(inode)) 	return false;
 	if (!S_ISREG(inode->i_mode) && !S_ISLNK(inode->i_mode))		return false;
@@ -78,7 +78,7 @@ void f2fs_truncate_inline_inode(f2fs_inode_info *iinode, page *ipage, u64 from)
 	if (from == 0)	clear_inode_flag(iinode, FI_DATA_EXIST);
 }
 
-int f2fs_read_inline_data(struct inode *inode, struct page *ppage)
+int f2fs_read_inline_data(f2fs_inode_info *inode, struct page *ppage)
 {
 	page *ipage;
 	f2fs_sb_info* sbi = F2FS_I_SB(inode);
@@ -157,7 +157,9 @@ int f2fs_convert_inline_page(struct dnode_of_data *dn, struct page *page)
 	set_inode_flag(dn->inode, FI_HOT_DATA);
 	f2fs_outplace_write_data(dn, &fio);
 	f2fs_wait_on_page_writeback(page, DATA, true, true);
-	if (dirty) {
+	if (dirty) 
+	{
+		F_LOG_DEBUG(L"page.dirty", L" dec: inode=%d, page=%d", dn->inode->i_ino, page->index);
 		inode_dec_dirty_pages(dn->inode);
 		f2fs_remove_dirty_inode(dn->inode);
 	}
@@ -219,7 +221,7 @@ out:
 	return err;
 }
 
-int f2fs_write_inline_data(struct inode *inode, struct page *page)
+int f2fs_write_inline_data(f2fs_inode_info *inode, struct page *page)
 {
 	void *src_addr, *dst_addr;
 	struct dnode_of_data dn;
@@ -230,7 +232,8 @@ int f2fs_write_inline_data(struct inode *inode, struct page *page)
 	if (err)
 		return err;
 
-	if (!f2fs_has_inline_data(inode)) {
+	if (!f2fs_has_inline_data(inode)) 
+	{
 		f2fs_put_dnode(&dn);
 		return -EAGAIN;
 	}
@@ -306,7 +309,7 @@ process_inline:
 	} 
 	else if (ri && (ri->i_inline & F2FS_INLINE_DATA)) 
 	{
-		int ret = f2fs_truncate_blocks(iinode, 0, false);
+		int ret = iinode->f2fs_truncate_blocks(0, false);
 		if (ret)			return ret;
 		stat_inc_inline_inode(iinode);
 		goto process_inline;
@@ -567,7 +570,7 @@ int Cf2fsDirInode::f2fs_try_convert_inline_dir(dentry* ddentry)
 	if (!f2fs_has_inline_dentry())		return 0;
 
 	//m_sbi->f2fs_lock_op();
-	auto_lock<semaphore_read_lock> lock_op(m_sbi->cp_rwsem);
+	auto_lock<f2fs_sb_info::auto_lock_op> lock_op(*m_sbi);
 
 	err = f2fs_setup_filename(&ddentry->d_name, 0, &fname);
 	if (err)	return err; // goto out;

@@ -299,16 +299,8 @@ static void destroy_inode(inode *iinode)
 
 	BUG_ON(!list_empty(&iinode->i_lru));
 	__destroy_inode(iinode);
-	//if (ops->destroy_inode) {
-	//	ops->destroy_inode(iinode);
-	//	if (!ops->free_inode)
-	//		return;
-	//}
 	iinode->i_sb->destroy_inode(iinode);
 	iinode->i_sb->free_inode(iinode);
-
-	//iinode->free_inode = ops->free_inode;
-	//call_rcu(&iinode->i_rcu, i_callback);
 }
 
 /** drop_nlink - directly drop an inode's link count
@@ -420,9 +412,9 @@ static void init_once(void *foo)
 
 #endif
 /* inode->i_lock must be held */
-void __iget(struct inode *inode)
+void __iget(inode *iinode)
 {
-	atomic_inc(&inode->i_count);
+	atomic_inc(&iinode->i_count);
 }
 
 #if 0 //TODO
@@ -476,7 +468,7 @@ void inode_sb_list_add(inode *iinode)
 
 static inline void inode_sb_list_del(inode *iinode)
 {
-	LOG_DEBUG(L"[inode_track] add=%p, ino=%d, - del from sb", iinode, iinode->i_ino);
+	F_LOG_DEBUG(L"inode", L" add=%p, ino=%d, - del from sb", iinode, iinode->i_ino);
 	if (!list_empty(&iinode->i_sb_list)) 
 	{
 		spin_lock(&iinode->i_sb->s_inode_list_lock);
@@ -537,7 +529,7 @@ void CInodeManager::remove_inode_hash(inode* iinode)
 	iinode->m_manager = nullptr;
 	spin_unlock(&iinode->i_lock);
 	spin_unlock(&m_inode_hash_lock);
-	LOG_DEBUG(L"[inode_track] addr=%p, ino=%d, hash=%d- remove from hash list", iinode, iinode->i_ino, hash_val);
+	F_LOG_DEBUG(L"inode", L" addr=%p, ino=%d, hash=%d- remove from hash list", iinode, iinode->i_ino, hash_val);
 }
 //EXPORT_SYMBOL(__remove_inode_hash);
 
@@ -578,16 +570,8 @@ static void evict(inode *iinode)
 	/* Wait for flusher thread to be done with the inode so that filesystem does not start destroying it while writeback is still running. Since the inode has I_FREEING set, flusher thread won't start new work on the inode.  We just have to wait for running writeback to finish. */
 	inode_wait_for_writeback(iinode);
 
-	// f2fs的supber block支持evict_inode()
+	// f2fs的supber block支持evict_inode()，如果fs不支持，则default调用 
 	iinode->i_sb->evict_inode(iinode);
-	//if (op->evict_inode) {
-	//	op->evict_inode(iinode);
-	//} 
-	//else
-	//{
-	//	truncate_inode_pages_final(&iinode->i_data);
-	//	clear_inode(iinode);
-	//}
 	if (S_ISCHR(iinode->i_mode) && iinode->i_cdev)
 	{
 		list_del_init(&iinode->i_devices);
@@ -595,11 +579,15 @@ static void evict(inode *iinode)
 	}
 	if (iinode->m_manager)	iinode->m_manager->remove_inode_hash(iinode);
 
-	spin_lock(&iinode->i_lock);
+	//spin_lock(&iinode->i_lock);
+//	iinode->lock();
+	LOCK_INODE(iinode);
+
 //	wake_up_bit(&iinode->i_state, __I_NEW);
-//	BUG_ON(iinode->i_state != (I_FREEING | I_CLEAR));
+	iinode->SetStateNotify(I_NEW);
 	BUG_ON(!iinode->TestState((I_FREEING | I_CLEAR)));
-	spin_unlock(&iinode->i_lock);
+//	spin_unlock(&iinode->i_lock);
+	iinode->unlock();
 	destroy_inode(iinode);
 }
 
@@ -631,21 +619,24 @@ void evict_inodes(super_block *sb)
 	spin_lock(&sb->s_inode_list_lock);
 	list_for_each_entry_safe(inode, iinode, next, &sb->s_inodes, i_sb_list)
 	{
-		if (atomic_read(&iinode->i_count))
-			continue;
+		if (atomic_read(&iinode->i_count))			continue;
 
-		spin_lock(&iinode->i_lock);
-//		if (iinode->i_state & (I_NEW | I_FREEING | I_WILL_FREE)) 
-		if (iinode->TestState(I_NEW | I_FREEING | I_WILL_FREE)) 
 		{
-			spin_unlock(&iinode->i_lock);
-			continue;
-		}
+			F_LOG_DEBUG(L"inode_lock", L" inode=%p, waiting for lock, auto", iinode);
+			auto_lock_<inode> inode_lock(*iinode);
+			F_LOG_DEBUG(L"inode_lock", L" inode=%p, locked, auto", iinode);
+			//		spin_lock(&iinode->i_lock);
+			if (iinode->TestState(I_NEW | I_FREEING | I_WILL_FREE))
+			{
+				//			spin_unlock(&iinode->i_lock);
+				continue;
+			}
 
-//		iinode->i_state |= I_FREEING;
-		iinode->SetState(I_FREEING);
-		inode_lru_list_del(iinode);
-		spin_unlock(&iinode->i_lock);
+			iinode->SetState(I_FREEING);
+			inode_lru_list_del(iinode);
+			//		spin_unlock(&iinode->i_lock);
+			}
+
 		list_add(&iinode->i_lru, &dispose);
 
 		/* We can have a ton of inodes to evict at unmount time given enough memory, check to see if we need to go to sleep for a bit so we don't livelock.	 */
@@ -996,19 +987,22 @@ EXPORT_SYMBOL(lockdep_annotate_inode_mutex_key);
  *
  * Called when the inode is fully initialised to clear the new state of the inode and wake up anyone waiting for the inode
  to finish initialisation. */
-void unlock_new_inode(struct inode *inode)
+void unlock_new_inode(inode *iinode)
 {
-	lockdep_annotate_inode_mutex_key(inode);
-	spin_lock(&inode->i_lock);
-//	WARN_ON(!(inode->i_state & I_NEW));
-//	inode->i_state &= ~I_NEW & ~I_CREATING;
-	WARN_ON(!(inode->TestState(I_NEW)));
+	lockdep_annotate_inode_mutex_key(iinode);
+//	spin_lock(&iinode->i_lock);
+//	iinode->lock();
+	LOCK_INODE(iinode);
+
+
+	WARN_ON(!(iinode->TestState(I_NEW)));
 #if 0 // 在ClearStateNotify中实现
 	smp_mb();
-	wake_up_bit(&inode->i_state, __I_NEW);
+	wake_up_bit(&iinode->i_state, __I_NEW);
 #endif
-	inode->ClearStateNotify(I_NEW | I_CREATING);
-	spin_unlock(&inode->i_lock);
+	iinode->ClearStateNotify(I_NEW | I_CREATING);
+	//spin_unlock(&iinode->i_lock);
+	iinode->unlock();
 }
 //EXPORT_SYMBOL(unlock_new_inode);
 
@@ -1307,22 +1301,24 @@ EXPORT_SYMBOL(iunique);
 
 #endif //TODO
 
-struct inode *igrab(struct inode *inode)
+struct inode *igrab(inode *iinode)
 {
-	spin_lock(&inode->i_lock);
-//	if (!(inode->i_state & (I_FREEING|I_WILL_FREE))) {
-	if (!(inode->TestState(I_FREEING|I_WILL_FREE))) 
+//	spin_lock(&iinode->i_lock);
+	F_LOG_DEBUG(L"inode_lock", L" inode=%p, waiting for lock, auto", iinode);
+	auto_lock_<inode> inode_locker(*iinode);
+	F_LOG_DEBUG(L"inode_lock", L" inode=%p, lockec, auto", iinode);
+	if (!(iinode->TestState(I_FREEING|I_WILL_FREE))) 
 	{
-		__iget(inode);
-		spin_unlock(&inode->i_lock);
+		__iget(iinode);
+//		spin_unlock(&iinode->i_lock);
 	}
 	else
 	{
-		spin_unlock(&inode->i_lock);
-		/* Handle the case where s_op->clear_inode is not been called yet, and somebody is calling igrab while the inode is getting freed. */
-		inode = NULL;
+//		spin_unlock(&iinode->i_lock);
+		/* Handle the case where s_op->clear_inode is not been called yet, and somebody is calling igrab while the iinode is getting freed. */
+		iinode = NULL;
 	}
-	return inode;
+	return iinode;
 }
 //EXPORT_SYMBOL(igrab);
 
@@ -1400,30 +1396,9 @@ EXPORT_SYMBOL(ilookup5);
  * @sb:		super block of file system to search
  * @ino:	inode number to search for
  *
- * Search for the inode @ino in the inode cache, and if the inode is in the
- * cache, the inode is returned with an incremented reference count.
- */
+ * Search for the inode @ino in the inode cache, and if the inode is in the cache, the inode is returned with an incremented reference count. */
 //struct inode *ilookup(struct super_block *sb, unsigned long ino)
-//{
-//	struct hlist_head *head = inode_hashtable + hash(sb, ino);
-//	struct inode *inode;
-//again:
-//	spin_lock(&inode_hash_lock);
-//	inode = find_inode_fast(sb, head, ino);
-//	spin_unlock(&inode_hash_lock);
-//
-//	if (inode) {
-//		if (IS_ERR(inode))
-//			return NULL;
-//		wait_on_inode(inode);
-//		if (unlikely(inode_unhashed(inode))) {
-//			iput(inode);
-//			goto again;
-//		}
-//	}
-//	return inode;
-//}
-//EXPORT_SYMBOL(ilookup);
+
 
 #if 0 //TODO
 
@@ -1434,27 +1409,11 @@ EXPORT_SYMBOL(ilookup5);
  * @match:	callback used for comparisons between inodes
  * @data:	opaque data pointer to pass to @match
  *
- * Search for the inode specified by @hashval and @data in the inode
- * cache, where the helper function @match will return 0 if the inode
- * does not match, 1 if the inode does match, and -1 if the search
- * should be stopped.  The @match function must be responsible for
- * taking the i_lock spin_lock and checking i_state for an inode being
- * freed or being initialized, and incrementing the reference count
- * before returning 1.  It also must not sleep, since it is called with
- * the inode_hash_lock spinlock held.
+ * Search for the inode specified by @hashval and @data in the inode cache, where the helper function @match will return 0 if the inode does not match, 1 if the inode does match, and -1 if the search should be stopped.  The @match function must be responsible for taking the i_lock spin_lock and checking i_state for an inode being freed or being initialized, and incrementing the reference count before returning 1.  It also must not sleep, since it is called with the inode_hash_lock spinlock held.
  *
- * This is a even more generalized version of ilookup5() when the
- * function must never block --- find_inode() can block in
- * __wait_on_freeing_inode() --- or when the caller can not increment
- * the reference count because the resulting iput() might cause an
- * inode eviction.  The tradeoff is that the @match funtion must be
- * very carefully implemented.
- */
-struct inode *find_inode_nowait(struct super_block *sb,
-				unsigned long hashval,
-				int (*match)(struct inode *, unsigned long,
-					     void *),
-				void *data)
+ * This is a even more generalized version of ilookup5() when the function must never block --- find_inode() can block in __wait_on_freeing_inode() --- or when the caller can not increment the reference count because the resulting iput() might cause an inode eviction.  The tradeoff is that the @match funtion must be very carefully implemented. */
+struct inode *find_inode_nowait(struct super_block *sb, unsigned long hashval,
+				int (*match)(struct inode *, unsigned long, void *), void *data)
 {
 	struct hlist_head *head = inode_hashtable + hash(sb, hashval);
 	struct inode *inode, *ret_inode = NULL;
@@ -1557,57 +1516,6 @@ EXPORT_SYMBOL(find_inode_by_ino_rcu);
 
 #endif
 
-//<YUAN> move to inode manager
-//int insert_inode_locked(struct inode *inode)
-//{
-//	struct super_block *sb = inode->i_sb;
-//	ino_t ino = inode->i_ino;
-//	struct hlist_head *head = inode_hashtable + hash(sb, ino);
-//
-//	while (1) 
-//	{
-//		struct inode *old = NULL;
-//		spin_lock(&inode_hash_lock);
-//		hlist_for_each_entry(old, head, i_hash)
-//		{
-//			if (old->i_ino != ino)			continue;
-//			if (old->i_sb != sb)			continue;
-//			spin_lock(&old->i_lock);
-//			if (old->i_state & (I_FREEING|I_WILL_FREE))
-//			{
-//				spin_unlock(&old->i_lock);
-//				continue;
-//			}
-//			break;
-//		}
-//		if (likely(!old))
-//		{
-//			spin_lock(&inode->i_lock);
-//			inode->i_state |= I_NEW | I_CREATING;
-//			hlist_add_head_rcu(&inode->i_hash, head);
-//			spin_unlock(&inode->i_lock);
-//			spin_unlock(&inode_hash_lock);
-//			return 0;
-//		}
-//		if (unlikely(old->i_state & I_CREATING)) 
-//		{
-//			spin_unlock(&old->i_lock);
-//			spin_unlock(&inode_hash_lock);
-//			return -EBUSY;
-//		}
-//		__iget(old);
-//		spin_unlock(&old->i_lock);
-//		spin_unlock(&inode_hash_lock);
-//		wait_on_inode(old);
-//		if (unlikely(!inode_unhashed(old))) {
-//			iput(old);
-//			return -EBUSY;
-//		}
-//		iput(old);
-//	}
-//}
-//EXPORT_SYMBOL(insert_inode_locked);
-
 #if 0 //TODO 
 
 int insert_inode_locked4(struct inode *inode, unsigned long hashval,
@@ -1639,7 +1547,6 @@ EXPORT_SYMBOL(generic_delete_inode);
  * Call the FS "drop_inode()" function, defaulting to the legacy UNIX filesystem behaviour.  If it tells us to evict inode, do so.  Otherwise, retain inode in cache if fs is alive, sync and evict if fs is shutting down. */
 /*static*/ void iput_final(inode *iinode)
 {
-#if 1
 	super_block *sb = iinode->i_sb;
 //	const struct super_operations *op = iinode->i_sb->s_op;
 	//unsigned long state;
@@ -1654,7 +1561,8 @@ EXPORT_SYMBOL(generic_delete_inode);
 	if (!drop && !(iinode->TestState(I_DONTCACHE)) && (sb->s_flags & SB_ACTIVE)) 
 	{
 		inode_add_lru(iinode);
-		spin_unlock(&iinode->i_lock);
+//		spin_unlock(&iinode->i_lock);
+		iinode->unlock();
 		return;
 	}
 
@@ -1663,11 +1571,15 @@ EXPORT_SYMBOL(generic_delete_inode);
 	{
 //		WRITE_ONCE(iinode->i_state, state | I_WILL_FREE);
 		iinode->SetState(I_WILL_FREE);
-		spin_unlock(&iinode->i_lock);
+//		spin_unlock(&iinode->i_lock);
+		iinode->unlock();
 
 		write_inode_now(iinode, 1);
 
-		spin_lock(&iinode->i_lock);
+//		spin_lock(&iinode->i_lock);
+//		iinode->lock();
+		LOCK_INODE(iinode);
+
 		//state = iinode->i_state;
 //		WARN_ON(state & I_NEW);
 		WARN_ON(iinode->TestState(I_NEW));
@@ -1677,14 +1589,11 @@ EXPORT_SYMBOL(generic_delete_inode);
 
 //	WRITE_ONCE(iinode->i_state, state | I_FREEING);
 	iinode->SetState(I_FREEING);
-	if (!list_empty(&iinode->i_lru))
-		inode_lru_list_del(iinode);
-	spin_unlock(&iinode->i_lock);
+	if (!list_empty(&iinode->i_lru))	inode_lru_list_del(iinode);
+//	spin_unlock(&iinode->i_lock);
+	iinode->unlock();
 
 	evict(iinode);
-#else
-	JCASSERT(0);
-#endif
 }
 
 #if 0 //<TODO>
@@ -2059,23 +1968,22 @@ EXPORT_SYMBOL(inode_needs_sync);
  *
  * It doesn't matter if I_NEW is not set initially, a call to wake_up_bit(&inode->i_state, __I_NEW) after removing from the hash list will DTRT. */
 //void __wait_on_freeing_inode(inode *iinode)
-void inode::__wait_on_freeing_inode(void)
+void CInodeManager::__wait_on_freeing_inode(inode * iinode)
 {
-#if 1
 //	wait_queue_head_t *wq;
 //	DEFINE_WAIT_BIT(wait, &inode->i_state, __I_NEW);
 //	wq = bit_waitqueue(&inode->i_state, __I_NEW);
 //	prepare_to_wait(wq, &wait.wq_entry, TASK_UNINTERRUPTIBLE);
-	spin_unlock(&i_lock);
-	WaitForState(__I_NEW, INFINITE);
+	HANDLE event = iinode->m_event_state;
+	spin_unlock(&iinode->i_lock);
 	//spin_unlock(&inode_hash_lock);
+	unlock();
+//	WaitForStateSet(__I_NEW, INFINITE);
+	WaitForSingleObject(event, INFINITE);
 	//schedule();
 	//finish_wait(wq, &wait.wq_entry);
 	//spin_lock(&inode_hash_lock);
-
-#else
-	JCASSERT(0);
-#endif
+	lock();
 }
 
 #if 0 //TODO
@@ -2353,75 +2261,7 @@ void inode::make_bad_inode(void)
 }
  
 //// ==== fs-writeback.c
-///* Write out an inode's dirty data and metadata on-demand, i.e. separately from the regular batched writeback done by the flusher threads in
-// * writeback_sb_inodes().  @wbc controls various aspects of the write, such as
-// * whether it is a data-integrity sync (%WB_SYNC_ALL) or not (%WB_SYNC_NONE).
-// *
-// * To prevent the inode from going away, either the caller must have a reference
-// * to the inode, or the inode must have I_WILL_FREE or I_FREEING set.
-// */
-//static int writeback_single_inode(struct inode* inode, struct writeback_control* wbc)
-//{
-//#if 1 //TODO
-//	struct bdi_writeback* wb;
-//	int ret = 0;
-//
-//	spin_lock(&inode->i_lock);
-//	if (!atomic_read(&inode->i_count))
-//		WARN_ON(!(inode->i_state & (I_WILL_FREE | I_FREEING)));
-//	else
-//		WARN_ON(inode->i_state & I_WILL_FREE);
-//
-//	if (inode->i_state & I_SYNC)
-//	{
-//		/*
-//		 * Writeback is already running on the inode.  For WB_SYNC_NONE,
-//		 * that's enough and we can just return.  For WB_SYNC_ALL, we
-//		 * must wait for the existing writeback to complete, then do
-//		 * writeback again if there's anything left.
-//		 */
-//		if (wbc->sync_mode != WB_SYNC_ALL)
-//			goto out;
-//		__inode_wait_for_writeback(inode);
-//	}
-//	WARN_ON(inode->i_state & I_SYNC);
-//	/*
-//	 * If the inode is already fully clean, then there's nothing to do.
-//	 *
-//	 * For data-integrity syncs we also need to check whether any pages are
-//	 * still under writeback, e.g. due to prior WB_SYNC_NONE writeback.  If
-//	 * there are any such pages, we'll need to wait for them.
-//	 */
-//	if (!(inode->i_state & I_DIRTY_ALL) &&
-//		(wbc->sync_mode != WB_SYNC_ALL ||
-//			!mapping_tagged(inode->i_mapping, PAGECACHE_TAG_WRITEBACK)))
-//		goto out;
-//	inode->i_state |= I_SYNC;
-//	wbc_attach_and_unlock_inode(wbc, inode);
-//
-//	ret = __writeback_single_inode(inode, wbc);
-//
-//	wbc_detach_inode(wbc);
-//
-//	wb = inode_to_wb_and_lock_list(inode);
-//	spin_lock(&inode->i_lock);
-//	/*
-//	 * If the inode is now fully clean, then it can be safely removed from
-//	 * its writeback list (if any).  Otherwise the flusher threads are
-//	 * responsible for the writeback lists.
-//	 */
-//	if (!(inode->i_state & I_DIRTY_ALL))
-//		inode_io_list_del_locked(inode, wb);
-//	spin_unlock(&wb->list_lock);
-//	inode_sync_complete(inode);
-//out:
-//	spin_unlock(&inode->i_lock);
-//	return ret;
-//#else
-//	JCASSERT(0);
-//	return 0;
-//#endif
-//}
+
 
 
 inode::inode(void)
@@ -2450,16 +2290,38 @@ void inode::ClearStateNotify(unsigned long state)
 	if (ss != i_state) SetEvent(m_event_state);
 }
 
-void inode::WaitForState(int state_id, DWORD timeout)
+void inode::WaitForStateClear(int state_id, DWORD timeout)
 {
 	unsigned long state_bmp = (1 << state_id);
-	while (i_state & state_bmp)
+//	while (i_state & state_bmp)
+	while (1)
 	{
-		spin_unlock(&i_lock);
+		LOG_DEBUG(L"waiting for inode state clear 0x%X, current state=0x%X", state_bmp, i_state);
+		if ( (i_state & state_bmp)==0) break;
+//		spin_unlock(&i_lock);
 		DWORD ir = WaitForSingleObject(m_event_state, timeout);
-#ifdef _DEBUG
-		if (ir != 0) LOG_WARNING(L"[war] wait for state %d timeout", state_id);
-#endif
-		spin_lock(&i_lock);
+//#ifdef _DEBUG
+//		if (ir != 0) LOG_WARNING(L"[war] wait for state %d timeout", state_id);
+//#endif
+//		spin_lock(&i_lock);
 	}
 }
+
+void inode::WaitForStateSet(int state_id, DWORD timeout)
+{
+	unsigned long state_bmp = (1 << state_id);
+	//	while (i_state & state_bmp)
+	while (1)
+	{
+		LOG_DEBUG(L"waiting for inode state set 0x%X, current state=0x%X", state_bmp, i_state);
+		if (i_state & state_bmp) break;
+		//		spin_unlock(&i_lock);
+		DWORD ir = WaitForSingleObject(m_event_state, timeout);
+//#ifdef _DEBUG
+//		if (ir != 0) LOG_WARNING(L"[war] wait for state %d timeout", state_id);
+//#endif
+		//		spin_lock(&i_lock);
+	}
+
+}
+

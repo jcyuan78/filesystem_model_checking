@@ -50,7 +50,9 @@
 //#include "asm/pgalloc.h"
 //#include "asm/tlbflush.h"
 #include "../include/mm_types.h"
+#include "../include/page-manager.h"
 #include "internal.h"
+
 
 #define CREATE_TRACE_POINTS
 //#include <trace/events/filemap.h>
@@ -230,24 +232,17 @@ void __delete_from_page_cache(page *ppage, void *shadow)
 	page_cache_delete(mapping, ppage, shadow);
 }
 
-static void page_cache_free_page(address_space *mapping, page *ppage)
+static page* page_cache_free_page(address_space *mapping, page *ppage)
 {
-	//void (*freepage)(struct page *);
-
-	//freepage = mapping->a_ops->freepage;
-	//if (freepage)
-	//	freepage(ppage);
-	// 目前没有address_space类支持freepage()函数
-//	mapping->freepage(ppage);
-
-
+	mapping->freepage(ppage);
 	if (PageTransHuge(ppage) && !PageHuge(ppage)) 
 	{
 //		page_ref_sub(ppage, thp_nr_pages(ppage));
 		ppage->ref_sub(thp_nr_pages(ppage));
 //		VM_BUG_ON_PAGE(page_count(ppage) <= 0, ppage);
+		return ppage;
 	} 
-	else {	ppage->put_page(); }
+	else {	return ppage->put_page(); }
 }
 
 
@@ -282,18 +277,16 @@ static void page_cache_delete_batch(address_space *mapping,  pagevec *pvec)
 {
 	XA_STATE(xas, &mapping->i_pages, pvec->pages[0]->index);
 	int total_pages = 0;
-	int i = 0;
+	UINT i = 0;
 	page *ppage;
 
 	mapping_set_update(&xas, mapping);
 	xas_for_each(&xas, ppage, ULONG_MAX) 
 	{
-		if (i >= pagevec_count(pvec))
-			break;
+		if (i >= pagevec_count(pvec))		break;
 
 		/* A swap/dax/shadow entry got inserted? Skip it. */
-		if (xa_is_value(ppage))
-			continue;
+		if (xa_is_value(ppage))			continue;
 		/* A page got inserted in our range? Skip it. We have our pages locked so they are protected from being removed. If we see a page whose index is higher than ours, it means our page has been removed, which shouldn't be possible because we're holding the PageLock.	 */
 		if (ppage != pvec->pages[i])
 		{
@@ -306,10 +299,8 @@ static void page_cache_delete_batch(address_space *mapping,  pagevec *pvec)
 		if (ppage->index == xas.xa_index)
 			ppage->mapping = NULL;
 		/* Leave page->index set: truncation lookup relies on it */
-
 		/* Move to the next page in the vector if this is a regular page or the index is of the last sub-page of this compound page. */
-		if (ppage->index + compound_nr(ppage) - 1 == xas.xa_index)
-			i++;
+		if (ppage->index + compound_nr(ppage) - 1 == xas.xa_index)		i++;
 		xas_store(&xas, NULL);
 		total_pages++;
 	}
@@ -318,14 +309,14 @@ static void page_cache_delete_batch(address_space *mapping,  pagevec *pvec)
 
 void delete_from_page_cache_batch(address_space *mapping, pagevec *pvec)
 {
-	int i;
+	LOG_STACK_TRACE();
+//	int i;
 	unsigned long flags=0;
 
-	if (!pagevec_count(pvec))
-		return;
+	if (!pagevec_count(pvec))		return;
 
 	xa_lock_irqsave(&mapping->i_pages, flags);
-	for (i = 0; i < pagevec_count(pvec); i++) 
+	for (UINT i = 0; i < pagevec_count(pvec); i++) 
 	{
 //		trace_mm_filemap_delete_from_page_cache(pvec->pages[i]);
 		unaccount_page_cache_page(mapping, pvec->pages[i]);
@@ -333,8 +324,11 @@ void delete_from_page_cache_batch(address_space *mapping, pagevec *pvec)
 	page_cache_delete_batch(mapping, pvec);
 	xa_unlock_irqrestore(&mapping->i_pages, flags);
 
-	for (i = 0; i < pagevec_count(pvec); i++)
-		page_cache_free_page(mapping, pvec->pages[i]);
+	for (UINT i = 0; i < pagevec_count(pvec); i++)
+	{
+		page * pp = page_cache_free_page(mapping, pvec->pages[i]);
+//		if (!pp) pvec->pages[i] = nullptr;
+	}
 }
 
 
@@ -342,11 +336,9 @@ int filemap_check_errors(address_space *mapping)
 {
 	int ret = 0;
 	/* Check for outstanding write errors */
-	if (test_bit(AS_ENOSPC, &mapping->flags) &&
-	    test_and_clear_bit(AS_ENOSPC, &mapping->flags))
+	if (test_bit(AS_ENOSPC, mapping->flags) && test_and_clear_bit(AS_ENOSPC, mapping->flags))
 		ret = -ENOSPC;
-	if (test_bit(AS_EIO, &mapping->flags) &&
-	    test_and_clear_bit(AS_EIO, &mapping->flags))
+	if (test_bit(AS_EIO, mapping->flags) && test_and_clear_bit(AS_EIO, mapping->flags))
 		ret = -EIO;
 	return ret;
 }
@@ -731,8 +723,8 @@ int file_check_and_advance_wb_err(file *ffile)
 	}
 #endif
 	/* We're mostly using this function as a drop in replacement for filemap_check_errors. Clear AS_EIO/AS_ENOSPC to emulate the effect that the legacy code would have had on these flags. */
-	clear_bit(AS_EIO, &mapping->flags);
-	clear_bit(AS_ENOSPC, &mapping->flags);
+	clear_bit(AS_EIO, mapping->flags);
+	clear_bit(AS_ENOSPC, mapping->flags);
 	return err;
 }
 //EXPORT_SYMBOL(file_check_and_advance_wb_err);
@@ -928,21 +920,16 @@ int add_to_page_cache_lru(struct page *ppage, address_space *mapping, pgoff_t of
 	void *shadow = NULL;
 	int ret;
 
-	__SetPageLocked(ppage);
+	//__SetPageLocked(ppage);
+	ppage->lock();
 	ret = __add_to_page_cache_locked(ppage, mapping, offset, gfp_mask, &shadow);
-	if (unlikely(ret))	__ClearPageLocked(ppage);
+	if (unlikely(ret))	ppage->unlock();	// __ClearPageLocked(ppage);
 	else 
 	{
-		/* The page might have been evicted from cache only recently, in which case it should be activated like any
-		 other repeatedly accessed page. The exception is pages getting rewritten; evicting other data from the 
-		 working set, only to cache data that will get overwritten with something else, is a waste of memory. */
+		/* The page might have been evicted from cache only recently, in which case it should be activated like any other repeatedly accessed page. The exception is pages getting rewritten; evicting other data from the working set, only to cache data that will get overwritten with something else, is a waste of memory. */
 //		WARN_ON_ONCE(PageActive(page));
-#if 1 //<TODO>
 		if (!(gfp_mask & __GFP_WRITE) && shadow) workingset_refault(ppage, shadow);
 		lru_cache_add(ppage);
-#else
-		JCASSERT(0);
-#endif
 	}
 	return ret;
 }
@@ -950,7 +937,7 @@ int add_to_page_cache_lru(struct page *ppage, address_space *mapping, pgoff_t of
 
 
 #ifdef CONFIG_NUMA
-page *__page_cache_alloc(gfp_t gfp)
+page *__page_cache_alloc(gfp_t gfp, CPageManager * manager)
 {
 #if 0	//<TODO>
 	int n;
@@ -1267,13 +1254,13 @@ page *__page_cache_alloc(gfp_t gfp)
 		return page;
 	}
 #endif
-	page* pp = new page;
+//	page* pp = new page;
 	// 初始化
 	// <TODO> 尝试能否从free list中获取page
-	return pp;
+	return manager->NewPage();
 }
 //EXPORT_SYMBOL(__page_cache_alloc);
-#endif
+#endif //CONFIG_NUMA
 
 #if 0 // <TODO>
 
@@ -1393,15 +1380,15 @@ static int wake_page_function(wait_queue_entry_t *wait, unsigned mode, int sync,
 
 #endif //TODO
 
-static void wake_up_page_bit(struct page *page, int bit_nr)
+static void wake_up_page_bit(page *ppage, int bit_nr)
 {
 #if 0
-	wait_queue_head_t *q = page_waitqueue(page);
+	wait_queue_head_t *q = page_waitqueue(ppage);
 	struct wait_page_key key;
 	unsigned long flags;
 	wait_queue_entry_t bookmark;
 
-	key.page = page;
+	key.page = ppage;
 	key.bit_nr = bit_nr;
 	key.page_match = 0;
 
@@ -1413,98 +1400,87 @@ static void wake_up_page_bit(struct page *page, int bit_nr)
 	spin_lock_irqsave(&q->lock, flags);
 	__wake_up_locked_key_bookmark(q, TASK_NORMAL, &key, &bookmark);
 
-	while (bookmark.flags & WQ_FLAG_BOOKMARK) {
-		/*
-		 * Take a breather from holding the lock,
-		 * allow pages that finish wake up asynchronously
-		 * to acquire the lock and remove themselves
-		 * from wait queue
-		 */
+	while (bookmark.flags & WQ_FLAG_BOOKMARK) 
+	{
+		/* Take a breather from holding the lock, allow pages that finish wake up asynchronously to acquire the lock and remove themselves from wait queue	 */
 		spin_unlock_irqrestore(&q->lock, flags);
 		cpu_relax();
 		spin_lock_irqsave(&q->lock, flags);
 		__wake_up_locked_key_bookmark(q, TASK_NORMAL, &key, &bookmark);
 	}
 
-	/*
-	 * It is possible for other pages to have collided on the waitqueue
-	 * hash, so in that case check for a page match. That prevents a long-
-	 * term waiter
+	/* It is possible for other pages to have collided on the waitqueue hash, so in that case check for a page match. That prevents a long-term waiter
 	 *
-	 * It is still possible to miss a case here, when we woke page waiters
-	 * and removed them from the waitqueue, but there are still other
-	 * page waiters.
-	 */
-	if (!waitqueue_active(q) || !key.page_match) {
-		ClearPageWaiters(page);
-		/*
-		 * It's possible to miss clearing Waiters here, when we woke
-		 * our page waiters, but the hashed waitqueue has waiters for
-		 * other pages on it.
+	 * It is still possible to miss a case here, when we woke page waiters and removed them from the waitqueue, but there are still other page waiters. */
+	if (!waitqueue_active(q) || !key.page_match) 
+	{
+		ClearPageWaiters(ppage);
+		/* It's possible to miss clearing Waiters here, when we woke our page waiters, but the hashed waitqueue has waiters for other pages on it.
 		 *
-		 * That's okay, it's a rare case. The next waker will clear it.
-		 */
+		 * That's okay, it's a rare case. The next waker will clear it.	 */
 	}
 	spin_unlock_irqrestore(&q->lock, flags);
 #else
-	JCASSERT(0);
+	ppage->WakeUpPageBit(bit_nr);
 #endif
 }
 
-static void wake_up_page(struct page *page, int bit)
+static void wake_up_page(page *ppage, int bit)
 {
-	if (!PageWaiters(page))		return;
-	wake_up_page_bit(page, bit);
+	if (!PageWaiters(ppage))		return;
+	wake_up_page_bit(ppage, bit);
 }
 
-#if 0 //TODO
-/*
- * A choice of three behaviors for wait_on_page_bit_common():
- */
+/* wait_queue_entry::flags */
+#define WQ_FLAG_EXCLUSIVE	0x01
+#define WQ_FLAG_WOKEN		0x02
+#define WQ_FLAG_BOOKMARK	0x04
+#define WQ_FLAG_CUSTOM		0x08
+#define WQ_FLAG_DONE		0x10
+#define WQ_FLAG_PRIORITY	0x20
+
+
+/* A choice of three behaviors for wait_on_page_bit_common(): */
 enum behavior {
-	EXCLUSIVE,	/* Hold ref to page and take the bit when woken, like
-			 * __lock_page() waiting on then setting PG_locked.
-			 */
-	SHARED,		/* Hold ref to page and check the bit when woken, like
-			 * wait_on_page_writeback() waiting on PG_writeback.
-			 */
-	DROP,		/* Drop ref to page before wait, no check when woken,
-			 * like put_and_wait_on_page_locked() on PG_locked.
-			 */
+	EXCLUSIVE,	/* Hold ref to page and take the bit when woken, like __lock_page() waiting on then setting PG_locked. */
+	SHARED,		/* Hold ref to page and check the bit when woken, like wait_on_page_writeback() waiting on PG_writeback.*/
+	DROP,		/* Drop ref to page before wait, no check when woken, like put_and_wait_on_page_locked() on PG_locked.  */
 };
 
-/*
- * Attempt to check (or get) the page bit, and mark us done
- * if successful.
- */
-static inline bool trylock_page_bit_common(struct page *page, int bit_nr,
-					struct wait_queue_entry *wait)
+/* Attempt to check (or get) the page bit, and mark us done if successful. */
+static inline bool trylock_page_bit_common(struct page *page, int bit_nr, struct wait_queue_entry *wait)
 {
-	if (wait->flags & WQ_FLAG_EXCLUSIVE) {
-		if (test_and_set_bit(bit_nr, &page->flags))
-			return false;
-	} else if (test_bit(bit_nr, &page->flags))
-		return false;
+#if 0
+	if (wait->flags & WQ_FLAG_EXCLUSIVE)
+	{
+		if (test_and_set_bit(bit_nr, page->flags))		return false;
+	}
+	else if (test_bit(bit_nr, page->flags))				return false;
 
 	wait->flags |= WQ_FLAG_WOKEN | WQ_FLAG_DONE;
+#else
+	JCASSERT(0);
+#endif
 	return true;
 }
 
 /* How many times do we accept lock stealing from under a waiter? */
 int sysctl_page_lock_unfairness = 5;
 
-static int wait_on_page_bit_common(/*wait_queue_head_t *q, */page *ppage, int bit_nr, int state, enum behavior behavior)
+static int wait_on_page_bit_common(struct wait_queue_head_t * q, page *ppage, int bit_nr, int state, enum behavior behavior)
 {
+#if 0
 	int unfairness = sysctl_page_lock_unfairness;
-	struct wait_page_queue wait_page;
-	wait_queue_entry_t *wait = &wait_page.wait;
+//	struct wait_page_queue wait_page;
+//	wait_queue_entry_t *wait = &wait_page.wait;
 	bool thrashing = false;
 	bool delayacct = false;
 	unsigned long pflags;
 
-	if (bit_nr == PG_locked &&
-	    !PageUptodate(ppage) && PageWorkingset(ppage)) {
-		if (!PageSwapBacked(ppage)) {
+	if (bit_nr == PG_locked && !PageUptodate(ppage) && PageWorkingset(ppage))
+	{
+		if (!PageSwapBacked(ppage))
+		{
 			delayacct_thrashing_start();
 			delayacct = true;
 		}
@@ -1512,10 +1488,10 @@ static int wait_on_page_bit_common(/*wait_queue_head_t *q, */page *ppage, int bi
 		thrashing = true;
 	}
 
-	init_wait(wait);
-	wait->func = wake_page_function;
-	wait_page.page = ppage;
-	wait_page.bit_nr = bit_nr;
+	//init_wait(wait);
+	//wait->func = wake_page_function;
+	//wait_page.page = ppage;
+	//wait_page.bit_nr = bit_nr;
 
 repeat:
 	wait->flags = 0;
@@ -1526,20 +1502,14 @@ repeat:
 	}
 
 	/* Do one last check whether we can get the page bit synchronously.
-	 *
-	 * Do the SetPageWaiters() marking before that to let any waker we _just_ missed know they need to wake us up (otherwise
-	   they'll never even go to the slow case that looks at the page queue), and add ourselves to the wait queue if we need to
-	   sleep.
-	 *
+	 * Do the SetPageWaiters() marking before that to let any waker we _just_ missed know they need to wake us up (otherwise they'll never even go to the slow case that looks at the page queue), and add ourselves to the wait queue if we need to sleep.
 	 * This part needs to be done under the queue lock to avoid races.	 */
-	spin_lock_irq(&q->lock);
+	//spin_lock_irq(&q->lock);
 	SetPageWaiters(ppage);
 	if (!trylock_page_bit_common(ppage, bit_nr, wait)) __add_wait_queue_entry_tail(q, wait);
-	spin_unlock_irq(&q->lock);
+	//spin_unlock_irq(&q->lock);
 
-	/* From now on, all the logic will be based on the WQ_FLAG_WOKEN and WQ_FLAG_DONE flag, to see whether the page bit testing
-	   has already been done by the wake function.
-	 *
+	/* From now on, all the logic will be based on the WQ_FLAG_WOKEN and WQ_FLAG_DONE flag, to see whether the page bit testing has already been done by the wake function.
 	 * We can drop our reference to the page.	 */
 	if (behavior == DROP)	ppage->put_page();
 
@@ -1548,7 +1518,6 @@ repeat:
 	for (;;)
 	{
 		unsigned int flags;
-
 		set_current_state(state);
 
 		/* Loop until we've been woken or interrupted */
@@ -1556,7 +1525,7 @@ repeat:
 		if (!(flags & WQ_FLAG_WOKEN)) 
 		{
 			if (signal_pending_state(state, current))	break;
-			io_schedule();
+//			io_schedule();
 			continue;
 		}
 
@@ -1566,25 +1535,15 @@ repeat:
 		/* If the waker got the lock for us, we're done */
 		if (flags & WQ_FLAG_DONE)		break;
 
-		/*
-		 * Otherwise, if we're getting the lock, we need to
-		 * try to get it ourselves.
-		 *
-		 * And if that fails, we'll have to retry this all.
-		 */
-		if (unlikely(test_and_set_bit(bit_nr, &ppage->flags)))
+		/* Otherwise, if we're getting the lock, we need to try to get it ourselves. And if that fails, we'll have to retry this all.	 */
+		if (unlikely(test_and_set_bit(bit_nr, ppage->flags)))
 			goto repeat;
 
 		wait->flags |= WQ_FLAG_DONE;
 		break;
 	}
 
-	/*
-	 * If a signal happened, this 'finish_wait()' may remove the last
-	 * waiter from the wait-queues, but the PageWaiters bit will remain
-	 * set. That's ok. The next wakeup will take care of it, and trying
-	 * to do it here would be difficult and prone to races.
-	 */
+	/* If a signal happened, this 'finish_wait()' may remove the last waiter from the wait-queues, but the PageWaiters bit will remain set. That's ok. The next wakeup will take care of it, and trying to do it here would be difficult and prone to races. */
 	finish_wait(q, wait);
 
 	if (thrashing) 
@@ -1593,46 +1552,62 @@ repeat:
 		psi_memstall_leave(&pflags);
 	}
 
-	/*
-	 * NOTE! The wait->flags weren't stable until we've done the
-	 * 'finish_wait()', and we could have exited the loop above due
-	 * to a signal, and had a wakeup event happen after the signal
-	 * test but before the 'finish_wait()'.
+	/* NOTE!The wait->flags weren't stable until we've done the 'finish_wait()', and we could have exited the loop above due to a signal, and had a wakeup event happen after the signal test but before the 'finish_wait()'.
 	 *
-	 * So only after the finish_wait() can we reliably determine
-	 * if we got woken up or not, so we can now figure out the final
-	 * return value based on that state without races.
+	 * So only after the finish_wait() can we reliably determine if we got woken up or not, so we can now figure out the final return value based on that state without races.
 	 *
-	 * Also note that WQ_FLAG_WOKEN is sufficient for a non-exclusive
-	 * waiter, but an exclusive one requires WQ_FLAG_DONE.
-	 */
+	 * Also note that WQ_FLAG_WOKEN is sufficient for a non-exclusive waiter, but an exclusive one requires WQ_FLAG_DONE.*/
 	if (behavior == EXCLUSIVE)		return wait->flags & WQ_FLAG_DONE ? 0 : -EINTR;
 
 	return wait->flags & WQ_FLAG_WOKEN ? 0 : -EINTR;
+#else
+	return ppage->WaitOnPageBitCommon(bit_nr, state, behavior);
+	
+#endif
+
 }
-#endif //TODO
+
+void page::WakeUpPageBit(int bit_nr)
+{
+	LOG_DEBUG(L"[page_wait] page=%p, bit=%d, flag=0x%X, wakeup", this, bit_nr, flags);
+//	SetEvent(m_event_state);
+	WakeAllConditionVariable(&m_state_condition);
+
+}
+
+int page::WaitOnPageBitCommon(int bit_nr, int state, behavior bb)
+{
+	JCASSERT(m_manager);
+	LOG_DEBUG(L"[page_wait] page=%p, bit=%d, flag=0x%X, start wait", this, bit_nr, flags);
+	SetPageWaiters(this);
+	unsigned long state_bmp = (1 << bit_nr);
+	//	while (i_state & state_bmp)
+	EnterCriticalSection(&m_manager->m_page_wait_lock);
+	while (1)
+	{
+		LOG_DEBUG(L"[page_wait] page=%p, bit=%d, flag=0x%X, wakeup for check", this, bit_nr, flags);
+		if ( (flags & state_bmp)==0) break;
+//		DWORD ir = WaitForSingleObject(m_event_state, INFINITE);
+		SleepConditionVariableCS(&m_state_condition, &m_manager->m_page_wait_lock, INFINITE);
+	}
+	LeaveCriticalSection(&m_manager->m_page_wait_lock);
+	return 0;
+}
 
 void wait_on_page_bit(page *ppage, int bit_nr)
 {
-#if 0 //TODO
-	wait_queue_head_t *q = page_waitqueue(ppage);
-	wait_on_page_bit_common(q, ppage, bit_nr, TASK_UNINTERRUPTIBLE, SHARED);
-#else
-	//JCASSERT(0);
-#endif
+//	wait_queue_head_t *q = page_waitqueue(ppage);
+	wait_on_page_bit_common(nullptr, ppage, bit_nr, TASK_UNINTERRUPTIBLE, SHARED);
 }
 //EXPORT_SYMBOL(wait_on_page_bit);
 
-#if 0 //TODO
-
-int wait_on_page_bit_killable(struct page *page, int bit_nr)
+int wait_on_page_bit_killable(page *ppage, int bit_nr)
 {
-	wait_queue_head_t *q = page_waitqueue(page);
-	return wait_on_page_bit_common(q, page, bit_nr, TASK_KILLABLE, SHARED);
+//	wait_queue_head_t *q = page_waitqueue(page);
+	return wait_on_page_bit_common(nullptr, ppage, bit_nr, TASK_KILLABLE, SHARED);
 }
-EXPORT_SYMBOL(wait_on_page_bit_killable);
+//EXPORT_SYMBOL(wait_on_page_bit_killable);
 
-#endif //<TODO>
 
 /**
  * put_and_wait_on_page_locked - Drop a reference and wait for it to be unlocked
@@ -1644,14 +1619,13 @@ EXPORT_SYMBOL(wait_on_page_bit_killable);
  After this function returns, the caller should not dereference @page.
  *
  * Return: 0 if the page was unlocked or -EINTR if interrupted by a signal. */
-int put_and_wait_on_page_locked(struct page *ppage, int state)
+int put_and_wait_on_page_locked(page *ppage, int state)
 {
-#if 0
-	wait_queue_head_t *q;
-
-	page = compound_head(ppage);
-	q = page_waitqueue(ppage);
-	return wait_on_page_bit_common(q, ppage, PG_locked, state, DROP);
+#if 1
+//	wait_queue_head_t *q;
+//	page = compound_head(ppage);
+//	q = page_waitqueue(ppage);
+	return wait_on_page_bit_common(nullptr, ppage, PG_locked, state, DROP);
 #else
 	JCASSERT(0);
 	return 0;
@@ -2018,14 +1992,9 @@ pgoff_t page_cache_prev_miss(address_space *mapping, pgoff_t index, unsigned lon
  * @mapping: the address_space to search
  * @index: The page cache index.
  *
- * Looks up the page cache slot at @mapping & @index.  If there is a
- * page cache page, the head page is returned with an increased refcount.
- *
- * If the slot holds a shadow entry of a previously evicted page, or a
- * swap entry from shmem/tmpfs, it is returned.
- *
- * Return: The head page or shadow entry, %NULL if nothing is found.
- */
+ * Looks up the page cache slot at @mapping & @index.  If there is a page cache page, the head page is returned with an increased refcount.
+ * If the slot holds a shadow entry of a previously evicted page, or a swap entry from shmem/tmpfs, it is returned.
+ * Return: The head page or shadow entry, %NULL if nothing is found. */
 static struct page *mapping_get_entry(address_space *mapping, pgoff_t index)
 {
 	XA_STATE(xas, &mapping->i_pages, index);
@@ -2035,30 +2004,20 @@ static struct page *mapping_get_entry(address_space *mapping, pgoff_t index)
 repeat:
 	xas_reset(&xas);
 	page = xas_load(&xas);
-	if (xas_retry(&xas, page))
-		goto repeat;
-	/*
-	 * A shadow entry of a recently evicted page, or a swap entry from
-	 * shmem/tmpfs.  Return it without attempting to raise page count.
-	 */
-	if (!page || xa_is_value(page))
-		goto out;
+	if (xas_retry(&xas, page))	goto repeat;
+	/* A shadow entry of a recently evicted page, or a swap entry from shmem/tmpfs.  Return it without attempting to raise page count. */
+	if (!page || xa_is_value(page))	goto out;
 
-	if (!page_cache_get_speculative(page))
-		goto repeat;
+	if (!page_cache_get_speculative(page))	goto repeat;
 
-	/*
-	 * Has the page moved or been split?
-	 * This is part of the lockless pagecache protocol. See
-	 * include/linux/pagemap.h for details.
-	 */
-	if (unlikely(page != xas_reload(&xas))) {
+	/* Has the page moved or been split? This is part of the lockless pagecache protocol. See include/linux/pagemap.h for details. */
+	if (unlikely(page != xas_reload(&xas))) 
+	{
 		page->put_page();
 		goto repeat;
 	}
 out:
 //	rcu_read_unlock();
-
 	return page;
 }
 
@@ -2091,84 +2050,82 @@ out:
  *
  * If %FGP_LOCK or %FGP_CREAT are specified then the function may sleep even
  * if the %GFP flags specified for %FGP_CREAT are atomic.
- *
  * If there is a page cache page, it is returned with an increased refcount.
- *
- * Return: The found page or %NULL otherwise.
- */
-struct page *pagecache_get_page(address_space *mapping, pgoff_t index, int fgp_flags, gfp_t gfp_mask)
+ * Return: The found page or %NULL otherwise. */
+page *pagecache_get_page(address_space *mapping, pgoff_t index, int fgp_flags, gfp_t gfp_mask)
 {
-	struct page *page;
+	page *ppage;
 
 repeat:
-	page = mapping_get_entry(mapping, index);
-	if (xa_is_value(page)) 
+	ppage = mapping_get_entry(mapping, index);
+	if (xa_is_value(ppage)) 
 	{
-		if (fgp_flags & FGP_ENTRY)		return page;
-		page = NULL;
+		if (fgp_flags & FGP_ENTRY)		return ppage;
+		ppage = NULL;
 	}
-	if (!page)		goto no_page;
+	if (!ppage)		goto no_page;
+	F_LOG_DEBUG(L"page", L"page=%p, ref=%d, index=%d, get page from mapping", ppage, ppage->_refcount, index);
 
 	if (fgp_flags & FGP_LOCK) 
 	{
 		if (fgp_flags & FGP_NOWAIT) 
 		{
-			if (!trylock_page(page)) 
+			if (!trylock_page(ppage)) 
 			{
-				page->put_page();
+				ppage->put_page();
 				return NULL;
 			}
 		} 
-		else {	lock_page(page);	}
+		else {	lock_page(ppage);	}
 
 		/* Has the page been truncated? */
-		if (unlikely(page->mapping != mapping)) 
+		if (unlikely(ppage->mapping != mapping)) 
 		{
 			LOG_ERROR(L"[err] page mapping unmatch, page=%llX, addr=%llX, page mapping=%llX, mapping =%llX",
-				page, page->virtual_add, page->mapping, mapping);
-			unlock_page(page);
-			page->put_page();
+				ppage, ppage->virtual_add, ppage->mapping, mapping);
+			unlock_page(ppage);
+			ppage->put_page();
 			goto repeat;
 		}
 //		VM_BUG_ON_PAGE(!thp_contains(page, index), page);
 	}
 
-	if (fgp_flags & FGP_ACCESSED)		mark_page_accessed(page);
+	if (fgp_flags & FGP_ACCESSED)		mark_page_accessed(ppage);
 	else if (fgp_flags & FGP_WRITE) 
 	{	/* Clear idle flag for buffer write */
-		if (page_is_idle(page))			clear_page_idle(page);
+		if (page_is_idle(ppage))			clear_page_idle(ppage);
 	}
-	if (!(fgp_flags & FGP_HEAD))	page = find_subpage(page, index);
+	if (!(fgp_flags & FGP_HEAD))	ppage = find_subpage(ppage, index);
 
 no_page:
-	if (!page && (fgp_flags & FGP_CREAT)) 
+	if (!ppage && (fgp_flags & FGP_CREAT)) 
 	{
 		int err;
 		if ((fgp_flags & FGP_WRITE) && mapping_can_writeback(mapping))			gfp_mask |= __GFP_WRITE;
 		if (fgp_flags & FGP_NOFS)			gfp_mask &= ~__GFP_FS;
 
-		page = __page_cache_alloc(gfp_mask);
-		if (!page)			return NULL;
-
+		ppage = __page_cache_alloc(gfp_mask, mapping->GetPageManager());
+		if (!ppage)			return NULL;
+		F_LOG_DEBUG(L"page", "page=%p, ref=%d, flag=%X, lock_th=%04X, allocate page", ppage, ppage->_refcount, ppage->flags, ppage->lock_th_id);
 		if (/*WARN_ON_ONCE*/(!(fgp_flags & (FGP_LOCK | FGP_FOR_MMAP))))
 			fgp_flags |= FGP_LOCK;
 
 		/* Init accessed so avoid atomic mark_page_accessed later */
-		if (fgp_flags & FGP_ACCESSED)		__SetPageReferenced(page);
+		if (fgp_flags & FGP_ACCESSED)		__SetPageReferenced(ppage);
 
-		err = add_to_page_cache_lru(page, mapping, index, gfp_mask);
+		err = add_to_page_cache_lru(ppage, mapping, index, gfp_mask);
 		if (unlikely(err)) 
 		{
-			page->put_page();
-			page = NULL;
+			ppage->put_page();
+			ppage = NULL;
 			if (err == -EEXIST)		goto repeat;
 		}
 
 		/* add_to_page_cache_lru locks the page, and for mmap we expect an unlocked page.		 */
-		if (page && (fgp_flags & FGP_FOR_MMAP))			unlock_page(page);
+		if (ppage && (fgp_flags & FGP_FOR_MMAP))			unlock_page(ppage);
 	}
 
-	return page;
+	return ppage;
 }
 //EXPORT_SYMBOL(pagecache_get_page);
 
@@ -2182,8 +2139,7 @@ retry:
 	else		page = xas_find_marked(xas, max, mark);
 
 	if (xas_retry(xas, page))		goto retry;
-	/* A shadow entry of a recently evicted page, a swap entry from shmem/tmpfs or a DAX entry.  Return it without
-	attempting to raise page count. */
+	/* A shadow entry of a recently evicted page, a swap entry from shmem/tmpfs or a DAX entry.  Return it without attempting to raise page count. */
 	if (!page || xa_is_value(page))		return page;
 	if (!page_cache_get_speculative(page))		goto reset;
 	/* Has the page moved or been split? */
@@ -2248,14 +2204,8 @@ unsigned find_get_entries(address_space *mapping, pgoff_t start, pgoff_t end, pa
  * @pvec:	Where the resulting entries are placed.
  * @indices:	The cache indices of the entries in @pvec.
  *
- * find_lock_entries() will return a batch of entries from @mapping. Swap, shadow and DAX entries are included.  
-   Pages are returned locked and with an incremented refcount.  Pages which are locked by somebody else or under 
-   writeback are skipped.  Only the head page of a THP is returned.  Pages which are partially outside the range 
-   are not returned.
- *
- * The entries have ascending indexes.  The indices may not be consecutive due to not-present entries, THP pages, 
-   pages which could not be locked or pages under writeback.
- *
+ * find_lock_entries() will return a batch of entries from @mapping. Swap, shadow and DAX entries are included. Pages are returned locked and with an incremented refcount.  Pages which are locked by somebody else or under writeback are skipped.  Only the head page of a THP is returned.  Pages which are partially outside the range are not returned.
+ * The entries have ascending indexes.  The indices may not be consecutive due to not-present entries, THP pages, pages which could not be locked or pages under writeback.
  * Return: The number of entries which were found. */
 unsigned find_lock_entries(address_space *mapping, pgoff_t start, pgoff_t end, pagevec *pvec, pgoff_t *indices)
 {
@@ -2481,16 +2431,9 @@ unsigned find_get_pages_range_tag(address_space *mapping, pgoff_t *index, pgoff_
 		}
 	}
 
-	/*
-	 * We come here when we got to @end. We take care to not overflow the
-	 * index @index as it confuses some of the callers. This breaks the
-	 * iteration when there is a page at index -1 but that is already
-	 * broken anyway.
-	 */
-	if (end == (pgoff_t)-1)
-		*index = (pgoff_t)-1;
-	else
-		*index = end + 1;
+	/* We come here when we got to @end. We take care to not overflow the index @index as it confuses some of the callers. This breaks the iteration when there is a page at index -1 but that is already broken anyway.	 */
+	if (end == (pgoff_t)-1)		*index = (pgoff_t)-1;
+	else		*index = end + 1;
 out:
 //	rcu_read_unlock();
 
@@ -2673,15 +2616,15 @@ static int filemap_get_pages(struct kiocb *iocb, struct iov_iter *iter, struct p
 	file_ra_state *ra = &filp->f_ra;
 	pgoff_t index = iocb->ki_pos >> PAGE_SHIFT;
 	pgoff_t last_index;
-	struct page *page;
+	page *ppage;
 	int err = 0;
 
 	last_index = DIV_ROUND_UP<size_t>(iocb->ki_pos + iter->count, PAGE_SIZE);
 retry:
 //	if (fatal_signal_pending(current))		return -EINTR;
-
+	LOG_DEBUG(L"get page from %d to %d", index, last_index);
 	filemap_get_read_batch(mapping, index, last_index, pvec);
-#if 0 //TODO
+#if 1 //TODO
 	if (!pagevec_count(pvec)) 
 	{
 		if (iocb->ki_flags & IOCB_NOIO)		return -EAGAIN;
@@ -2698,28 +2641,25 @@ retry:
 		return err;
 	}
 
-	page = pvec->pages[pagevec_count(pvec) - 1];
-	if (PageReadahead(page)) 
+	ppage = pvec->pages[pagevec_count(pvec) - 1];
+	if (PageReadahead(ppage)) 
 	{
-		err = filemap_readahead(iocb, filp, mapping, page, last_index);
+		err = filemap_readahead(iocb, filp, mapping, ppage, last_index);
 		if (err) goto err;
 	}
-	if (!PageUptodate(page)) 
+	if (!PageUptodate(ppage)) 
 	{
 		if ((iocb->ki_flags & IOCB_WAITQ) && pagevec_count(pvec) > 1)
 			iocb->ki_flags |= IOCB_NOWAIT;
-		err = filemap_update_page(iocb, mapping, iter, page);
+		err = filemap_update_page(iocb, mapping, iter, ppage);
 		if (err)	goto err;
 	}
 
 	return 0;
 err:
-	if (err < 0)
-		page->put_page();
-	if (likely(--pvec->nr))
-		return 0;
-	if (err == AOP_TRUNCATED_PAGE)
-		goto retry;
+	if (err < 0)						ppage->put_page();
+	if (likely(--pvec->nr))				return 0;
+	if (err == AOP_TRUNCATED_PAGE)		goto retry;
 	return err;
 }
 
@@ -2763,18 +2703,14 @@ ssize_t filemap_read(kiocb *iocb, iov_iter *iter, ssize_t already_read)
 	do {
 //		cond_resched();
 
-		/* If we've already successfully copied some data, then we can no longer safely return -EIOCBQUEUED. Hence mark
-		 * an async read NOWAIT at that point. */
+		/* If we've already successfully copied some data, then we can no longer safely return -EIOCBQUEUED. Hence mark an async read NOWAIT at that point. */
 		if ((iocb->ki_flags & IOCB_WAITQ) && already_read) iocb->ki_flags |= IOCB_NOWAIT;
 		// 实际读取页面，读取结果放入pvec中，然后从pvec复制数据到iter中。
 		error = filemap_get_pages(iocb, iter, &pvec);
 		if (error < 0) break;
 
 		/* i_size must be checked after we know the pages are Uptodate.
-		 *
-		 * Checking i_size after the check allows us to calculate the correct value for "nr", which means the 
-		 zero-filled part of the page is not copied back to userspace (unless another truncate extends the file
-		 - this is desired though).	 */
+		 * Checking i_size after the check allows us to calculate the correct value for "nr", which means the zero-filled part of the page is not copied back to userspace (unless another truncate extends the file - this is desired though).	 */
 		isize = i_size_read(inode);
 		if (unlikely(iocb->ki_pos >= isize))			goto put_pages;
 		end_offset = min(isize, iocb->ki_pos + iter->count);
@@ -2799,8 +2735,7 @@ ssize_t filemap_read(kiocb *iocb, iov_iter *iter, ssize_t already_read)
 
 			if (end_offset < page_offset(page))		break;
 			if (ii > 0)				mark_page_accessed(page);
-			/* If users can be writing to this page using arbitrary virtual addresses, take care about potential
-			aliasing before reading the page on the kernel side. */
+			/* If users can be writing to this page using arbitrary virtual addresses, take care about potential aliasing before reading the page on the kernel side. */
 			if (writably_mapped) 
 			{
 				int j;

@@ -46,6 +46,9 @@
  *
  * Q: What is the difference between I_WILL_FREE and I_FREEING?
  */
+
+#define _TRACK_INODE_LOCK_
+
 #define I_DIRTY_SYNC		(1 << 0)
 #define I_DIRTY_DATASYNC	(1 << 1)
 #define I_DIRTY_PAGES		(1 << 2)
@@ -74,6 +77,16 @@
 void __mark_inode_dirty(struct inode*, int);
 
 class CInodeManager;
+
+#ifdef _TRACK_INODE_LOCK_
+#define LOCK_INODE(ii) {	\
+	F_LOG_DEBUG(L"inode_lock", L" inode=%p, waiting for lock", ii);	\
+	ii->lock();	\
+	F_LOG_DEBUG(L"inode_lock", L" inode=%p, locked", ii);	\
+}
+#else
+#define LOCK_INODE(ii) ii->lock()
+#endif
 
 /* Keep mostly read-only and often accessed (especially for the RCU path lookup and 'stat' data) fields at the beginning of the 'struct inode' */
 struct inode
@@ -248,7 +261,37 @@ public:
 	timespec64		i_atime;
 	timespec64		i_mtime;
 	timespec64		i_ctime;
+protected:
 	spinlock_t		i_lock;	/* i_blocks, i_bytes, maybe i_size */
+public:
+
+#ifdef _TRACK_INODE_LOCK_
+	void lock(void);
+	void unlock(void);
+	bool trylock(void);
+	int atomic_decount_and_lock(void);
+#else
+	void lock(void) { spin_lock(&i_lock); }
+	void unlock(void) { spin_unlock(&i_lock); }
+	bool trylock(void) { return spin_trylock(&i_lock); }
+	inline int atomic_decount_and_lock(void /*atomic_t* a, spinlock_t* l*/)
+	{
+		int c = i_count;
+		do
+		{
+			if (unlikely(c == 1))			break;
+		} while (!InterlockedCompareExchange(&i_count, c - 1, c));
+		if (c != 1) return 0;
+
+		spin_lock(&i_lock);
+		//	if (c) return c;
+		if (InterlockedDecrement(&i_count) == 0) return 1;
+		spin_unlock(&i_lock);
+		return 0;
+	}
+#endif
+
+public:
 	unsigned short          i_bytes;
 	u8			i_blkbits;
 	u8			i_write_hint;
@@ -268,9 +311,9 @@ public:
 	void SetStateNotify(unsigned long state_bmp);
 	void ClearStateNotify(unsigned long state_bmp);
 	inline unsigned long TestState(unsigned long state_bmp) { return i_state & state_bmp; }
-	void WaitForState(int state_id, DWORD timeout=1000);
-
-	void __wait_on_freeing_inode(void);
+	void WaitForStateClear(int state_id, DWORD timeout=1000);
+	void WaitForStateSet(int state_id, DWORD timeout = 1000);
+//	void __wait_on_freeing_inode(void);
 
 
 	/* Misc */
@@ -313,7 +356,7 @@ public:
 	//	void (*free_inode)(struct inode *);
 	//};
 	struct file_lock_context* i_flctx;
-	//address_space	i_data;
+	//address_space	i_data;		// mapping的实体。通过虚拟类实现address_space，转移到i_mapping上。
 	struct list_head	i_devices;
 	union
 	{

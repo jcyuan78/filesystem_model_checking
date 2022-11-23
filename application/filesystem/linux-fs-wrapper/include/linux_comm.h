@@ -359,90 +359,25 @@ inline UINT32 prandom_u32(void)
 //	return ((1UL << (nr & 31)) & (p[nr >> 5])) != 0;
 //}
 
-inline bool test_bit(int nr, const void* addr)
-{
-	const u32* p = (const u32*)addr;
-	return ((1UL << (nr & 31)) & (p[nr >> 5])) != 0;
-}
 
-template <typename T> inline bool test_bit(int nr, T* addr)
-{
-	int bits_t = (int)BITS_PER_T<T>();
-	size_t word = nr / bits_t;
-	size_t bit_no = nr % bits_t;
-	return ((((T)(1)) << (bit_no)) & (addr[word])) != 0;
-//	JCASSERT(nr < (int)BITS_PER_T<T>());
-//	return ((((T)(1)) << (nr)) & (addr[0])) != 0;
-}
+// __test_bit(), __clear_bit(), __set_bit()，以__开头的函数，处理bit数组。即输入参数可以超过一个word的长度。
+// test_bit(), clear_bit(), set_bit()，没有__开头的函数，处理一个word的bit。
+
+
+
 
 #define test_and_set_bit_lock test_and_set_bit
 
 
 
-inline void __clear_bit(int nr, void* addr)
-{
-	u32* p = (u32*)addr;
-	p[nr >> 5] &= ~(1UL << (nr & 31));
-}
 
-template <typename T> inline void clear_bit(int nr, T* addr)
-{
-//	u32* p = (u32*)addr;
-//	p[nr >> 5] &= ~(1UL << (nr & 31));
-	*addr &= ~((T)1 << (nr));
-}
 
-/* test_and_set_bit - Set a bit and return its old value
- * @nr: Bit to set
- * @addr: Address to count from
- *
- * This operation is atomic and cannot be reordered. It also implies the acquisition side of the memory barrier. */
-template <typename T> inline int test_and_set_bit(int nr, volatile T* addr)
-{
-	//static const int BITS_PER_T = BITS_PER_BYTE * sizeof(T);
-	T mask = (1 << (nr % BITS_PER_TYPE(T)));
-	volatile T* p = (addr + nr / BITS_PER_TYPE(T));
-	T old = *p;
-	*p = old | mask;
 
-	return (old & mask) != 0;
-}
-inline int __test_and_set_bit(int nr, volatile void* addr)
-{
-	__u32* p = (__u32*)addr + (nr >> 5);
-	__u32 m = 1 << (nr & 31);
-	int oldbitset = (*p & m) != 0;
-	*p |= m;
-	return oldbitset;
-}
 
-/* __test_and_clear_bit - Clear a bit and return its old value
- * @nr: Bit to clear
- * @addr: Address to count from
- *
- * This operation is non-atomic and can be reordered. If two examples of this operation race, one can appear to 
- succeed but actually fail.  You must protect multiple accesses with a lock. */
-static inline int __test_and_clear_bit(int nr, volatile void* addr)
-{
-	__u32* p = (__u32*)addr + (nr >> 5);
-	__u32 m = 1 << (nr & 31);
-	int oldbitset = (*p & m) != 0;
 
-	*p &= ~m;
-	return oldbitset;
-}
 
-/** test_and_clear_bit - Clear a bit and return its old value
- * @nr: Bit to clear
- * @addr: Address to count from */
-template <typename T> inline int test_and_clear_bit(int nr, T* addr)
-{
-	T mask = (1 << (nr % BITS_PER_TYPE(T)));
-	T* p = addr + nr / BITS_PER_TYPE(T);
-	T old = *p;
-	*p = old & ~mask;
-	return (old & mask) != 0;
-}
+
+
 
 
 //inline void set_bit(int nr, void* addr)
@@ -463,10 +398,111 @@ inline void __set_bit(int nr, volatile void* addr)
 	*((__u32*)addr + (nr >> 5)) |= (1 << (nr & 31));
 }
 
-template <typename T> inline void set_bit(int nr, T* addr)
+inline void __clear_bit(int nr, void* addr)
+{
+	u32* p = (u32*)addr;
+	p[nr >> 5] &= ~(1UL << (nr & 31));
+}
+
+inline bool __test_bit(int nr, const void* addr)
+{
+	const u32* p = (const u32*)addr;
+	return ((1UL << (nr & 31)) & (p[nr >> 5])) != 0;
+}
+
+/* __test_and_clear_bit - Clear a bit and return its old value
+ * @nr: Bit to clear
+ * @addr: Address to count from
+ *
+ * This operation is non-atomic and can be reordered. If two examples of this operation race, one can appear to succeed but actually fail.  You must protect multiple accesses with a lock. */
+static inline int __test_and_clear_bit(int nr, volatile void* addr)
+{
+	__u32* p = (__u32*)addr + (nr >> 5);
+	__u32 m = 1 << (nr & 31);
+	int oldbitset = (*p & m) != 0;
+
+	*p &= ~m;
+	return oldbitset;
+}
+
+inline int __test_and_set_bit(int nr, volatile void* addr)
+{
+	__u32* p = (__u32*)addr + (nr >> 5);
+	__u32 m = 1 << (nr & 31);
+	int oldbitset = (*p & m) != 0;
+	*p |= m;
+	return oldbitset;
+}
+
+
+template <int L, typename T> inline void set_bit_by_size(int nr, volatile T& addr);
+template <int L, typename T> inline void set_bit_by_size<4, T>(int nr, volatile T& addr)
+{
+	InterlockedOr((long*)&addr, (((long)(1)) << nr));
+}
+
+
+template <typename T> inline void set_bit_(int nr, T& addr)
 {
 	JCASSERT(nr < sizeof(T) * 8);	//不满足这个条件应该换用__set_bit()函数
-	*addr |= (((T)(1)) << nr);
+	addr |= (((T)(1)) << nr);
+}
+
+template <typename T> inline void set_bit(int nr, volatile T& addr)
+{
+//	InterlockedOr((long*)&addr, (((long)(1)) << nr));
+	set_bit_by_size<sizeof(T)>(nr, addr);
+}
+
+template <typename T> inline void clear_bit_(int nr, T& addr)
+{
+	JCASSERT(nr < sizeof(T) * 8);	//不满足这个条件应该换用__clear_bit()函数
+	addr &= ~((T)1 << (nr));
+}
+
+template <int L, typename T> inline void clear_bit_by_size(int nr, volatile T& addr);
+template <int L, typename T> inline void clear_bit_by_size<4, T>(int nr, volatile T& addr)
+{
+	InterlockedAnd((long*)&addr, ~((long)1 << (nr)));
+}
+
+
+template <typename T> inline void clear_bit(int nr, volatile T& addr)
+{
+	clear_bit_by_size<sizeof(T)>(nr, addr);
+}
+
+template <typename T> inline bool test_bit(int nr, volatile T& addr)
+{
+	JCASSERT(nr < sizeof(T) * 8);	//不满足这个条件应该换用__clear_bit()函数
+	return (((T)1 << (nr)) & addr) != 0;
+}
+
+/** test_and_clear_bit - Clear a bit and return its old value
+ * @nr: Bit to clear
+ * @addr: Address to count from */
+template <typename T> inline int test_and_clear_bit(int nr, volatile T& addr)
+{
+	JCASSERT(nr < sizeof(T) * 8);	//不满足这个条件应该换用__clear_bit()函数
+//	T old = addr;
+	T mask = (T)1 << nr;
+	//addr &= ~mask;
+	T old = InterlockedAnd((long*)&addr, (~mask));
+	return (old & mask) != 0;
+}
+/* test_and_set_bit - Set a bit and return its old value
+ * @nr: Bit to set
+ * @addr: Address to count from
+ *
+ * This operation is atomic and cannot be reordered. It also implies the acquisition side of the memory barrier. */
+template <typename T> inline int test_and_set_bit(int nr, volatile T& addr)
+{
+	JCASSERT(nr < sizeof(T) * 8);	//不满足这个条件应该换用__clear_bit()函数
+	T mask = ((T)1 << nr);
+//	T old = addr;
+//	addr = old | mask;
+	T old = InterlockedOr((long*)&addr, mask);
+	return (old & mask) != 0;
 }
 
 template <typename T> inline T set_mask_bits(T* ptr, T mask, T bits)
@@ -610,3 +646,30 @@ enum
 
 template <typename T>
 inline void ZeroInit(T& d) { memset(&d, 0, sizeof(T)); }
+
+
+/* Used in tsk->state: */
+#define TASK_RUNNING			0x0000
+#define TASK_INTERRUPTIBLE		0x0001
+#define TASK_UNINTERRUPTIBLE		0x0002
+#define __TASK_STOPPED			0x0004
+#define __TASK_TRACED			0x0008
+/* Used in tsk->exit_state: */
+#define EXIT_DEAD			0x0010
+#define EXIT_ZOMBIE			0x0020
+#define EXIT_TRACE			(EXIT_ZOMBIE | EXIT_DEAD)
+/* Used in tsk->state again: */
+#define TASK_PARKED			0x0040
+#define TASK_DEAD			0x0080
+#define TASK_WAKEKILL			0x0100
+#define TASK_WAKING			0x0200
+#define TASK_NOLOAD			0x0400
+#define TASK_NEW			0x0800
+#define TASK_STATE_MAX			0x1000
+
+/* Convenience macros for the sake of set_current_state: */
+#define TASK_KILLABLE			(TASK_WAKEKILL | TASK_UNINTERRUPTIBLE)
+#define TASK_STOPPED			(TASK_WAKEKILL | __TASK_STOPPED)
+#define TASK_TRACED			(TASK_WAKEKILL | __TASK_TRACED)
+
+#define TASK_IDLE			(TASK_UNINTERRUPTIBLE | TASK_NOLOAD)

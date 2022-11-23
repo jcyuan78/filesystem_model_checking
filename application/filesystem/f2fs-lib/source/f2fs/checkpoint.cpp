@@ -410,7 +410,8 @@ long f2fs_sb_info::f2fs_sync_meta_pages(enum page_type type, long nr_to_write, e
 				goto stop;
 			}
 
-			auto_lock<page_auto_lock> page_locker(*ppage);
+			//auto_lock<page_auto_lock> page_locker(*ppage);
+			auto_lock_<page> page_locker(*ppage);
 //			lock_page(ppage);
 
 			if (unlikely(ppage->mapping != mapping)) 
@@ -801,7 +802,7 @@ void f2fs_sb_info::write_orphan_inodes(block_t start_blk)
 			orphan_blk = page_address<f2fs_orphan_block>(ppage);
 			memset(orphan_blk, 0, sizeof(*orphan_blk));
 		}
-		LOG_DEBUG(L"add orphan node=%d", orphan->ino);
+		LOG_DEBUG_(1, L"add orphan node=%d", orphan->ino);
 		orphan_blk->ino[nentries++] = cpu_to_le32(orphan->ino);
 
 		if (nentries == F2FS_ORPHANS_PER_BLOCK) 
@@ -1005,10 +1006,10 @@ fail_no_cp:
 }
 
 
-static void __add_dirty_inode(inode *iinode, inode_type type)
+static void __add_dirty_inode(f2fs_inode_info*iinode, inode_type type)
 {
 	f2fs_sb_info *sbi = F2FS_I_SB(iinode);
-	f2fs_inode_info* finode = dynamic_cast<f2fs_inode_info*>(iinode);
+//	f2fs_inode_info* finode = dynamic_cast<f2fs_inode_info*>(iinode);
 	int flag = (type == DIR_INODE) ? FI_DIRTY_DIR : FI_DIRTY_FILE;
 
 	if (is_inode_flag_set(iinode, flag))	return;
@@ -1017,28 +1018,28 @@ static void __add_dirty_inode(inode *iinode, inode_type type)
 	if (!f2fs_is_volatile_file(iinode))
 	{
 //		list_add_tail(&F2FS_I(iinode)->dirty_list, &sbi->inode_list[type]);
-		LOG_DEBUG(L"[inode_track] add=%p, ino=%d, type=%d - add to sb inode list", finode, finode->i_ino, type);
-		sbi->sb_list_add_tail(finode, type);
+		F_LOG_DEBUG(L"inode", L" add=%p, ino=%d, type=%d - add to sb iinode list", iinode, iinode->i_ino, type);
+		sbi->sb_list_add_tail(iinode, type);
 	}
 	stat_inc_dirty_inode(sbi, type);
 }
 
 
-static void __remove_dirty_inode(struct inode *inode, enum inode_type type)
+static void __remove_dirty_inode(f2fs_inode_info*iinode, enum inode_type type)
 {
-	f2fs_sb_info* sbi = F2FS_I_SB(inode);
-	f2fs_inode_info* finode = dynamic_cast<f2fs_inode_info*>(inode);
+	f2fs_sb_info* sbi = iinode->m_sbi;
+//	f2fs_inode_info* finode = dynamic_cast<f2fs_inode_info*>(iinode);
 
 	int flag = (type == DIR_INODE) ? FI_DIRTY_DIR : FI_DIRTY_FILE;
-	if (get_dirty_pages(inode) || !is_inode_flag_set(inode, flag))		return;
-	//list_del_init(&F2FS_I(inode)->dirty_list);
-	LOG_DEBUG(L"[inode_track] add=%p, ino=%d, type=%d - add to sb inode list", finode, finode->i_ino, type);
-	sbi->sb_list_del_init(finode, type);
-	clear_inode_flag(F2FS_I(inode), flag);
-	stat_dec_dirty_inode(F2FS_I_SB(inode), type);
+	if (get_dirty_pages(iinode) || !is_inode_flag_set(iinode, flag))		return;
+	//list_del_init(&F2FS_I(iinode)->dirty_list);
+	F_LOG_DEBUG(L"inode", L" add=%p, ino=%d, type=%d - add to sb inode list", iinode, iinode->i_ino, type);
+	sbi->sb_list_del_init(iinode, type);
+	clear_inode_flag(iinode, flag);
+	stat_dec_dirty_inode(sbi, type);
 }
 
-void f2fs_update_dirty_page(struct inode *inode, struct page *page)
+void f2fs_update_dirty_page(f2fs_inode_info*inode, struct page *page)
 {
 	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
 	enum inode_type type = S_ISDIR(inode->i_mode) ? DIR_INODE : FILE_INODE;
@@ -1049,6 +1050,7 @@ void f2fs_update_dirty_page(struct inode *inode, struct page *page)
 	spin_lock(&sbi->inode_lock[type]);
 	if (type != FILE_INODE || test_opt(sbi, DATA_FLUSH))
 		__add_dirty_inode(inode, type);
+	F_LOG_DEBUG(L"page.dirty", L" inc: inode=%d, page=%d", inode->i_ino, page->index);
 	inode_inc_dirty_pages(inode);
 	spin_unlock(&sbi->inode_lock[type]);
 
@@ -1056,7 +1058,7 @@ void f2fs_update_dirty_page(struct inode *inode, struct page *page)
 }
 
 
-void f2fs_remove_dirty_inode(struct inode *inode)
+void f2fs_remove_dirty_inode(f2fs_inode_info*inode)
 {
 	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
 	enum inode_type type = S_ISDIR(inode->i_mode) ? DIR_INODE : FILE_INODE;
@@ -1147,7 +1149,7 @@ int f2fs_sync_inode_meta(f2fs_sb_info *sbi)
 		}
 //		fi = list_first_entry(head, f2fs_inode_info, gdirty_list);
 		fi = sbi->get_list_first_entry(DIRTY_META);
-		LOG_DEBUG(L"[inode_track] add=%p, ino=%d, - try to sync", fi, fi->i_ino);
+		F_LOG_DEBUG(L"inode", L" add=%p, ino=%d, - try to sync", fi, fi->i_ino);
 		inode* iinode = igrab(fi);
 		spin_unlock(&sbi->inode_lock[DIRTY_META]);
 		if (iinode)
@@ -1155,7 +1157,7 @@ int f2fs_sync_inode_meta(f2fs_sb_info *sbi)
 //			inode * iinode = igrab(fi);
 			sync_inode_metadata(iinode, 0);
 			/* it's on eviction */
-			if (is_inode_flag_set(iinode, FI_DIRTY_INODE))		fi->f2fs_update_inode_page();
+			if (is_inode_flag_set(fi, FI_DIRTY_INODE))		fi->f2fs_update_inode_page();
 			iput(iinode);
 		}
 	}
@@ -1212,7 +1214,9 @@ static int block_operations(struct f2fs_sb_info *sbi)
 	f2fs_flush_inline_data(sbi);
 
 retry_flush_quotas:
-	f2fs_lock_all(sbi);
+	LOG_DEBUG(L"try to block all op")
+	sbi->f2fs_lock_all();
+	LOG_DEBUG(L"got block all op")
 	if (__need_flush_quota(sbi)) 
 	{
 		int locked;
@@ -1223,7 +1227,8 @@ retry_flush_quotas:
 			sbi->set_sbi_flag(SBI_QUOTA_NEED_FLUSH);
 			goto retry_flush_dents;
 		}
-		f2fs_unlock_all(sbi);
+		sbi->f2fs_unlock_all();
+		LOG_DEBUG(L"unblock all op");
 
 		/* only failed during mount/umount/freeze/quotactl */
 		locked = down_read_trylock(&sbi->s_umount);
@@ -1235,8 +1240,10 @@ retry_flush_quotas:
 
 retry_flush_dents:
 	/* write all the dirty dentry pages */
-	if (sbi->get_pages( F2FS_DIRTY_DENTS)) {
-		f2fs_unlock_all(sbi);
+	if (sbi->get_pages( F2FS_DIRTY_DENTS)) 
+	{
+		sbi->f2fs_unlock_all();
+		LOG_DEBUG(L"unblock all op");
 		err = f2fs_sync_dirty_inodes(sbi, DIR_INODE);
 		if (err)			return err;
 		// cond_resched();
@@ -1248,7 +1255,8 @@ retry_flush_dents:
 	if (sbi->get_pages( F2FS_DIRTY_IMETA)) 
 	{
 		up_write(&sbi->node_change);
-		f2fs_unlock_all(sbi);
+		sbi->f2fs_unlock_all();
+		LOG_DEBUG(L"unblock all op");
 		err = f2fs_sync_inode_meta(sbi);
 		if (err)		return err;
 		// cond_resched();
@@ -1263,9 +1271,11 @@ retry_flush_nodes:
 		atomic_inc(&sbi->wb_sync_req[NODE]);
 		err = f2fs_sync_node_pages(sbi, &wbc, false, FS_CP_NODE_IO);
 		atomic_dec(&sbi->wb_sync_req[NODE]);
-		if (err) {
+		if (err)
+		{
 			up_write(&sbi->node_change);
-			f2fs_unlock_all(sbi);
+			sbi->f2fs_unlock_all();
+			LOG_DEBUG(L"unblock all op");
 			return err;
 		}
 		//cond_resched();
@@ -1282,7 +1292,7 @@ retry_flush_nodes:
 static void unblock_operations(struct f2fs_sb_info *sbi)
 {
 	up_write(&sbi->node_write);
-	f2fs_unlock_all(sbi);
+	sbi->f2fs_unlock_all();
 }
 
 void ckpt_req_control::f2fs_wait_on_all_pages(/*f2fs_sb_info *sbi,*/ int type)

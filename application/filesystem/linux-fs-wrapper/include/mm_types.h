@@ -50,15 +50,147 @@ struct mem_cgroup;
 #define _struct_page_alignment
 #endif
 
+ /*	Various page->flags bits :
+ * PG_reserved is set for special pages.The "struct page" of such a page should in general not be touched(e.g.set dirty)
+ except by its owner. Pages marked as PG_reserved include :
+
+	 * -Pages part of the kernel image(including vDSO) and similar(e.g.BIOS, initrd, HW tables)
+	 * -Pages reserved or allocated early during boot(before the page allocator was initialized).This includes(depending on the architecture) the initial vmemmap, initial page tables, crashkernel, elfcorehdr, and much much more.Once (if ever) freed, PG_reserved is clearedand they will be given to the page allocator.
+	 * -Pages falling into physical memory gaps - not IORESOURCE_SYSRAM.Trying to read / write these pages might end badly.Don't touch!
+	 * -The zero page(s)
+	 * -Pages not added to the page allocator when onlining a section because they were excluded via the online_page_callback() or because they are
+	 * PG_hwpoison.
+	 * -Pages allocated in the context of kexec / kdump(loaded kernel image, control pages, vmcoreinfo)
+	 * -MMIO / DMA pages.Some architectures don't allow to ioremap pages that are not marked PG_reserved(as they might be in use by somebody else who does not respect the caching strategy).
+	 * -Pages part of an offline section(struct pages of offline sections should not be trusted as they will be initialized when first onlined).
+	 * -MCA pages on ia64
+	 * -Pages holding CPU notes for POWER Firmware Assisted Dump
+	 * -Device memory(e.g.PMEM, DAX, HMM)
+	 * Some PG_reserved pages will be excluded from the hibernation image.
+	 * PG_reserved does in general not hinder anybody from dumping or swapping andis no longer required for remap_pfn_range().ioremap might require it. Consequently, PG_reserved for a page mapped into user space can indicate the zero page, the vDSO, MMIO pages or device memory.
+	 *
+	 *The PG_private bitflag is set on pagecache pages if they contain filesystem specific data(which is normally at page->private).It can be used by private allocations for its own usage.
+	 *
+	 * During initiation of disk I / O, PG_locked is set.This bit is set before I / O andcleared when writeback _starts_ or when read _completes_.PG_writeback is set before writeback starts and cleared when it finishes.
+	 *
+	 *PG_locked also pins a page in pagecache, and blocks truncation of the file while it is held.
+	 *
+	 * page_waitqueue(page) is a wait queue of all tasks waiting for the page to become unlocked.
+	 *
+	 * PG_swapbacked is set when a page uses swap as a backing storage.This are usually PageAnon or shmem pages but please note that even anonymous pages might lose their PG_swapbacked flag when they simply can be dropped(e.g.as a result of MADV_FREE).
+	 *
+	 *PG_uptodate tells whether the page's contents is valid.  When a read completes, the page becomes uptodate, unless a disk I / O error happened.
+	 *
+	 *PG_referenced, PG_reclaim are used for page reclaim for anonymousand file - backed pagecache(see mm / vmscan.c).
+	 *
+	 *PG_error is set to indicate that an I / O error occurred on this page.
+	 *
+	 *PG_arch_1 is an architecture specific page state bit.The generic code guarantees that this bit is cleared for a page when it first is entered into the page cache.
+	 *
+	 * PG_hwpoison indicates that a page got corrupted in hardwareand contains data with incorrect ECC bits that triggered a machine check.Accessing is not safe since it may cause another machine check.Don't touch! * /
+
+ /* Don't use the pageflags directly.  Use the PageFoo macros.
+  * The page flags field is split into two parts, the main flags area which extends from the low bits upwards, and the
+  fields area which extends from the high bits downwards.
+  *
+  *  | FIELD | ... | FLAGS |
+  *  N-1           ^       0
+  *               (NR_PAGEFLAGS)
+  * The fields area is reserved for fields mapping zone, node (for NUMA) and SPARSEMEM section (for variants of
+  SPARSEMEM that require section ids like SPARSEMEM_EXTREME with !SPARSEMEM_VMEMMAP).*/
+enum pageflags
+{
+	PG_locked,		/* Page is locked. Don't touch. */
+	PG_referenced,
+	PG_uptodate,
+	PG_dirty,
+	PG_lru,
+	PG_active,
+	PG_workingset,
+	PG_waiters,		/* Page has waiters, check its waitqueue. Must be bit #7 and in the same byte as "PG_locked" */
+	PG_error,
+	PG_slab,
+	PG_owner_priv_1,	/* Owner use. If pagecache, fs may use*/
+	PG_arch_1,
+	PG_reserved,
+	PG_private,		/* If pagecache, has fs-private data */
+	PG_private_2,		/* If pagecache, has fs aux data */
+	PG_writeback,		/* Page is under writeback */
+	PG_head,		/* A head page */
+	PG_mappedtodisk,	/* Has blocks allocated on-disk */
+	PG_reclaim,		/* To be reclaimed asap */
+	PG_swapbacked,		/* Page is backed by RAM/swap */
+	PG_unevictable,		/* Page is "unevictable"  */
+#ifdef CONFIG_MMU
+	PG_mlocked,		/* Page is vma mlocked */
+#endif
+#ifdef CONFIG_ARCH_USES_PG_UNCACHED
+	PG_uncached,		/* Page has been mapped as uncached */
+#endif
+#ifdef CONFIG_MEMORY_FAILURE
+	PG_hwpoison,		/* hardware poisoned page. Don't touch */
+#endif
+#if defined(CONFIG_IDLE_PAGE_TRACKING) && defined(CONFIG_64BIT)
+	PG_young,
+	PG_idle,
+#endif
+#ifdef CONFIG_64BIT
+	PG_arch_2,
+#endif
+#ifdef CONFIG_KASAN_HW_TAGS
+	PG_skip_kasan_poison,
+#endif
+	PG_free,	//当page被放入free 队列时，设置标志位。
+	__NR_PAGEFLAGS,
+
+	/* Filesystems */
+	PG_checked = PG_owner_priv_1,
+
+	/* SwapBacked */
+	PG_swapcache = PG_owner_priv_1,	/* Swap page: swp_entry_t in private */
+
+	/* Two page bits are conscripted by FS-Cache to maintain local caching state.  These bits are set on pages belonging to the netfs's inodes when those inodes are being locally cached. */
+	PG_fscache = PG_private_2,	/* page backed by cache */
+
+	/* XEN */
+	/* Pinned in Xen as a read-only pagetable page. */
+	PG_pinned = PG_owner_priv_1,
+	/* Pinned as part of domain save (see xen_mm_pin_all()). */
+	PG_savepinned = PG_dirty,
+	/* Has a grant mapping of another (foreign) domain's page. */
+	PG_foreign = PG_owner_priv_1,
+	/* Remapped by swiotlb-xen. */
+	PG_xen_remapped = PG_owner_priv_1,
+
+	/* SLOB */
+	PG_slob_free = PG_private,
+
+	/* Compound pages. Stored in first tail page's flags */
+	PG_double_map = PG_workingset,
+
+	/* non-lru isolated movable page */
+	PG_isolated = PG_reclaim,
+
+	/* Only valid for buddy pages. Used to track pages that are reported */
+	PG_reported = PG_uptodate,
+};
+
+class CPageManager;
+
 struct page 
 {
-public:
+protected:
+	page(CPageManager * manager);
 	page(void);
 	~page(void);
+	void init(CPageManager* manager, void* vmem);
+	void reinit(void);	// 从free list中取出再利用时的重新初始化。
+	friend class CPageManager;
+public:
 
-	void set_mark(xa_mark_t mark) { set_bit(mark, &m_mark); }
-	bool is_marked(xa_mark_t mark) { return test_bit(mark, &m_mark); }
-	void clear_mark(xa_mark_t mark) { clear_bit(mark, &m_mark); }
+	void set_mark(xa_mark_t mark) { set_bit(mark, m_mark); }
+	bool is_marked(xa_mark_t mark) { return test_bit(mark, m_mark); }
+	void clear_mark(xa_mark_t mark) { clear_bit(mark, m_mark); }
 	/** page_has_private - Determine if page has private stuff
 	 * @page: The page to be checked
 	 * Determine if a page has private stuff, indicating that release routines should be invoked upon it. */
@@ -72,7 +204,7 @@ public:
 protected:
 	UINT32 m_mark =0;
 public:
-	unsigned long flags;		/* Atomic flags, some possibly updated asynchronously */
+	unsigned long flags = 0;		/* Atomic flags, some possibly updated asynchronously */
 	/* Five words (20/40 bytes) are available in this union.
 	 * WARNING: bit 0 of the first word is used for PageTail(). That means the other users of this union MUST NOT use
 	 the bit to avoid collision and false-positive PageTail().	 */
@@ -88,6 +220,7 @@ public:
 			unsigned long private_data;
 		};
 
+#if 0
 		struct 
 		{	/* page_pool used by netstack */
 			/** @dma_addr: might require a 64-bit value on 32-bit architectures.	 */
@@ -160,16 +293,57 @@ public:
 		};
 		/** @rcu_head: You can use this to free a page by RCU. */
 //		struct rcu_head rcu_head;
+#endif
 	};
 
 	union {		/* This union is 4 bytes in size. */
 	/* If the page can be mapped to userspace, encodes the number of times this page is referenced by a page table. */
 		atomic_t _mapcount;
 		/* If the page is neither PageSlab nor mappable to userspace, the value stored here may help determine what this page is used for.  See page-flags.h for a list of page types which are currently stored here. */
-		unsigned int page_type;
+		unsigned int page_type = 0;
 		unsigned int active;	/* SLAB */
 		int units;				/* SLOB */
 	};
+
+protected:
+	CRITICAL_SECTION m_lock;		// 用于page lock()。避免使用state bit来lock page带来的不确定性与效率问题。
+//	HANDLE m_event_state;			// 用于state状态变换后的通知
+	CONDITION_VARIABLE m_state_condition;	// 当state 变化是接受通知。
+public:
+	void lock(void)
+	{
+		EnterCriticalSection(&m_lock);
+		set_bit(PG_locked, flags);
+#ifdef _DEBUG
+		lock_th_id = GetCurrentThreadId();
+#endif
+	}
+	void unlock(void)
+	{
+#ifdef _DEBUG
+		lock_th_id = 0;
+#endif
+		clear_bit(PG_locked, flags);
+		LeaveCriticalSection(&m_lock);
+	}
+	int trylock(void)
+	{
+		BOOL locked = TryEnterCriticalSection(&m_lock);
+		if (locked)
+		{
+			set_bit(PG_locked, flags);
+#ifdef _DEBUG
+			lock_th_id = GetCurrentThreadId();
+#endif
+		}
+		return locked;
+	}
+	int WaitOnPageBitCommon(int bit_nr, int state, enum behavior bb);
+	void WakeUpPageBit(int bit_nr);
+
+#ifdef _DEBUG
+	DWORD lock_th_id=0;
+#endif
 
 public:
 	inline void ref_add(int count) { atomic_add(count, &_refcount); }
@@ -185,30 +359,21 @@ public:
 		JCASSERT(_refcount > 0);
 		atomic_inc(&_refcount); 
 	}
-	void put_page(void);
+	page* put_page(void);
+	friend void lru_cache_add(page* pp);
+	friend void mark_page_accessed(page* pp);
+	friend void del_page_from_lru_list(page* pp, struct lruvec* lru);
+	friend page* pagecache_get_page(address_space* mapping, pgoff_t index, int fgp_flags, gfp_t gfp_mask);
+
+	void del(void);
 
 protected:
+	CPageManager* m_manager =nullptr;
 	/* Usage count. *DO NOT USE DIRECTLY*. See page_ref.h */
-	atomic_t _refcount;
-	inline int put_page_testzero(void);
-	void inline __put_page(void)
-	{
-#if 0
-		if (is_zone_device_page(ppage))
-		{
-			put_dev_pagemap(ppage->pgmap);
-			/* The page belongs to the device that created pgmap. Do not return it to page allocator. */
-			return;
-	}
-		if (unlikely(PageCompound(ppage)))		__put_compound_page(ppage);
-		else		__put_single_page(ppage);
-#endif
-		//	LOG_DEBUG(L"page=0x%llX, add=0x%llX, ref=%d", ppage, ppage->virtual_add, ppage->_refcount);
-
-		delete this;
-}
+	atomic_t _refcount =0;
 
 public:
+	inline int put_page_testzero(void);
 
 #ifdef CONFIG_MEMCG
 	unsigned long memcg_data;
@@ -217,14 +382,14 @@ public:
 	/* On machines where all RAM is mapped into kernel address space, we can simply calculate the virtual address. On machines with highmem some memory is mapped into kernel virtual memory dynamically, so we need a place to store		that address. Note that this field could be 16 bits on x86 ... ;)
 	Architectures with slow multiplication can define  WANT_PAGE_VIRTUAL in asm/page.h */
 #if defined(WANT_PAGE_VIRTUAL)
-	void *virtual_add;			/* Kernel virtual address (NULL if not kmapped, ie. highmem) */
+	void *virtual_add = nullptr;/* Kernel virtual address (NULL if not kmapped, ie. highmem) */
 #endif /* WANT_PAGE_VIRTUAL */
 
 #ifdef _DEBUG
 	//保存自动分配的地址，以检查时候有变化
-	void* back_add;
+	void* back_add = nullptr;
 	//debug 信息
-	UINT32	m_block_addr;			// page所对应的ondisk地址
+	UINT32	m_block_addr = 0;			// page所对应的ondisk地址
 	std::wstring m_type;			// page的类型：inode，data，其他
 	std::wstring m_description;		
 #endif
@@ -232,11 +397,6 @@ public:
 #ifdef LAST_CPUPID_NOT_IN_PAGE_FLAGS
 	int _last_cpupid;
 #endif
-};
-
-class CPageManager
-{
-
 };
 
 
@@ -949,185 +1109,39 @@ static inline void bitmap_fill(unsigned long* dst, unsigned int nbits)
 }
 
 //<YUAN> in filemap.c
-inline void lock_page(page*)
+inline void lock_page(page* page)
 {
-	//struct page* page = compound_head(__page);
-	//wait_queue_head_t* q = page_waitqueue(page);
-	//wait_on_page_bit_common(q, page, PG_locked, TASK_UNINTERRUPTIBLE, EXCLUSIVE);
+	page->lock();
 }
 
-class page_auto_lock
+//<YUAN> from mm/filemap.c
+/** unlock_page - unlock a locked page
+* @page: the page
+*
+*Unlocks the page and wakes up sleepers in wait_on_page_locked(). Also wakes sleepers in wait_on_page_writeback() because the wakeup mechanism between PageLocked pages and PageWriteback pages is shared. But that's OK - sleepers in wait_on_page_writeback() just go back to sleep.
+*Note that this depends on PG_waiters being the sign bit in the byte that contains PG_locked - thus the BUILD_BUG_ON(). That allows us to clear the PG_locked bit and test PG_waiters at the same time fairly portably(architectures that do LL / SC can test any bit, while x86 can test the sign bit). */
+inline void unlock_page(page* pp)
 {
-public:
-	page_auto_lock(page& pp) { m_page = &pp; }
-	void lock(void) { lock_page(m_page); }
-	void unlock(void) { unlock_page(m_page); }
+	pp->unlock();
+	//	BUILD_BUG_ON(PG_waiters != 7);
+	//	page = compound_head(page);
+	//	VM_BUG_ON_PAGE(!PageLocked(page), page);
+	//	if (clear_bit_unlock_is_negative_byte(PG_locked, &page->flags))		wake_up_page_bit(page, PG_locked);
+}
 
-protected:
-	page* m_page;
-
-};
-
+/* Return true if the page was successfully locked */
+static inline int trylock_page(page* pp)
+{
+	//page = compound_head(page);
+//	return (likely(!test_and_set_bit_lock(PG_locked, page->flags)));
+	return pp->trylock();
+}
 
 /* Dirty a page.
  *
- * For pages with a mapping this should be done under the page lock for the benefit of asynchronous memory errors who
- prefer a consistent dirty state. This rule can be broken in some special cases, but should be better not to. */
+ * For pages with a mapping this should be done under the page lock for the benefit of asynchronous memory errors who prefer a consistent dirty state. This rule can be broken in some special cases, but should be better not to. */
 //inline int set_page_dirty(page* page);
 
-/*	Various page->flags bits :
-* PG_reserved is set for special pages.The "struct page" of such a page should in general not be touched(e.g.set dirty)
-except by its owner. Pages marked as PG_reserved include :
-
-	* -Pages part of the kernel image(including vDSO) and similar(e.g.BIOS, initrd, HW tables)
-	* -Pages reserved or allocated early during boot(before the page allocator was initialized).This includes(depending 
-		on the architecture) the initial vmemmap, initial page tables, crashkernel, elfcorehdr, and much much more.Once
-		(if ever) freed, PG_reserved is clearedand they will be given to the page allocator.
-	* -Pages falling into physical memory gaps - not IORESOURCE_SYSRAM.Trying to read / write these pages might end
-		badly.Don't touch!
-	* -The zero page(s)
-	* -Pages not added to the page allocator when onlining a section because
-	* they were excluded via the online_page_callback() or because they are
-	* PG_hwpoison.
-	* -Pages allocated in the context of kexec / kdump(loaded kernel image,
-		*control pages, vmcoreinfo)
-	* -MMIO / DMA pages.Some architectures don't allow to ioremap pages that are
-	* not marked PG_reserved(as they might be in use by somebody else who does
-		* not respect the caching strategy).
-	* -Pages part of an offline section(struct pages of offline sections should
-		* not be trusted as they will be initialized when first onlined).
-	* -MCA pages on ia64
-	* -Pages holding CPU notes for POWER Firmware Assisted Dump
-	* -Device memory(e.g.PMEM, DAX, HMM)
-	* Some PG_reserved pages will be excluded from the hibernation image.
-	* PG_reserved does in general not hinder anybody from dumping or swapping
-	* andis no longer required for remap_pfn_range().ioremap might require it.
-	* Consequently, PG_reserved for a page mapped into user space can indicate
-	* the zero page, the vDSO, MMIO pages or device memory.
-	*
-	*The PG_private bitflag is set on pagecache pages if they contain filesystem
-	* specific data(which is normally at page->private).It can be used by
-	* private allocations for its own usage.
-	*
-	* During initiation of disk I / O, PG_locked is set.This bit is set before I / O
-	* andcleared when writeback _starts_ or when read _completes_.PG_writeback
-	* is set before writeback starts and cleared when it finishes.
-	*
-	*PG_locked also pins a page in pagecache, and blocks truncation of the file
-	* while it is held.
-	*
-	* page_waitqueue(page) is a wait queue of all tasks waiting for the page
-	* to become unlocked.
-	*
-	* PG_swapbacked is set when a page uses swap as a backing storage.This are
-	* usually PageAnon or shmem pages but please note that even anonymous pages
-	* might lose their PG_swapbacked flag when they simply can be dropped(e.g.as
-		* a result of MADV_FREE).
-	*
-	*PG_uptodate tells whether the page's contents is valid.  When a read
-	* completes, the page becomes uptodate, unless a disk I / O error happened.
-	*
-	*PG_referenced, PG_reclaim are used for page reclaim for anonymousand
-	* file - backed pagecache(see mm / vmscan.c).
-	*
-	*PG_error is set to indicate that an I / O error occurred on this page.
-	*
-	*PG_arch_1 is an architecture specific page state bit.The generic code
-	* guarantees that this bit is cleared for a page when it first is entered into
-	* the page cache.
-	*
-	* PG_hwpoison indicates that a page got corrupted in hardwareand contains
-	* data with incorrect ECC bits that triggered a machine check.Accessing is
-	* not safe since it may cause another machine check.Don't touch!
-	* /
-
-/* Don't use the pageflags directly.  Use the PageFoo macros.
- * The page flags field is split into two parts, the main flags area which extends from the low bits upwards, and the 
- fields area which extends from the high bits downwards.
- *
- *  | FIELD | ... | FLAGS |
- *  N-1           ^       0
- *               (NR_PAGEFLAGS)
- * The fields area is reserved for fields mapping zone, node (for NUMA) and SPARSEMEM section (for variants of 
- SPARSEMEM that require section ids like SPARSEMEM_EXTREME with !SPARSEMEM_VMEMMAP).*/
-enum pageflags
-{
-	PG_locked,		/* Page is locked. Don't touch. */
-	PG_referenced,
-	PG_uptodate,
-	PG_dirty,
-	PG_lru,
-	PG_active,
-	PG_workingset,
-	PG_waiters,		/* Page has waiters, check its waitqueue. Must be bit #7 and in the same byte as "PG_locked" */
-	PG_error,
-	PG_slab,
-	PG_owner_priv_1,	/* Owner use. If pagecache, fs may use*/
-	PG_arch_1,
-	PG_reserved,
-	PG_private,		/* If pagecache, has fs-private data */
-	PG_private_2,		/* If pagecache, has fs aux data */
-	PG_writeback,		/* Page is under writeback */
-	PG_head,		/* A head page */
-	PG_mappedtodisk,	/* Has blocks allocated on-disk */
-	PG_reclaim,		/* To be reclaimed asap */
-	PG_swapbacked,		/* Page is backed by RAM/swap */
-	PG_unevictable,		/* Page is "unevictable"  */
-#ifdef CONFIG_MMU
-	PG_mlocked,		/* Page is vma mlocked */
-#endif
-#ifdef CONFIG_ARCH_USES_PG_UNCACHED
-	PG_uncached,		/* Page has been mapped as uncached */
-#endif
-#ifdef CONFIG_MEMORY_FAILURE
-	PG_hwpoison,		/* hardware poisoned page. Don't touch */
-#endif
-#if defined(CONFIG_IDLE_PAGE_TRACKING) && defined(CONFIG_64BIT)
-	PG_young,
-	PG_idle,
-#endif
-#ifdef CONFIG_64BIT
-	PG_arch_2,
-#endif
-#ifdef CONFIG_KASAN_HW_TAGS
-	PG_skip_kasan_poison,
-#endif
-	__NR_PAGEFLAGS,
-
-	/* Filesystems */
-	PG_checked = PG_owner_priv_1,
-
-	/* SwapBacked */
-	PG_swapcache = PG_owner_priv_1,	/* Swap page: swp_entry_t in private */
-
-	/* Two page bits are conscripted by FS-Cache to maintain local caching
-	 * state.  These bits are set on pages belonging to the netfs's inodes
-	 * when those inodes are being locally cached.
-	 */
-	 PG_fscache = PG_private_2,	/* page backed by cache */
-
-	 /* XEN */
-	 /* Pinned in Xen as a read-only pagetable page. */
-	 PG_pinned = PG_owner_priv_1,
-	 /* Pinned as part of domain save (see xen_mm_pin_all()). */
-	 PG_savepinned = PG_dirty,
-	 /* Has a grant mapping of another (foreign) domain's page. */
-	 PG_foreign = PG_owner_priv_1,
-	 /* Remapped by swiotlb-xen. */
-	 PG_xen_remapped = PG_owner_priv_1,
-
-	 /* SLOB */
-	 PG_slob_free = PG_private,
-
-	 /* Compound pages. Stored in first tail page's flags */
-	 PG_double_map = PG_workingset,
-
-	 /* non-lru isolated movable page */
-	 PG_isolated = PG_reclaim,
-
-	 /* Only valid for buddy pages. Used to track pages that are reported */
-	 PG_reported = PG_uptodate,
-};
 
 //<YUAN> 源代码在page-flags.h中，262行，通过#define Page##uname()的方式实现
 
@@ -1137,94 +1151,101 @@ inline int page::page_has_private(void)	{	return !!(flags & PAGE_FLAGS_PRIVATE);
 
 // read data to page
 
+// 所有set_bit和clear_bit都要atom操作。除了__set_bit和__clear_bit
+
 //-- Active
-inline bool PageActive(page* pp) {	return test_bit(PG_active, &pp->flags);}
-inline void SetPageActive(page* pp) { set_bit(PG_active, &pp->flags); }
-inline void ClearPageActive(page* pp) { clear_bit(PG_active, &pp->flags); }
+inline bool PageActive(page* pp) {	return test_bit(PG_active, pp->flags);}
+inline void SetPageActive(page* pp) { set_bit(PG_active, pp->flags); }
+inline void ClearPageActive(page* pp) { clear_bit(PG_active, pp->flags); }
 
 
 //-- Checked
-inline bool PageChecked(page* pp) { return test_bit(PG_checked, &pp->flags); }
-inline void SetPageChecked(page* pp) { set_bit(PG_checked, &pp->flags); }
-inline void ClearPageChecked(page* pp) { clear_bit(PG_checked, &pp->flags); }
+inline bool PageChecked(page* pp) { return test_bit(PG_checked, pp->flags); }
+inline void SetPageChecked(page* pp) { set_bit(PG_checked, pp->flags); }
+inline void ClearPageChecked(page* pp) { clear_bit(PG_checked, pp->flags); }
 
 //-- Dirty
-inline bool PageDirty(page* pp) { return test_bit(PG_dirty, &pp->flags); }
-inline void ClearPageDirty(page* pp) { clear_bit(PG_dirty, &pp->flags); }
-inline bool TestSetPageDirty(page* pp) { return test_and_set_bit(PG_dirty, &pp->flags); }
-inline bool TestClearPageDirty(page* pp) { return test_and_clear_bit(PG_dirty, &pp->flags); }
+inline bool PageDirty(page* pp) { return test_bit(PG_dirty, pp->flags); }
+inline void ClearPageDirty(page* pp) { clear_bit(PG_dirty, pp->flags); }
+inline bool TestSetPageDirty(page* pp) { return test_and_set_bit(PG_dirty, pp->flags); }
+inline bool TestClearPageDirty(page* pp) { return test_and_clear_bit(PG_dirty, pp->flags); }
 //-- Error
-inline bool PageError(page* page_ptr) { return test_bit(PG_error, &page_ptr->flags); }
-inline void SetPageError(page* page_ptr) { set_bit(PG_error, &page_ptr->flags); }
-inline void ClearPageError(page* page_ptr) { clear_bit(PG_error, &page_ptr->flags); }
-inline bool TestClearPageError(page* pp) { return test_and_clear_bit(PG_error, &pp->flags); }
+inline bool PageError(page* pp) { return test_bit(PG_error, pp->flags); }
+inline void SetPageError(page* pp) { set_bit(PG_error, pp->flags); }
+inline void ClearPageError(page* pp) { clear_bit(PG_error, pp->flags); }
+inline bool TestClearPageError(page* pp) { return test_and_clear_bit(PG_error, pp->flags); }
 
 
 //-- Idle
-inline bool PageIdle(page* pp) { return test_bit(PG_idle, &pp->flags); }
+inline bool PageIdle(page* pp) { return test_bit(PG_idle, pp->flags); }
 inline bool page_is_idle(page* pp) { return PageIdle(pp); }
-inline void ClearPageIdle(page* pp) { clear_bit(PG_idle, &pp->flags); }
+inline void ClearPageIdle(page* pp) { clear_bit(PG_idle, pp->flags); }
 inline void clear_page_idle(page* pp)	{	ClearPageIdle(pp);}
 
 
 //-- Locked
-inline bool PageLocked(page* pp) { return test_bit(PG_locked, &pp->flags); }
-inline void __SetPageLocked(page* pp) { set_bit(PG_locked, &pp->flags); }
-inline void __ClearPageLocked(page* pp) { clear_bit(PG_locked, &pp->flags); }
+inline bool PageLocked(page* pp) { return test_bit(PG_locked, pp->flags); }
+//inline void __SetPageLocked(page* pp) { set_bit(PG_locked, pp->flags); }
+//inline void __ClearPageLocked(page* pp) { clear_bit(PG_locked, pp->flags); }
 
-inline bool PageLRU(page* pp) { return test_bit(PG_lru, &pp->flags); }
-inline void SetPageLRU(page* pp) { set_bit(PG_lru, &pp->flags); }
-inline void ClearPageLRU(page* pp) { clear_bit(PG_lru, &pp->flags); }
+inline bool PageLRU(page* pp) { return test_bit(PG_lru, pp->flags); }
+inline void SetPageLRU(page* pp) { set_bit(PG_lru, pp->flags); }
+inline void ClearPageLRU(page* pp) { clear_bit(PG_lru, pp->flags); }
 
-inline void ClearPageMappedToDisk(page* pp) { clear_bit(PG_mappedtodisk, &pp->flags); }
+inline void ClearPageMappedToDisk(page* pp) { clear_bit(PG_mappedtodisk, pp->flags); }
 
 
-inline bool PageSwapCache(page* pp) { return test_bit(PG_swapcache, &pp->flags); }
-inline bool PageMappedToDisk(page* pp) { return test_bit(PG_mappedtodisk, &pp->flags); }
-inline void SetPageMappedToDisk(page* pp) { set_bit(PG_mappedtodisk, &pp->flags); }
+inline bool PageSwapCache(page* pp) { return test_bit(PG_swapcache, pp->flags); }
+inline bool PageMappedToDisk(page* pp) { return test_bit(PG_mappedtodisk, pp->flags); }
+inline void SetPageMappedToDisk(page* pp) { set_bit(PG_mappedtodisk, pp->flags); }
 
-inline bool PageReclaim(page* pp) { return test_bit(PG_reclaim, &pp->flags); }
-inline void ClearPageReclaim(page* pp) { clear_bit(PG_reclaim, &pp->flags); }
+inline bool PageReclaim(page* pp) { return test_bit(PG_reclaim, pp->flags); }
+inline void ClearPageReclaim(page* pp) { clear_bit(PG_reclaim, pp->flags); }
 //-- Private
-inline bool PagePrivate(page* pp) { return test_bit(PG_private, &pp->flags); }
-inline void SetPagePrivate(page* pp) { set_bit(PG_private, &pp->flags); }
-inline void ClearPagePrivate(page* pp) { clear_bit(PG_private, &pp->flags); }
+inline bool PagePrivate(page* pp) { return test_bit(PG_private, pp->flags); }
+inline void SetPagePrivate(page* pp) { set_bit(PG_private, pp->flags); }
+inline void ClearPagePrivate(page* pp) { clear_bit(PG_private, pp->flags); }
 
-inline bool PageHead(page* pp) { return test_bit(PG_head, &pp->flags); }
+inline bool PageHead(page* pp) { return test_bit(PG_head, pp->flags); }
 inline bool PageTransHuge(page* pp) { return PageHead(pp); }
 
 //-- Reference
-inline bool PageReferenced(page* pp) { return test_bit(PG_referenced, &pp->flags); }
-inline void SetPageReferenced(page* pp) { set_bit(PG_referenced, &pp->flags); }
-inline void ClearPageReferenced(page* pp) { clear_bit(PG_referenced, &pp->flags); }
+inline bool PageReferenced(page* pp) { return test_bit(PG_referenced, pp->flags); }
+inline void SetPageReferenced(page* pp) { set_bit(PG_referenced, pp->flags); }
+inline void ClearPageReferenced(page* pp) { clear_bit(PG_referenced, pp->flags); }
 
 
 //-- Readahead / Reclaim
-inline bool PageReadahead(page* pp) { return test_bit(PG_reclaim, &pp->flags); }
-inline void SetPageReadahead(page* pp) {	set_bit(PG_reclaim, &pp->flags); }
-inline void ClearPageReadahead(page* pp) { clear_bit(PG_reclaim, &pp->flags); }
+inline bool PageReadahead(page* pp) { return test_bit(PG_reclaim, pp->flags); }
+inline void SetPageReadahead(page* pp) {	set_bit(PG_reclaim, pp->flags); }
+inline void ClearPageReadahead(page* pp) { clear_bit(PG_reclaim, pp->flags); }
 
-inline bool PageSwapBacked(page* pp) { return test_bit(PG_swapbacked, &pp->flags); }
+inline bool PageSwapBacked(page* pp) { return test_bit(PG_swapbacked, pp->flags); }
 
-inline void __SetPageReferenced(page* pp) { set_bit(PG_referenced, &pp->flags); }
+inline void __SetPageReferenced(page* pp) { set_bit(PG_referenced, pp->flags); }
 
 //-- Unevictable
-inline bool PageUnevictable(page* pp) {	return test_bit(PG_unevictable, &pp->flags); }
-inline void ClearPageUnevictable(page* pp) { clear_bit(PG_unevictable, &pp->flags); }
+inline bool PageUnevictable(page* pp) {	return test_bit(PG_unevictable, pp->flags); }
+inline void ClearPageUnevictable(page* pp) { clear_bit(PG_unevictable, pp->flags); }
 
  
 //-- Uptodate
-inline int PageUptodate(page* page_ptr) { return test_bit(PG_uptodate, &page_ptr->flags); }
-inline void ClearPageUptodate(page* page_ptr) { clear_bit(PG_uptodate, &page_ptr->flags); }
-inline void SetPageUptodate(page* page_ptr) { set_bit(PG_uptodate, &page_ptr->flags); }
+inline int PageUptodate(page* pp) { return test_bit(PG_uptodate, pp->flags); }
+inline void ClearPageUptodate(page* pp) { clear_bit(PG_uptodate, pp->flags); }
+inline void SetPageUptodate(page* pp) { set_bit(PG_uptodate, pp->flags); }
 
 //-- Waiters
-inline bool PageWaiters(page* pp) { return test_bit(PG_waiters, &pp->flags); }
+inline bool PageWaiters(page* pp) { return test_bit(PG_waiters, pp->flags); }
+inline void SetPageWaiters(page* pp) { set_bit(PG_waiters, pp->flags); }
+inline void ClearPageWaiters(page* pp) { clear_bit(PG_waiters, pp->flags); }
 
 //-- Writeback
-inline bool PageWriteback(page* pp) { return test_bit(PG_writeback, &pp->flags); }
-inline bool TestSetPageWriteback(page* pp) { return test_and_set_bit(PG_writeback, &pp->flags); }
-inline bool TestClearPageWriteback(page* pp) { return test_and_clear_bit(PG_writeback, &pp->flags); }
+inline bool PageWriteback(page* pp) { return test_bit(PG_writeback, pp->flags); }
+inline bool TestSetPageWriteback(page* pp) { return test_and_set_bit(PG_writeback, pp->flags); }
+inline bool TestClearPageWriteback(page* pp) { return test_and_clear_bit(PG_writeback, pp->flags); }
+
+
+inline bool PageWorkingset(page* pp) { return test_bit(PG_workingset, pp->flags); }
 
 int __set_page_dirty_nobuffers(struct page* page);
 
@@ -1551,12 +1572,7 @@ struct vm_area_struct;
 // ==== xarray ====
 
 // ==== pagemap.h ====
-/* Return true if the page was successfully locked */
-static inline int trylock_page(struct page* page)
-{
-	//page = compound_head(page);
-	return (likely(!test_and_set_bit_lock(PG_locked, &page->flags)));
-}
+
 
 /* 15 pointers + header align the pagevec structure to a power of two */
 #define PAGEVEC_SIZE	15
@@ -1570,7 +1586,7 @@ struct pagevec
 
 void __pagevec_release(pagevec* pvec);
 void release_pages(page** pages, int nr);
-void free_unref_page_list(list_head* list);
+//void free_unref_page_list(list_head* list);
 
 
 static inline unsigned pagevec_count(pagevec* pvec)
@@ -1593,11 +1609,7 @@ static inline void pagevec_reinit(pagevec* pvec)
 
 static inline void pagevec_release(pagevec* pvec)
 {
-#if 1 //<TODO>
 	if (pagevec_count(pvec))		__pagevec_release(pvec);
-#else
-	JCASSERT(0);
-#endif
 }
 
 
@@ -1605,7 +1617,7 @@ static inline void pagevec_release(pagevec* pvec)
 
 static inline int mapping_use_writeback_tags(address_space* mapping)
 {
-	return !test_bit(AS_NO_WRITEBACK_TAGS, &mapping->flags);
+	return !test_bit(AS_NO_WRITEBACK_TAGS, mapping->flags);
 }
 
 extern unsigned find_lock_entries(address_space* mapping, pgoff_t start, pgoff_t end, pagevec* pvec, pgoff_t* indices);

@@ -15,6 +15,8 @@
 //#include <net/checksum.h>
 //#include "../include/scatterlist.h"
 //#include "../include/instrumented.h"
+LOCAL_LOGGER_ENABLE(L"linux.iov_iter", LOGGER_LEVEL_DEBUGINFO);
+
 
 #define PIPE_PARANOIA /* for now */
 
@@ -989,29 +991,32 @@ static inline bool page_copy_sane(struct page *page, size_t offset, size_t n)
 	return false;
 }
 
-#if 0 //<TODO>
-
-static size_t __copy_page_to_iter(struct page *page, size_t offset, size_t bytes,
-			 struct iov_iter *i)
+static size_t __copy_page_to_iter(page *ppage, size_t offset, size_t bytes, iov_iter *i)
 {
-	if (i->type & (ITER_BVEC | ITER_KVEC | ITER_XARRAY)) {
-		void *kaddr = kmap_atomic(page);
+	if (i->type & (ITER_BVEC | ITER_KVEC | ITER_XARRAY))
+	{
+#if 0
+		void* kaddr = kmap_atomic(ppage);
 		size_t wanted = copy_to_iter(kaddr + offset, bytes, i);
 		kunmap_atomic(kaddr);
 		return wanted;
-	} else if (unlikely(iov_iter_is_discard(i))) {
-		if (unlikely(i->count < bytes))
-			bytes = i->count;
+#else
+		return 0;
+#endif
+	}
+	else if (unlikely(iov_iter_is_discard(i)))
+	{
+		if (unlikely(i->count < bytes))		bytes = i->count;
 		i->count -= bytes;
 		return bytes;
-	} else if (likely(!iov_iter_is_pipe(i)))
-		return copy_page_to_iter_iovec(page, offset, bytes, i);
-	else
-		return copy_page_to_iter_pipe(page, offset, bytes, i);
+	}
+	else if (likely(!iov_iter_is_pipe(i)))		return 0; // copy_page_to_iter_iovec(ppage, offset, bytes, i);
+	else										return 0; // copy_page_to_iter_pipe(ppage, offset, bytes, i);
 }
-#endif //<TODO>
+
 size_t copy_page_to_iter(page *ppage, size_t offset, size_t bytes, iov_iter *i)
 {	// 输入的page为一组pages, offset为相对page中的offset
+	// bytes为需要复制的长度
 	size_t res = 0;
 //	if (unlikely(!page_copy_sane(page, offset, bytes))) return 0;
 	ppage += offset / PAGE_SIZE; // first subpage
@@ -1029,7 +1034,9 @@ size_t copy_page_to_iter(page *ppage, size_t offset, size_t bytes, iov_iter *i)
 	//		offset = 0;
 	//	}
 	//}
+	//BYTE* buf = (BYTE*)i->iov->iov_base + i->iov_offset;
 	BYTE* buf = (BYTE*)i->iov->iov_base + i->iov_offset;
+	LOG_DEBUG(L"copy page to %p", buf);
 	while (1)
 	{	// 每个循环复制最多一个page到iov，支持多个page
 		//size_t n = __copy_page_to_iter(page, offset, min(bytes, (size_t)PAGE_SIZE - offset), i);
@@ -1039,6 +1046,8 @@ size_t copy_page_to_iter(page *ppage, size_t offset, size_t bytes, iov_iter *i)
 		buf += n;
 		res += n;
 		bytes -= n;
+		i->count -= n;		// 源代码调用 __copy_page_to_iter()中，会减少i->count计数。
+		i->iov_offset += n;
 		if (!bytes || !n)	break;
 		offset += n;
 		if (offset == PAGE_SIZE)

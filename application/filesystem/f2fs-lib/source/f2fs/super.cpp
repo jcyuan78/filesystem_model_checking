@@ -1889,11 +1889,10 @@ int	f2fs_sb_info::drop_inode(inode* iinode)
 		{
 			/* to avoid evict_inode call simultaneously */
 			atomic_inc(&iinode->i_count);
-			spin_unlock(&iinode->i_lock);
-
+//			spin_unlock(&iinode->i_lock);
+			iinode->unlock();
 			/* some remained atomic pages should discarded */
-			if (f2fs_is_atomic_file(iinode))
-				f2fs_drop_inmem_pages(iinode);
+			if (f2fs_is_atomic_file(fi)) f2fs_drop_inmem_pages(fi);
 
 			/* should remain fi->extent_tree for writepage */
 			f2fs_destroy_extent_node(iinode);
@@ -1904,11 +1903,13 @@ int	f2fs_sb_info::drop_inode(inode* iinode)
 			f2fs_submit_merged_write_cond(this, iinode, NULL, 0, DATA);
 			truncate_inode_pages_final(iinode->get_mapping());
 
-			if (F2FS_HAS_BLOCKS(iinode))	f2fs_truncate(fi);
+			if (F2FS_HAS_BLOCKS(iinode))	fi->f2fs_truncate();
 
 			sb_end_intwrite(this);
 
-			spin_lock(&iinode->i_lock);
+//			spin_lock(&iinode->i_lock);
+//			iinode->lock();
+			LOCK_INODE(iinode);
 			atomic_dec(&iinode->i_count);
 		}
 //		trace_f2fs_drop_inode(iinode, 0);
@@ -1939,7 +1940,7 @@ int f2fs_inode_info::f2fs_inode_dirtied(bool sync)
 //	if (list_empty(&F2FS_I(iinode)->gdirty_list))
 	if (sync && !m_in_list[DIRTY_META])
 	{
-		LOG_DEBUG(L"[inode_track] add=%p, ino=%d, type=%d - add to sb inode list", this, i_ino, DIRTY_META);
+		F_LOG_DEBUG(L"inode", L" add=%p, ino=%d, type=%d - add to sb inode list", this, i_ino, DIRTY_META);
 //		list_add_tail(&F2FS_I(iinode)->gdirty_list, &m_sbi->inode_list[DIRTY_META]);
 		m_sbi->sb_list_add_tail(this, DIRTY_META);
 		m_sbi->inc_page_count(F2FS_DIRTY_IMETA);
@@ -1965,7 +1966,7 @@ void f2fs_inode_info::f2fs_inode_synced(void)
 	if (!m_sbi->list_empty(DIRTY_META) && m_in_list[DIRTY_META])
 	{
 //		list_del_init(&F2FS_I(iinode)->gdirty_list);
-		LOG_DEBUG(L"[inode_track] add=%p, ino=%d, type=%d - remove from sb inode list", this, i_ino, DIRTY_META);
+		F_LOG_DEBUG(L"inode", L" add=%p, ino=%d, type=%d - remove from sb inode list", this, i_ino, DIRTY_META);
 
 		m_sbi->sb_list_del_init(this, DIRTY_META);
 		m_sbi->dec_page_count(F2FS_DIRTY_IMETA);
@@ -1980,12 +1981,13 @@ void f2fs_inode_info::f2fs_inode_synced(void)
 /* f2fs_dirty_inode() is called from __mark_inode_dirty()
  * We should call set_dirty_inode to write the dirty inode through write_inode. */
 //static void f2fs_dirty_inode(struct inode *inode, int flags)
-void f2fs_sb_info::dirty_inode(inode* iinode, int flags)
+void f2fs_sb_info::dirty_inode(inode * iinode, int flags)
 {
 //	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
+	f2fs_inode_info* fi = F2FS_I(iinode);
 	if (iinode->i_ino == F2FS_NODE_INO() || iinode->i_ino == F2FS_META_INO())	return;
-	if (is_inode_flag_set(iinode, FI_AUTO_RECOVER))		clear_inode_flag(F2FS_I(iinode), FI_AUTO_RECOVER);
-	F2FS_I(iinode)->f2fs_inode_dirtied(false);
+	if (is_inode_flag_set(fi, FI_AUTO_RECOVER))		clear_inode_flag(fi, FI_AUTO_RECOVER);
+	fi->f2fs_inode_dirtied(false);
 }
 //int f2fs_sb_info::sync_fs(int wait)
 //{
@@ -3463,7 +3465,7 @@ static const struct export_operations f2fs_export_ops = {
 };
 #endif
 
-loff_t max_file_blocks(inode *inode)
+loff_t max_file_blocks(f2fs_inode_info*inode)
 {
 	loff_t result = 0;
 	loff_t leaf_count;
@@ -5020,10 +5022,11 @@ static void __exit exit_f2fs_fs(void)
 
 #endif
 
-f2fs_sb_info::f2fs_sb_info(CF2fsFileSystem* fs, file_system_type *fs_type) 
+f2fs_sb_info::f2fs_sb_info(CF2fsFileSystem* fs, file_system_type *fs_type, const MOUNT_OPTION & opt) 
 	: nm_info (NULL), m_fs(fs)
 	, cprc_info(this)
-	, m_dentry_buf(1024)
+	, m_dentry_buf(opt.m_dentry_cache_num)
+	, m_page_manager(opt.m_page_cache_num)
 {
 	s_ndevs = 0;
 	s_bdev = nullptr;

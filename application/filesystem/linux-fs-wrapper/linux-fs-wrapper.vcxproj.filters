@@ -129,6 +129,9 @@
     <ClInclude Include="include\cleancache.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="include\page-manager.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="source\pch.cpp">

@@ -41,13 +41,16 @@ void CInodeManager::new_inode(inode* iinode)
 	JCASSERT(iinode);
 	// alloc_inode()
 	inode_init_always(false, iinode);
-	{	auto_lock<spin_locker> lock(iinode->i_lock);
+	{	
+		F_LOG_DEBUG(L"inode_lock", L" inode=%p, waiting for lock, auto", iinode);
+		auto_lock<spin_locker> lock(iinode->i_lock);
+		F_LOG_DEBUG(L"inode_lock", L" inode=%p, locked, auto", iinode);
 		//spin_lock(&iinode->i_lock);
 		iinode->i_state = 0;
 		//spin_unlock(&iinode->i_lock);
 	}
 	INIT_LIST_HEAD(&iinode->i_sb_list);
-	LOG_DEBUG(L"[inode_track], add=%p, - add to sb", iinode);
+	F_LOG_DEBUG(L"inode", L", add=%p, - add to sb", iinode);
 	inode_sb_list_add(iinode);
 }
 
@@ -100,7 +103,7 @@ out:
 
 void CInodeManager::internal_iget_locked(inode * iinode, bool thp_support, unsigned long ino)
 {
-	LOG_DEBUG(L"[inode_track] app=%p, ino=%d, - get locked", iinode, iinode->i_ino);
+	F_LOG_DEBUG(L"inode", L" app=%p, ino=%d, - get locked", iinode, iinode->i_ino);
 //	f2fs_inode_info* ptr_inode = new f2fs_inode_info;
 //	inode * node = new inode;
 	// initialize inode
@@ -110,7 +113,7 @@ void CInodeManager::internal_iget_locked(inode * iinode, bool thp_support, unsig
 	iinode->i_state |= I_NEW;
 
 	INIT_LIST_HEAD(&iinode->i_sb_list);
-	LOG_DEBUG(L"[inode_track], add=%p, - add to sb", iinode);
+	F_LOG_DEBUG(L"inode", L", add=%p, - add to sb", iinode);
 	inode_sb_list_add(iinode);
 
 //	return ptr_node;
@@ -127,7 +130,7 @@ void CInodeManager::init_inode_mapping(inode* ptr_node, address_space* , bool th
 	mapping->host = ptr_node;
 	mapping->flags = 0;
 	//	if (m_sb->s_type->fs_flags & FS_THP_SUPPORT)	__set_bit(AS_THP_SUPPORT, &mapping->flags);
-	if (thp_support) set_bit(AS_THP_SUPPORT, &mapping->flags);
+	if (thp_support) set_bit(AS_THP_SUPPORT, mapping->flags);
 	mapping->wb_err = 0;
 	atomic_set(&mapping->i_mmap_writable, 0);
 #ifdef CONFIG_READ_ONLY_THP_FOR_FS
@@ -182,7 +185,7 @@ int CInodeManager::insert_inode_locked(inode* iinode)
 //				hlist_add_head_rcu(&iinode->i_hash, head);
 				spin_unlock(&iinode->i_lock);
 //				spin_unlock(&inode_hash_lock);
-				LOG_DEBUG(L"[inode_track] addr=%p, ino=%d, hash=%d - insert to hash", iinode, ino, hash_val);
+				F_LOG_DEBUG(L"inode", L" addr=%p, ino=%d, hash=%d - insert to hash", iinode, ino, hash_val);
 				return 0;
 			}
 			if (unlikely(old->TestState(I_CREATING) ))
@@ -229,10 +232,11 @@ repeat:
 		if (iinode->i_ino != ino)			continue;
 //		if (iinode->i_sb != sb)			continue;		// 对于单一文件系统，省略
 		spin_lock(&iinode->i_lock);
-		LOG_DEBUG(L"[inode_track] addr=%p, ino=%d, state=%X - found inode", iinode, iinode->i_ino, iinode->i_state);
+		F_LOG_DEBUG(L"inode", L" addr=%p, ino=%d, state=%X - found inode", iinode, iinode->i_ino, iinode->i_state);
 		if (iinode->i_state & (I_FREEING | I_WILL_FREE))
 		{
-			iinode->__wait_on_freeing_inode();
+			// 由于调用过程中 iinode 会被删除，
+			__wait_on_freeing_inode(iinode);
 			LOG_DEBUG(L"waiting for inode free completed, total inode=%d, state=%X", head.size(), iinode->i_state);
 			goto repeat;
 		}
@@ -342,12 +346,14 @@ void iput(inode* iinode)
 	JCASSERT(iinode->i_count > 0);
 	BUG_ON(/*iinode->i_state & I_CLEAR*/iinode->TestState(I_CLEAR));
 retry:
-	if (atomic_dec_and_lock(&iinode->i_count, &iinode->i_lock))
+//	if (atomic_dec_and_lock(&iinode->i_count, &iinode->i_lock))
+	if (iinode->atomic_decount_and_lock())
 	{
 		if (iinode->i_nlink && /*(iinode->i_state & I_DIRTY_TIME)*/iinode->TestState(I_DIRTY_TIME))
 		{
 			atomic_inc(&iinode->i_count);
-			spin_unlock(&iinode->i_lock);
+			//spin_unlock(&iinode->i_lock);
+			iinode->unlock();
 //			trace_writeback_lazytime_iput(iinode);
 			iinode->mark_inode_dirty_sync();
 			goto retry;
@@ -395,13 +401,15 @@ again:
 	// <TODO>需要考虑如何处理这个问题。
 #if 0
 	iinode = alloc_inode(sb);
-	if (iinode) {
+	if (iinode) 
+	{
 		struct iinode* old;
 
 		spin_lock(&m_inode_hash_lock);
 		/* We released the lock, so.. */
 		old = find_inode_fast(sb, head, ino);
-		if (!old) {
+		if (!old) 
+		{
 			iinode->i_ino = ino;
 			spin_lock(&iinode->i_lock);
 			iinode->i_state = I_NEW;
@@ -410,24 +418,18 @@ again:
 			inode_sb_list_add(iinode);
 			spin_unlock(&m_inode_hash_lock);
 
-			/* Return the locked inode with I_NEW set, the
-			 * caller is responsible for filling in the contents
-			 */
+			/* Return the locked inode with I_NEW set, the caller is responsible for filling in the contents */
 			return iinode;
 		}
 
-		/*
-		 * Uhhuh, somebody else created the same inode under
-		 * us. Use the old inode instead of the one we just
-		 * allocated.
-		 */
+		/* Uhhuh, somebody else created the same inode under us. Use the old inode instead of the one we just allocated.	 */
 		spin_unlock(&m_inode_hash_lock);
 		destroy_inode(iinode);
-		if (IS_ERR(old))
-			return NULL;
+		if (IS_ERR(old))			return NULL;
 		iinode = old;
 		wait_on_inode(iinode);
-		if (unlikely(iinode->inode_unhashed())) {
+		if (unlikely(iinode->inode_unhashed()))
+		{
 			iput(iinode);
 			goto again;
 		}
@@ -435,4 +437,45 @@ again:
 #endif
 	return iinode;
 }
-//EXPORT_SYMBOL(iget_locked);
+
+#ifdef _TRACK_INODE_LOCK_
+
+void inode::lock(void)
+{
+	//LOG_STACK_TRACE();
+	spin_lock(&i_lock); 
+}
+void inode::unlock(void) 
+{
+	spin_unlock(&i_lock); 
+	F_LOG_DEBUG(L"inode_lock", L" inode=%p, unlocked", this);
+}
+
+bool inode::trylock(void)
+{
+	F_LOG_DEBUG(L"inode_lock", L" inode=%p, try to lock", this);
+	bool br = spin_trylock(&i_lock);
+	F_LOG_DEBUG(L"inode_lock", L" inode=%p, res=%d, try to lock", this, br);
+	return br;
+}
+
+int inode::atomic_decount_and_lock(void)
+{
+	int c = i_count;
+	do
+	{
+		if (unlikely(c == 1))			break;
+	} while (!InterlockedCompareExchange(&i_count, c - 1, c));
+	if (c != 1) return 0;
+
+	F_LOG_DEBUG(L"inode_lock", L" inode=%p, count=%d, waiting for lock and decount", this, i_count);
+	spin_lock(&i_lock);
+	F_LOG_DEBUG(L"inode_lock", L" inode=%p, count=%d, locked", this, i_count);
+	//	if (c) return c;
+	if (InterlockedDecrement(&i_count) == 0) return 1;
+	spin_unlock(&i_lock);
+	F_LOG_DEBUG(L"inode_lock", L" inode=%p, count=%d, unlocked", this, i_count);
+	return 0;
+}
+
+#endif

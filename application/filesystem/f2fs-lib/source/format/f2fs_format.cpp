@@ -131,6 +131,7 @@ const char **default_ext_list[] = {
 bool CF2fsFileSystem::is_extension_exist(const char *name)
 {
 	int i;
+	f2fs_super_block* sb = &m_raw_sb;
 
 	for (i = 0; i < F2FS_MAX_EXTENSION; i++) {
 		char *ext = (char *)sb->extension_list[i];
@@ -148,6 +149,7 @@ void CF2fsFileSystem::cure_extension_list(f2fs_configuration & c)
 	char *ue;
 	size_t name_len;
 	int i, pos = 0;
+	f2fs_super_block* sb = &m_raw_sb;
 
 	set_sb(extension_count, 0);
 	memset(sb->extension_list, 0, sizeof(sb->extension_list));
@@ -230,6 +232,8 @@ int CF2fsFileSystem::f2fs_prepare_super_block(f2fs_configuration& c)
 	enum quota_type qtype;
 	int i;
 
+	f2fs_super_block* sb = &m_raw_sb;
+
 	set_sb(magic, F2FS_SUPER_MAGIC);
 	set_sb(major_ver, F2FS_MAJOR_VERSION );
 	set_sb(minor_ver, F2FS_MINOR_VERSION );
@@ -258,8 +262,7 @@ int CF2fsFileSystem::f2fs_prepare_super_block(f2fs_configuration& c)
 
 	zone_align_start_offset =
 		((UINT64) c.start_sector * DEFAULT_SECTOR_SIZE +
-		2 * F2FS_BLKSIZE + zone_size_bytes - 1) /
-		zone_size_bytes * zone_size_bytes -
+		2 * F2FS_BLKSIZE + zone_size_bytes - 1) / zone_size_bytes * zone_size_bytes -	
 		(UINT64) c.start_sector * DEFAULT_SECTOR_SIZE;
 
 	if (c.feature & cpu_to_le32(F2FS_FEATURE_RO))		zone_align_start_offset = 8192;
@@ -267,8 +270,7 @@ int CF2fsFileSystem::f2fs_prepare_super_block(f2fs_configuration& c)
 	if (c.start_sector % DEFAULT_SECTORS_PER_BLOCK) {
 		MSG(1, "\t%s: Align start sector number to the page unit\n", c.zoned_mode ? "FAIL" : "WARN");
 		MSG(1, "\ti.e., start sector: %d, ofs:%d (sects/page: %d)\n",
-				c.start_sector, c.start_sector % DEFAULT_SECTORS_PER_BLOCK,
-				DEFAULT_SECTORS_PER_BLOCK);
+				c.start_sector, c.start_sector % DEFAULT_SECTORS_PER_BLOCK,	DEFAULT_SECTORS_PER_BLOCK);
 		if (c.zoned_mode) return -1;
 	}
 
@@ -593,6 +595,8 @@ int CF2fsFileSystem::f2fs_init_sit_area(f2fs_configuration & c)
 	UINT64 sit_seg_addr = 0;
 	UINT8 *zero_buf = NULL;
 
+	f2fs_super_block* sb = &m_raw_sb;
+
 	blk_size = 1 << get_sb(log_blocksize);
 	seg_size = (1 << get_sb(log_blocks_per_seg)) * blk_size;
 
@@ -627,6 +631,8 @@ int CF2fsFileSystem::f2fs_init_nat_area(f2fs_configuration & c)
 	UINT32 index = 0;
 	UINT64 nat_seg_addr = 0;
 	UINT8 *nat_buf = NULL;
+
+	f2fs_super_block* sb = &m_raw_sb;
 
 	blk_size = 1 << get_sb(log_blocksize);
 	seg_size = (1 << get_sb(log_blocks_per_seg)) * blk_size;
@@ -670,6 +676,8 @@ int CF2fsFileSystem::f2fs_write_check_point_pack(f2fs_configuration & c)
 	struct f2fs_summary *sum_entry;
 	int off;
 	int ret = -1;
+
+	f2fs_super_block* sb = &m_raw_sb;
 
 	cp = (f2fs_checkpoint*)calloc(F2FS_BLKSIZE, 1);
 	if (cp == NULL) 
@@ -758,6 +766,7 @@ int CF2fsFileSystem::f2fs_write_check_point_pack(f2fs_configuration & c)
 		set_cp(free_segment_count, f2fs_get_usable_segments(sb) - 6);
 		set_cp(user_block_count, ((get_cp(free_segment_count) + 6 - get_cp(overprov_segment_count)) * c.blks_per_seg));
 	}
+	LOG_DEBUG(L"free setment=%d,", cp->free_segment_count);
 	/* cp page (2), data summaries (1), node summaries (3) */
 	set_cp(cp_pack_total_block_count, 6 + get_sb(cp_payload));
 	flags = CP_UMOUNT_FLAG | CP_COMPACT_SUM_FLAG;
@@ -1086,6 +1095,7 @@ int CF2fsFileSystem::f2fs_write_super_block(f2fs_configuration & c)
 {
 	int index;
 	UINT8 *zero_buff;
+	f2fs_super_block* sb = &m_raw_sb;
 
 	zero_buff = (UINT8*)calloc(F2FS_BLKSIZE, 1);
 	if (zero_buff == NULL) 
@@ -1113,6 +1123,8 @@ int CF2fsFileSystem::f2fs_write_super_block(f2fs_configuration & c)
 #ifndef WITH_ANDROID
 int CF2fsFileSystem::f2fs_discard_obsolete_dnode(f2fs_configuration & c)
 {
+	f2fs_super_block* sb = &m_raw_sb;
+
 	struct f2fs_node *raw_node;
 	UINT64 next_blkaddr = 0, offset;
 	UINT64 end_blkaddr = (get_sb(segment_count_main) << get_sb(log_blocks_per_seg)) + get_sb(main_blkaddr);
@@ -1175,6 +1187,7 @@ int CF2fsFileSystem::f2fs_write_root_inode(f2fs_configuration & c)
 	struct f2fs_node *raw_node = NULL;
 	UINT64 blk_size_bytes, data_blk_nor;
 	UINT64 main_area_node_seg_blk_offset = 0;
+	f2fs_super_block* sb = &m_raw_sb;
 
 	raw_node = (f2fs_node*)calloc(F2FS_BLKSIZE, 1);
 	if (raw_node == NULL) 
@@ -1325,6 +1338,7 @@ int CF2fsFileSystem::f2fs_write_qf_inode(f2fs_configuration & c, int qtype)
 	UINT64 main_area_node_seg_blk_offset = 0;
 	__le32 raw_id;
 	int i;
+	f2fs_super_block* sb = &m_raw_sb;
 
 	raw_node = (f2fs_node*)calloc(F2FS_BLKSIZE, 1);
 	if (raw_node == NULL) 
@@ -1408,9 +1422,10 @@ int CF2fsFileSystem::f2fs_write_qf_inode(f2fs_configuration & c, int qtype)
 
 int CF2fsFileSystem::f2fs_update_nat_root(f2fs_configuration & c)
 {
-	struct f2fs_nat_block *nat_blk = NULL;
+	f2fs_nat_block *nat_blk = NULL;
 	UINT64 nat_seg_blk_offset = 0;
 //	enum quota_type qtype;
+	f2fs_super_block* sb = &m_raw_sb;
 
 	nat_blk = (f2fs_nat_block*)calloc(F2FS_BLKSIZE, 1);
 	if(nat_blk == NULL) 
@@ -1460,8 +1475,9 @@ int CF2fsFileSystem::f2fs_update_nat_root(f2fs_configuration & c)
 
 block_t CF2fsFileSystem::f2fs_add_default_dentry_lpf(f2fs_configuration & c)
 {
-	struct f2fs_dentry_block *dent_blk;
+	f2fs_dentry_block *dent_blk;
 	uint64_t data_blk_offset;
+	f2fs_super_block* sb = &m_raw_sb;
 
 	dent_blk = (f2fs_dentry_block*)calloc(F2FS_BLKSIZE, 1);
 	if (dent_blk == NULL) {
@@ -1502,10 +1518,11 @@ block_t CF2fsFileSystem::f2fs_add_default_dentry_lpf(f2fs_configuration & c)
 
 int CF2fsFileSystem::f2fs_write_lpf_inode(f2fs_configuration & c)
 {
-	struct f2fs_node *raw_node;
+	f2fs_node *raw_node;
 	UINT64 blk_size_bytes, main_area_node_seg_blk_offset;
 	block_t data_blk_nor;
 	int err = 0;
+	f2fs_super_block* sb = &m_raw_sb;
 
 	ASSERT(c.lpf_ino);
 
@@ -1594,8 +1611,9 @@ exit:
 
 int CF2fsFileSystem::f2fs_add_default_dentry_root(f2fs_configuration & c)
 {
-	struct f2fs_dentry_block *dent_blk = NULL;
+	f2fs_dentry_block *dent_blk = NULL;
 	UINT64 data_blk_offset = 0;
+	f2fs_super_block* sb = &m_raw_sb;
 
 	dent_blk = (f2fs_dentry_block*)calloc(F2FS_BLKSIZE, 1);
 	if(dent_blk == NULL) 
@@ -1654,8 +1672,8 @@ int CF2fsFileSystem::f2fs_add_default_dentry_root(f2fs_configuration & c)
 
 int CF2fsFileSystem::f2fs_create_root_dir(f2fs_configuration & c)
 {
-//	enum quota_type qtype;
 	int err = 0;
+	f2fs_super_block* sb = &m_raw_sb;
 
 	err = f2fs_write_root_inode(c);
 	if (err < 0) {

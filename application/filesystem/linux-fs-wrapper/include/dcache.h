@@ -130,16 +130,7 @@ struct dentry
 	unsigned long d_time;		/* used by d_revalidate */
 	void* d_fsdata;			/* fs-specific data */
 
-//	union
-//	{
-//		struct list_head d_lru;		/* LRU list */
-//#if 0 //<TOOD>
-//		wait_queue_head_t* d_wait;	/* in-lookup ones only */
-//#endif
-//	};
-
 	// lru队列移动到f2fs_super_info中
-//	list_head d_lru;
 	list_head d_child;	/* child of parent list */
 	list_head d_subdirs;	/* our children */
 	/* d_alias and d_rcu can share memory */
@@ -150,6 +141,9 @@ struct dentry
 		// not support rcu
 //		rcu_head d_rcu;
 	} d_u;
+public:
+	dentry* get_parent(void) { return d_parent; }
+	template <class T> T* get_inode(void) { return dynamic_cast<T*>(d_inode); }
 
 public:
 //	friend class CDentryManager;
@@ -161,7 +155,11 @@ public:
 #endif
 };
 
-#define _STATIC_DENTRY_BUF
+//#define _STATIC_DENTRY_BUF
+
+//#define DENTRY_BUF_TYPE		1			// buffer按静态分配，free以std::list形式
+#define DENTRY_BUF_TYPE		2			// buffer按静态分配，free以数组FIFO形式
+//#define DENTRY_BUF_TYPE		3			// buffer按动态分配等
 
 // 用于dentry的内存分配，管理和缓存
 //	基本思想：启动时预分配一定适量的dentry，避免频繁使用new/delete。需要的时候从free list中分配
@@ -182,17 +180,27 @@ public:
 //	dentry* d_alloc_anon(super_block* sb);
 	dentry* d_make_root(inode* root_inode);
 
+//#ifdef _DEBUG	// 用于跟踪 dentry的申请和回收
+//	size_t m_head = 0, m_tail = 0;
+//#endif
+
 
 protected:
-#ifdef _STATIC_DENTRY_BUF
+	typedef dentry* PDENTRY;
+#if DENTRY_BUF_TYPE == 1
 	// 预先申请足够的dentry的缓存，仅从预申请缓存中分配
 	dentry* m_buf;
+	size_t m_buf_size;	// 总共申请的缓存数量
+	std::list<dentry*> m_free_list;
+#elif DENTRY_BUF_TYPE ==2
+	dentry* m_buf;
+	PDENTRY * m_free;
+	size_t m_buf_size;	// 总共申请的缓存数量
+	size_t m_head = 0, m_tail = 0, m_used=0;
 #else
 	// 按需申请dentry缓存，释放的缓存放回m_free_list中
 
 #endif
-	size_t m_buf_size;	// 总共申请的缓存数量
-	std::list<dentry*> m_free_list;
 };
 
 //__randomize_layout;
@@ -446,7 +454,8 @@ static inline int d_in_lookup(const struct dentry *dentry)
 
 static inline void d_lookup_done(struct dentry *dentry)
 {
-	if (unlikely(d_in_lookup(dentry))) {
+	if (unlikely(d_in_lookup(dentry))) 
+	{
 		spin_lock(&dentry->d_lock);
 		__d_lookup_done(dentry);
 		spin_unlock(&dentry->d_lock);

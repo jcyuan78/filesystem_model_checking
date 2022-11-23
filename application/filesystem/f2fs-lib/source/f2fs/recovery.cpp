@@ -554,7 +554,7 @@ truncate_out:
 		unlock_page(dn->inode_page);
 	return 0;
 }
-static int do_recover_data(f2fs_sb_info *sbi, inode *inode, page *page)
+static int do_recover_data(f2fs_sb_info *sbi, f2fs_inode_info*inode, page *page)
 {
 	struct dnode_of_data dn;
 	struct node_info ni;

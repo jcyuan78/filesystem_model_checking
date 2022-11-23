@@ -70,7 +70,7 @@ static inline bool bdi_has_dirty_io(struct backing_dev_info *bdi)
 
 static inline bool wb_has_dirty_io(struct bdi_writeback *wb)
 {
-	return test_bit(WB_has_dirty_io, &wb->state);
+	return test_bit(WB_has_dirty_io, wb->state);
 }
 
 
@@ -120,6 +120,7 @@ int bdi_set_min_ratio(struct backing_dev_info *bdi, unsigned int min_ratio);
 int bdi_set_max_ratio(struct backing_dev_info *bdi, unsigned int max_ratio);
 
 
+
 /*
  * Flags in backing_dev_info::capability
  *
@@ -138,12 +139,10 @@ int bdi_set_max_ratio(struct backing_dev_info *bdi, unsigned int max_ratio);
  * writeback_in_progress - determine whether there is writeback in progress
  * @wb: bdi_writeback of interest
  *
- * Determine whether there is writeback waiting to be handled against a
- * bdi_writeback.
- */
-static inline bool writeback_in_progress(struct bdi_writeback *wb)
+ * Determine whether there is writeback waiting to be handled against a bdi_writeback. */
+static inline bool writeback_in_progress(bdi_writeback *wb)
 {
-	return test_bit(WB_writeback_running, &wb->state);
+	return test_bit(WB_writeback_running, wb->state);
 }
 
 
@@ -451,5 +450,98 @@ static inline int bdi_rw_congested(struct backing_dev_info *bdi)
 const char *bdi_dev_name(struct backing_dev_info *bdi);
 
 #endif //TODO
+
+#if 0
+
+#define NODE_DATA(nid)		(nid)
+
+static inline pg_data_t* page_pgdat(const struct page* page)
+{
+	return NODE_DATA(page_to_nid(page));
+}
+
+static inline void mod_node_state(pglist_data* pgdat, enum node_stat_item item, int delta, int overstep_mode)
+{
+	struct per_cpu_nodestat __percpu* pcp = pgdat->per_cpu_nodestats;
+	s8 __percpu* p = pcp->vm_node_stat_diff + item;
+	long o, n, t, z;
+
+	if (vmstat_item_in_bytes(item)) {
+		/*
+		 * Only cgroups use subpage accounting right now; at
+		 * the global level, these items still change in
+		 * multiples of whole pages. Store them as pages
+		 * internally to keep the per-cpu counters compact.
+		 */
+		VM_WARN_ON_ONCE(delta & (PAGE_SIZE - 1));
+		delta >>= PAGE_SHIFT;
+	}
+
+	do {
+		z = 0;  /* overflow to node counters */
+
+		/*
+		 * The fetching of the stat_threshold is racy. We may apply
+		 * a counter threshold to the wrong the cpu if we get
+		 * rescheduled while executing here. However, the next
+		 * counter update will apply the threshold again and
+		 * therefore bring the counter under the threshold again.
+		 *
+		 * Most of the time the thresholds are the same anyways
+		 * for all cpus in a node.
+		 */
+		t = this_cpu_read(pcp->stat_threshold);
+
+		o = this_cpu_read(*p);
+		n = delta + o;
+
+		if (abs(n) > t) {
+			int os = overstep_mode * (t >> 1);
+
+			/* Overflow must be added to node counters */
+			z = n + os;
+			n = -os;
+		}
+	} while (this_cpu_cmpxchg(*p, o, n) != o);
+
+	if (z)
+		node_page_state_add(z, pgdat, item);
+}
+
+
+void dec_node_page_state(page* ppage, enum node_stat_item item)
+{
+	mod_node_state(page_pgdat(ppage), item, -1, -1);
+}
+
+static inline void __dec_node_state(struct pglist_data* pgdat, enum node_stat_item item)
+{
+	atomic_long_dec(&pgdat->vm_stat[item]);
+	atomic_long_dec(&vm_node_stat[item]);
+}
+
+
+
+static inline void __dec_node_page_state(struct page* page, enum node_stat_item item)
+{
+	__dec_node_state(page_pgdat(page), item);
+}
+
+
+void dec_node_page_state(struct page* page, enum node_stat_item item)
+{
+	unsigned long flags;
+
+	//local_irq_save(flags);
+	__dec_node_page_state(page, item);
+	//local_irq_restore(flags);
+}
+
+
+
+#endif
+
+
+
 
 #endif	/* _LINUX_BACKING_DEV_H */

@@ -67,7 +67,10 @@ struct f2fs_sm_info
 	f2fs_sm_info(f2fs_super_block * raw_super, f2fs_sb_info * sbi);
 	~f2fs_sm_info(void);
 	struct sit_info* sit_info = nullptr;		/* whole segment information */
+protected:
 	struct free_segmap_info* free_info = nullptr;	/* free segment information */
+	friend struct f2fs_sb_info;
+public:
 	struct dirty_seglist_info* dirty_info = nullptr;	/* dirty segment information */
 	struct curseg_info* curseg_array = nullptr;	/* active segment information */
 

@@ -139,6 +139,9 @@ public:
 	virtual bool OpenChildEx(IFileInfo*& file, const wchar_t* fn, size_t len) = 0;
 	virtual bool CreateChild(IFileInfo * &file, const wchar_t * fn, bool dir, UINT32 mode) = 0;
 
+	// 当Close文件时，删除此文件。判断条件由DokanApp实现。有些应用（Explorer）会通过这个方法删除文件。
+	virtual void SetDeleteOnClose(bool del) = 0;
+
 //// for tester
 //public:
 //	virtual bool ConnectToDevice(IVirtualDevice * dev) = 0;
@@ -191,6 +194,11 @@ public:
 	virtual bool HardLink(const std::wstring & src, const std::wstring & dst) = 0;
 	virtual bool Unlink(const std::wstring& fn) = 0;
 	virtual bool Sync(void) = 0;
+
+	virtual bool ConfigFs(const boost::property_tree::wptree& pt) = 0;
+	// 返回debug类型，一般由fs从config 文件中读取。
+	virtual int GetDebugMode(void) const = 0;
+
 };
 
 /// <summary>

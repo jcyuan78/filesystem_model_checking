@@ -90,16 +90,16 @@ struct buffer_head
 #define BUFFER_FNS(bit, name)						\
 inline void set_buffer_##name(buffer_head *bh)	\
 {									\
-	if (!test_bit(BH_##bit, &(bh)->b_state))			\
-		set_bit(BH_##bit, &(bh)->b_state);			\
+	if (!test_bit(BH_##bit, (bh)->b_state))			\
+		set_bit(BH_##bit, (bh)->b_state);			\
 }									\
 inline void clear_buffer_##name(struct buffer_head *bh)	\
 {									\
-	clear_bit(BH_##bit, &(bh)->b_state);				\
+	clear_bit(BH_##bit, (bh)->b_state);				\
 }									\
 inline int buffer_##name(const struct buffer_head *bh)	\
 {									\
-	return test_bit(BH_##bit, &(bh)->b_state);			\
+	return test_bit(BH_##bit, (bh)->b_state);			\
 }
 
 /*
