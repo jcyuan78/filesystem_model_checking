@@ -20,6 +20,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="source\dllmain.cpp" />
+    <ClCompile Include="source\image_device.cpp" />
     <ClCompile Include="source\pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|Win32'">Create</PrecompiledHeader>
@@ -29,6 +30,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="source\framework.h" />
+    <ClInclude Include="source\image_device.h" />
     <ClInclude Include="source\pch.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">

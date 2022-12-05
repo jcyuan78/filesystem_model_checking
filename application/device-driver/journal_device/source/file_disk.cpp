@@ -21,11 +21,15 @@ CFileDisk::~CFileDisk(void)
 bool CFileDisk::CreateFileImage(const std::wstring& fn, size_t secs, size_t journal_size, size_t log_buf, bool read_only)
 {
 	LOG_STACK_TRACE();
-	m_dev_name = fn;
+	m_dev_path = fn;
 	std::wstring img_fn = fn + L".img";
 
 	DWORD flag = FILE_FLAG_RANDOM_ACCESS;
-	if (m_queue_depth > 0) flag |= FILE_FLAG_OVERLAPPED;
+	if (m_queue_depth > 0)
+	{
+		flag |= FILE_FLAG_OVERLAPPED;
+		m_async_io = true;
+	}
 
 	m_data_file = CreateFileW(img_fn.c_str(), GENERIC_ALL, FILE_SHARE_READ, NULL, OPEN_ALWAYS, flag, NULL);
 	if (m_data_file == INVALID_HANDLE_VALUE) THROW_WIN32_ERROR(L"failed on open %s", fn.c_str());
@@ -64,6 +68,23 @@ bool CFileDisk::CreateFileImage(const std::wstring& fn, size_t secs, size_t jour
 	return true;
 }
 
+bool CFileDisk::CreateDriveImage(const std::wstring& path, size_t secs, const std::wstring journal_file, size_t journal_size, size_t log_buf)
+{
+	m_capacity = secs * m_sector_size;
+
+	if (m_async_io)
+	{
+		m_data_file = CreateFile(path.c_str(), GENERIC_ALL, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_FLAG_NO_BUFFERING | FILE_FLAG_OVERLAPPED, nullptr);
+		if (m_data_file == INVALID_HANDLE_VALUE) THROW_WIN32_ERROR(L"failed on open drive %s", path.c_str());
+	}
+	else
+	{
+		m_data_file = CreateFile(path.c_str(), GENERIC_ALL, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_FLAG_NO_BUFFERING, nullptr);
+		if (m_data_file == INVALID_HANDLE_VALUE) THROW_WIN32_ERROR(L"failed on open drive %s", path.c_str());
+
+	}
+	return true;
+}
 //bool CFileDisk::LoadJournal(FILE* journal, HANDLE data, size_t steps)
 //{
 //	LOG_STACK_TRACE();
@@ -123,17 +144,44 @@ bool CFileDisk::CreateFileImage(const std::wstring& fn, size_t secs, size_t jour
 bool CFileDisk::InitializeDevice(const boost::property_tree::wptree& config)
 {
 	m_sector_size = config.get<UINT>(L"sector_size", 512);
+	std::wstring str_type = config.get<std::wstring>(L"type", L"file");
 	size_t secs = config.get<size_t>(L"sectors");
-	const std::wstring& fn = config.get<std::wstring>(L"image_file");
-	m_journal_enable = config.get<bool>(L"enable_journal");
-	//	CJournalDevice* _dev = jcvos::CDynamicInstance<CJournalDevice>::Create();
-	size_t log_cap = 0, log_buf = 0;
-	if (m_journal_enable)
+	m_async_io = config.get<bool>(L"async_io", false);
+
+	if (str_type == L"file")
 	{
-		log_cap = config.get<size_t>(L"log_capacity");
-		log_buf = log_cap * 16;
+		m_type = FILE_DRIVE;
+		const std::wstring &fn = config.get<std::wstring>(L"image_file");
+		m_journal_enable = config.get<bool>(L"enable_journal");
+		//	CJournalDevice* _dev = jcvos::CDynamicInstance<CJournalDevice>::Create();
+		size_t log_cap = 0, log_buf = 0;
+		if (m_journal_enable)
+		{
+			log_cap = config.get<size_t>(L"log_capacity");
+			log_buf = log_cap * 16;
+		}
+		CreateFileImage(fn, secs, log_cap, log_buf);
+
 	}
-	CreateFileImage(fn, secs, log_cap, log_buf);
+	else if (str_type == L"logical_drive")
+	{
+		m_type = LOGICAL_DRIVE;
+		m_sector_size = 512;
+		const std::wstring & str_path = config.get<std::wstring>(L"path");
+		m_dev_path = L"\\\\?\\" + str_path;
+		CreateDriveImage(m_dev_path, secs, L"", 0, 0);
+	}
+	else if (str_type == L"physical_drive")
+	{
+		LOG_ERROR(L"unsupport drive type: %s", str_type.c_str());
+		return false;
+	}
+	else
+	{
+		LOG_ERROR(L"unknown drive type: %s", str_type.c_str());
+		return false;
+	}
+
 	return true;
 }
 
@@ -171,9 +219,16 @@ void CFileDisk::InternalWrite(void* buf, size_t lba, size_t secs)
 	size_t len = secs * m_sector_size;
 	if ((offset + len) > m_capacity) THROW_ERROR(ERR_APP, L"write over capacity cap=%d, lba=%d, secs=%zd", BYTE_TO_SECTOR(m_capacity), lba, secs);
 //	memcpy_s(m_buf + offset, len, buf, len);
-	if (m_queue_depth > 0)
-	{
-
+	if (m_async_io)
+	{	// 在异步条件下执行同步write
+		OVERLAPPED ol;
+		ol.Offset = LODWORD(offset);
+		ol.OffsetHigh = HIDWORD(offset);
+		ol.Pointer = 0;
+		ol.hEvent = CreateEvent(nullptr, TRUE, FALSE, nullptr);
+		WriteFile(m_data_file, buf, (DWORD)len, nullptr, &ol);
+		WaitForSingleObject(ol.hEvent, INFINITE);
+		CloseHandle(ol.hEvent);
 	}
 	else
 	{
@@ -188,7 +243,7 @@ void CFileDisk::InternalWrite(void* buf, size_t lba, size_t secs)
 //bool CFileDisk::MakeSnapshot(IVirtualDisk*& dev, size_t steps)
 //{
 //	CFileDisk* _dev = jcvos::CDynamicInstance<CFileDisk>::Create();
-//	_dev->CreateFileImage(m_dev_name, m_capacity / SECTOR_SIZE, false, true);
+//	_dev->CreateFileImage(m_dev_path, m_capacity / SECTOR_SIZE, false, true);
 //	fseek(m_log_file, 0, SEEK_SET);
 //	SetFilePointer(m_data_file, 0, NULL, FILE_BEGIN);
 //	_dev->LoadJournal(m_log_file, m_data_file, steps);
@@ -216,9 +271,16 @@ bool CFileDisk::ReadSectors(void* buf, size_t lba, size_t secs)
 	size_t len = secs * m_sector_size;
 	JCASSERT((offset + len) <= m_capacity);
 	//memcpy_s(buf, len, m_buf + offset, len);
-	if (m_queue_depth > 0)
-	{
-
+	if (m_async_io)
+	{	// 在异步条件下执行同步write
+		OVERLAPPED ol;
+		ol.Offset = LODWORD(offset);
+		ol.OffsetHigh = HIDWORD(offset);
+		ol.Pointer = 0;
+		ol.hEvent = CreateEvent(nullptr, TRUE, FALSE, nullptr);
+		ReadFile(m_data_file, buf, (DWORD)len, nullptr, &ol);
+		WaitForSingleObject(ol.hEvent, INFINITE);
+		CloseHandle(ol.hEvent);
 	}
 	else
 	{
@@ -264,4 +326,49 @@ bool CFileDisk::WriteSectors(void* buf, size_t lba, size_t secs)
 
 	m_host_write += secs;
 	return true;
+}
+
+bool CFileDisk::AsyncWriteSectors(void* buf, size_t secs, OVERLAPPED* overlap, LPOVERLAPPED_COMPLETION_ROUTINE callback)
+{
+	size_t len = secs * m_sector_size;
+	if (m_async_io)
+	{
+		BOOL br = WriteFileEx(m_data_file, buf, (DWORD)len, overlap, callback);
+		if (!br) THROW_WIN32_ERROR(L" failed on write disk async, offset=0x%X-0x08X (B), len=0x%X (B)", overlap->OffsetHigh, overlap->Offset, len);
+		return true;
+	}
+	else
+	{
+		LARGE_INTEGER _offset;
+		_offset.LowPart = overlap->Offset;
+		_offset.HighPart = overlap->OffsetHigh;
+		SetFilePointerEx(m_data_file, _offset, nullptr, FILE_BEGIN);
+		DWORD written = 0;
+		WriteFile(m_data_file, buf, (DWORD)len, &written, nullptr);
+		callback(0, written, overlap);
+		return true;
+	}
+}
+
+bool CFileDisk::AsyncReadSectors(void* buf, size_t secs, OVERLAPPED* overlap, LPOVERLAPPED_COMPLETION_ROUTINE callback)
+{
+	size_t len = secs * m_sector_size;
+	if (m_async_io)
+	{
+		BOOL br = ReadFileEx(m_data_file, buf, (DWORD)len, overlap, callback);
+		if (!br) THROW_WIN32_ERROR(L" failed on read disk async, offset=0x%X-0x08X (B), len=0x%X (B)", overlap->OffsetHigh, overlap->Offset, len);
+//		LOG_WIN32_ERROR(L"check error:");
+		return true;
+	}
+	else
+	{
+		LARGE_INTEGER _offset;
+		_offset.LowPart = overlap->Offset;
+		_offset.HighPart = overlap->OffsetHigh;
+		SetFilePointerEx(m_data_file, _offset, nullptr, FILE_BEGIN);
+		DWORD written = 0;
+		ReadFile(m_data_file, buf, (DWORD)len, &written, nullptr);
+		callback(0, written, overlap);
+		return true;
+	}
 }

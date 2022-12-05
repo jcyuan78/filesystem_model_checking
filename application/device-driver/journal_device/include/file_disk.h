@@ -12,16 +12,27 @@ public:
 
 public:
 	bool CreateFileImage(const std::wstring& fn, size_t secs, size_t journal_size, size_t log_buf, bool read_only = false);
+	bool CreateDriveImage(const std::wstring& path, size_t secs, const std::wstring journal_file, size_t journal_size, size_t log_buf);
 	//bool LoadJournal(FILE* journal, HANDLE data, size_t steps);
 	//bool LoadJournal(const std::wstring& fn, size_t steps);
 	//virtual bool MakeSnapshot(IVirtualDisk*& dev, size_t steps);
 	//virtual size_t GetSteps(void) const;
+	enum DRIVE_TYPE
+	{
+		PHYSICAL_DRIVE,		// 物理磁盘：			\\.\PhysicalDriveX
+		LOGICAL_DRIVE,		// 逻辑磁盘或者分区：		\\?\X:
+		FILE_DRIVE				// 文件：				image.bin
+	};
 
 public:
 	virtual size_t GetCapacity(void);		// in sector
 	virtual UINT GetSectorSize(void) const { return m_sector_size; }
 	virtual bool ReadSectors(void* buf, size_t lba, size_t secs);
 	virtual bool WriteSectors(void* buf, size_t lba, size_t secs);
+	// offset在overlap中定义
+	virtual bool AsyncWriteSectors(void* buf, size_t secs, OVERLAPPED* overlap, LPOVERLAPPED_COMPLETION_ROUTINE callback);
+	virtual bool AsyncReadSectors(void* buf, size_t secs, OVERLAPPED* overlap, LPOVERLAPPED_COMPLETION_ROUTINE callback);
+
 	virtual bool Trim(UINT lba, size_t secs) { return true; }
 	virtual bool FlushData(UINT lba, size_t secs) { return true; }
 	virtual void CopyFrom(IVirtualDisk* dev) {};
@@ -34,7 +45,7 @@ public:
 
 	// journal device的interface
 public:
-	bool InitializeDevice(const boost::property_tree::wptree& config);
+	virtual bool InitializeDevice(const boost::property_tree::wptree& config);
 
 	virtual void SetSectorSize(UINT size) { m_sector_size = size; }
 	virtual size_t GetLogNumber(void) const { return m_journal_id; }
@@ -52,6 +63,7 @@ public:
 protected:
 	void InternalWrite(void* buf, size_t lba, size_t secs);
 protected:
+	DRIVE_TYPE m_type;
 	//	jcvos::IFileMapping * m_file;
 	bool m_journal_enable = false;	// 是否记录log
 	//BYTE* m_buf;
@@ -65,10 +77,11 @@ protected:
 
 	//size_t m_log_ptr;
 
-	std::wstring m_dev_name;
+	std::wstring m_dev_path;
 	size_t m_host_write, m_host_read;
 	int m_queue_depth = 0;
 
+	bool m_async_io = false;
 	//// Log数据结构
 	//class LOG_STRUCTURE
 	//{

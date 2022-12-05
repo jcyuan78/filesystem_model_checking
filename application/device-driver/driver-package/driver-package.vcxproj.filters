@@ -21,12 +21,18 @@
     <ClCompile Include="source\pch.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="source\image_device.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="source\framework.h">
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="source\pch.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="source\image_device.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>

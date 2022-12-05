@@ -1,10 +1,13 @@
-﻿// dllmain.cpp : 定义 DLL 应用程序的入口点。
+﻿///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// dllmain.cpp : 定义 DLL 应用程序的入口点。
 #include "pch.h"
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include <dokanfs-lib.h>
 #include <include\journal_device.h>
 #include <include/file_disk.h>
 #include <boost/property_tree/ptree.hpp>
+#include "image_device.h"
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD  ul_reason_for_call, LPVOID lpReserved)
 {
@@ -28,31 +31,43 @@ public:
     virtual bool CreateVirtualDisk(IVirtualDisk*& dev, const boost::property_tree::wptree& prop, bool create)
     {
         const std::wstring& dev_name = prop.get<std::wstring>(L"name", L"");
+//        IVirtualDisk* __dev = nullptr;
         if (dev_name == L"journal")
         {
             CJournalDevice* _dev = jcvos::CDynamicInstance<CJournalDevice>::Create();
             if (_dev == NULL) THROW_ERROR(ERR_MEM, L"failed on creating CJournalDevice");
-            bool br = _dev->InitializeDevice(prop);
-            if (!br)
-            {
-                _dev->Release();
-                THROW_ERROR(ERR_APP, L"failed on config Journal Device");
-            }
             dev = static_cast<IVirtualDisk*>(_dev);
         }
         else if (dev_name == L"file_disk")
         {
             CFileDisk* _dev = jcvos::CDynamicInstance<CFileDisk>::Create();
             if (_dev == nullptr) THROW_ERROR(ERR_MEM, L"failed on creating CFileDisk");
-            bool br = _dev->InitializeDevice(prop);
-            if (!br)
-            {
-                _dev->Release();
-                THROW_ERROR(ERR_APP, L"failed on config File Disk");
-            }
+            //bool br = _dev->InitializeDevice(prop);
+            //if (!br)
+            //{
+            //    _dev->Release();
+            //    THROW_ERROR(ERR_APP, L"failed on config File Disk");
+            //}
             dev = static_cast<IVirtualDisk*>(_dev);
         }
+        else if (dev_name == L"image_device")
+        {
+            CImageDevice* _dev = jcvos::CDynamicInstance<CImageDevice>::Create();
+            if (_dev == nullptr) THROW_ERROR(ERR_MEM, L"failed on creating CFileDisk");
+            JCASSERT(0);    //TODO
+            dev = static_cast<IVirtualDisk*>(_dev);
+            //_dev->CreateFileImage(fn, secs);
+            //dev = static_cast<IVirtualDisk*>(_dev);
+
+        }
         else { return false; }
+
+        bool br = dev->InitializeDevice(prop);
+        if (!br)
+        {
+            RELEASE(dev);
+            THROW_ERROR(ERR_APP, L"failed on config Journal Device");
+        }
         return true;
     }
 
