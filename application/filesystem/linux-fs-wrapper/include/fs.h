@@ -3835,6 +3835,8 @@ extern void truncate_inode_pages_range(address_space* mapping, loff_t lstart, lo
 
 extern void wait_on_page_writeback(struct page* page);
 extern void wait_on_page_bit(page* ppage, int bit_nr);
+extern int wait_on_page_bit_killable(page* ppage, int bit_nr);
+extern int wait_on_page_bit_killable_positive(page* ppage, int bit_nr);
 extern void wait_for_stable_page(struct page* page);
 
 inline void flush_dcache_page(page* pp)

@@ -468,7 +468,7 @@ void inode_sb_list_add(inode *iinode)
 
 static inline void inode_sb_list_del(inode *iinode)
 {
-	F_LOG_DEBUG(L"inode", L" add=%p, ino=%d, - del from sb", iinode, iinode->i_ino);
+	LOG_TRACK(L"inode", L" add=%p, ino=%d, - del from sb", iinode, iinode->i_ino);
 	if (!list_empty(&iinode->i_sb_list)) 
 	{
 		spin_lock(&iinode->i_sb->s_inode_list_lock);
@@ -529,7 +529,7 @@ void CInodeManager::remove_inode_hash(inode* iinode)
 	iinode->m_manager = nullptr;
 	spin_unlock(&iinode->i_lock);
 	spin_unlock(&m_inode_hash_lock);
-	F_LOG_DEBUG(L"inode", L" addr=%p, ino=%d, hash=%d- remove from hash list", iinode, iinode->i_ino, hash_val);
+	LOG_TRACK(L"inode", L" addr=%p, ino=%d, hash=%d- remove from hash list", iinode, iinode->i_ino, hash_val);
 }
 //EXPORT_SYMBOL(__remove_inode_hash);
 
@@ -558,7 +558,6 @@ static void evict(inode *iinode)
 {
 //	const struct super_operations *op = iinode->i_sb->s_op;
 
-//	BUG_ON(!(iinode->i_state & I_FREEING));
 	BUG_ON(!iinode->TestState(I_FREEING));
 	BUG_ON(!list_empty(&iinode->i_lru));
 
@@ -622,9 +621,9 @@ void evict_inodes(super_block *sb)
 		if (atomic_read(&iinode->i_count))			continue;
 
 		{
-			F_LOG_DEBUG(L"inode_lock", L" inode=%p, waiting for lock, auto", iinode);
+			LOG_TRACK(L"inode_lock", L" inode=%p, waiting for lock, auto", iinode);
 			auto_lock_<inode> inode_lock(*iinode);
-			F_LOG_DEBUG(L"inode_lock", L" inode=%p, locked, auto", iinode);
+			LOG_TRACK(L"inode_lock", L" inode=%p, locked, auto", iinode);
 			//		spin_lock(&iinode->i_lock);
 			if (iinode->TestState(I_NEW | I_FREEING | I_WILL_FREE))
 			{
@@ -1304,9 +1303,9 @@ EXPORT_SYMBOL(iunique);
 struct inode *igrab(inode *iinode)
 {
 //	spin_lock(&iinode->i_lock);
-	F_LOG_DEBUG(L"inode_lock", L" inode=%p, waiting for lock, auto", iinode);
+	LOG_TRACK(L"inode_lock", L" inode=%p, waiting for lock, auto", iinode);
 	auto_lock_<inode> inode_locker(*iinode);
-	F_LOG_DEBUG(L"inode_lock", L" inode=%p, lockec, auto", iinode);
+	LOG_TRACK(L"inode_lock", L" inode=%p, lockec, auto", iinode);
 	if (!(iinode->TestState(I_FREEING|I_WILL_FREE))) 
 	{
 		__iget(iinode);

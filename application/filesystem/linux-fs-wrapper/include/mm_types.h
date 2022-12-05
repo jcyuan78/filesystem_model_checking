@@ -21,6 +21,8 @@
 //
 //#include <asm/mmu.h>
 
+#define DEBUG_PAGE
+
 #ifndef AT_VECTOR_SIZE_ARCH
 #define AT_VECTOR_SIZE_ARCH 0
 #endif
@@ -175,6 +177,13 @@ enum pageflags
 	PG_reported = PG_uptodate,
 };
 
+/* A choice of three behaviors for wait_on_page_bit_common(): */
+enum behavior {
+	EXCLUSIVE,	/* Hold ref to page and take the bit when woken, like __lock_page() waiting on then setting PG_locked. */
+	SHARED,		/* Hold ref to page and check the bit when woken, like wait_on_page_writeback() waiting on PG_writeback.*/
+	DROP,		/* Drop ref to page before wait, no check when woken, like put_and_wait_on_page_locked() on PG_locked.  */
+};
+
 class CPageManager;
 
 struct page 
@@ -307,20 +316,19 @@ public:
 
 protected:
 	CRITICAL_SECTION m_lock;		// 用于page lock()。避免使用state bit来lock page带来的不确定性与效率问题。
-//	HANDLE m_event_state;			// 用于state状态变换后的通知
 	CONDITION_VARIABLE m_state_condition;	// 当state 变化是接受通知。
 public:
 	void lock(void)
 	{
 		EnterCriticalSection(&m_lock);
 		set_bit(PG_locked, flags);
-#ifdef _DEBUG
+#ifdef DEBUG_PAGE
 		lock_th_id = GetCurrentThreadId();
 #endif
 	}
 	void unlock(void)
 	{
-#ifdef _DEBUG
+#ifdef DEBUG_PAGE
 		lock_th_id = 0;
 #endif
 		clear_bit(PG_locked, flags);
@@ -332,7 +340,7 @@ public:
 		if (locked)
 		{
 			set_bit(PG_locked, flags);
-#ifdef _DEBUG
+#ifdef DEBUG_PAGE
 			lock_th_id = GetCurrentThreadId();
 #endif
 		}
@@ -340,8 +348,9 @@ public:
 	}
 	int WaitOnPageBitCommon(int bit_nr, int state, enum behavior bb);
 	void WakeUpPageBit(int bit_nr);
+	int WaitOnPageUptodate(void);
 
-#ifdef _DEBUG
+#ifdef DEBUG_PAGE
 	DWORD lock_th_id=0;
 #endif
 
@@ -370,7 +379,11 @@ public:
 protected:
 	CPageManager* m_manager =nullptr;
 	/* Usage count. *DO NOT USE DIRECTLY*. See page_ref.h */
+#ifdef DEBUG_PAGE
+public:
 	atomic_t _refcount =0;
+protected:
+#endif
 
 public:
 	inline int put_page_testzero(void);
@@ -385,13 +398,17 @@ public:
 	void *virtual_add = nullptr;/* Kernel virtual address (NULL if not kmapped, ie. highmem) */
 #endif /* WANT_PAGE_VIRTUAL */
 
-#ifdef _DEBUG
+#ifdef DEBUG_PAGE
 	//保存自动分配的地址，以检查时候有变化
-	void* back_add = nullptr;
+	//void* back_add = nullptr;
 	//debug 信息
 	UINT32	m_block_addr = 0;			// page所对应的ondisk地址
-	std::wstring m_type;			// page的类型：inode，data，其他
-	std::wstring m_description;		
+//	std::wstring m_type;			// page的类型：inode，data，其他
+//	std::wstring m_description;		
+	enum PAGE_TYPE {
+		UNKNOWN = 0, META_PAGE=1, INODE_PAGE=2, DENTRY_PAGE=3, DATA_PAGE=4, 
+	} m_type;
+	UINT m_inode;
 #endif
 
 #ifdef LAST_CPUPID_NOT_IN_PAGE_FLAGS
@@ -399,18 +416,12 @@ public:
 #endif
 };
 
+#define TRACK_PAGE(pp, cmt) LOG_TRACK(L"page", L"page=%p, ref=%d, type=%d, inode=%d, index=%d, flag=%X, " cmt, pp, pp->_refcount, pp->m_type, pp->m_inode, pp->index, pp->flags)
+
+
+
 
 // ==== page ====
-
-//inline void get_page(page* pp)
-//{
-////	page = compound_head(page);
-//	/* Getting a normal page or the head of a compound page requires to already have an elevated page->_refcount.	 */
-////	VM_BUG_ON_PAGE(page_ref_zero_or_close_to_overflow(page), page);
-////	page_ref_inc(page);
-//	atomic_inc(&pp->_refcount);
-//}
-
 inline address_space* page_mapping(page* pp)
 {
 	return pp->mapping;
@@ -421,8 +432,6 @@ inline address_space* page_mapping(page* pp)
    swp_offset(->private) */
 static inline pgoff_t page_index(struct page* page)
 {
-	//if (unlikely(PageSwapCache(page)))
-	//	return __page_file_index(page);
 	return page->index;
 }
 
@@ -1013,11 +1022,6 @@ typedef struct {
 
 //<YUAN> define page related functions
 void unlock_page(struct page* page);
-
-
-
-//void put_page(page* page);
-
 
 template<typename T>
 inline T* page_address(page* pp)

@@ -53,7 +53,7 @@ int set_page_dirty(page* page)
 }
 
 
-page::page(CPageManager * manager) : m_manager(manager)
+page::page(CPageManager * manager) : m_manager(manager), virtual_add(nullptr)
 {
 //	LOG_STACK_TRACE();
 //	memset(this, 0, sizeof(page));
@@ -62,12 +62,8 @@ page::page(CPageManager * manager) : m_manager(manager)
 	private_data = 0;
 	_refcount = 1;
 	index = -1;
-	virtual_add = VirtualAlloc(0, PAGE_SIZE, MEM_COMMIT, PAGE_READWRITE);
-	if (virtual_add == 0) THROW_WIN32_ERROR(L"failed on allocate page");
-#ifdef _DEBUG
-	LOG_DEBUG(L"page allocated, page=0x%llX, add=0x%llX", this, virtual_add);
-	back_add = virtual_add;
-#endif
+//	virtual_add = VirtualAlloc(0, PAGE_SIZE, MEM_COMMIT, PAGE_READWRITE);
+//	if (virtual_add == 0) THROW_WIN32_ERROR(L"failed on allocate page");
 	InitializeCriticalSection(&m_lock);
 //	m_event_state = CreateEvent(NULL, FALSE, FALSE, NULL);
 	InitializeConditionVariable(&m_state_condition);
@@ -95,10 +91,10 @@ page::page(void) : m_manager(nullptr), virtual_add(nullptr)
 
 page::~page(void)
 {
-#ifdef _DEBUG
-	LOG_DEBUG(L"page destory, page=0x%llX, add=0x%llX, ref=%d, type=%s, index=%d", 
-		this, virtual_add, _refcount, m_type.c_str(), index);
-	if (back_add != virtual_add) LOG_ERROR(L"[err] page address changed, org=0x%llX, new=0x%llX", back_add, virtual_add);
+#ifdef DEBUG_PAGE
+	LOG_TRACK(L"page", L"page destory, page=0x%llX, add=0x%llX, ref=%d, type=%d, index=%d",
+		this, virtual_add, _refcount, m_type, index);
+	//if (back_add != virtual_add) LOG_ERROR(L"[err] page address changed, org=0x%llX, new=0x%llX", back_add, virtual_add);
 //		THROW_ERROR(ERR_APP, L"page address changed, org=0x%llX, new=0x%llX", back_add, virtual_add);
 #endif
 //	VirtualFree(virtual_add, PAGE_SIZE, MEM_RELEASE);
@@ -110,9 +106,9 @@ void page::init(CPageManager* manager, void* vmem)
 {
 	m_manager = manager;
 	virtual_add = vmem;
-#ifdef _DEBUG
-	back_add = virtual_add;
-#endif
+//#ifdef DEBUG_PAGE
+//	back_add = virtual_add;
+//#endif
 
 }
 
@@ -124,6 +120,10 @@ void page::reinit(void)
 	_refcount = 1;
 	flags = 0;
 	page_type = 0;
+#ifdef DEBUG_PAGE
+	m_type = UNKNOWN;
+	m_inode = 0;
+#endif
 }
 
 /**

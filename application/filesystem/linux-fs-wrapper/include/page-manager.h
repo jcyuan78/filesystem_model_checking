@@ -14,6 +14,13 @@ public:
 public:
 	page* NewPage(void);/* { return (new page(this)); }*/
 	void DeletePage(page* p);
+	void GetStatus(size_t& cache_nr, size_t& free, size_t& active, size_t& inactive) const
+	{
+		cache_nr = m_cache_nr;
+		free = m_free_list.size();
+		active = m_active.size();
+		inactive = m_inactive.size();
+	}
 
 public:
 // page LRU
@@ -24,8 +31,9 @@ public:
 	void del_page_from_lru(page* pp);
 
 protected:
-	void lock(void) { EnterCriticalSection(&m_free_list_lock); };
-	void unlock(void) { LeaveCriticalSection(&m_free_list_lock); };
+	inline void lock(void) { EnterCriticalSection(&m_free_list_lock); };
+	inline void unlock(void) { LeaveCriticalSection(&m_free_list_lock); };
+	size_t reclaim_pages(void);
 
 protected:
 	CRITICAL_SECTION m_page_wait_lock;

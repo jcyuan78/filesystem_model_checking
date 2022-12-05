@@ -20,6 +20,8 @@
 #include <string>
 #include <list>
 
+//#define DEBUG_DENTRY
+
 struct path;
 struct vfsmount;
 
@@ -150,7 +152,7 @@ public:
 //protected:
 	CDentryManager* m_manager;
 
-#ifdef _DEBUG
+#ifdef DEBUG_DENTRY
 	void dentry_trace(const wchar_t* func, int line);
 #endif
 };
@@ -172,8 +174,9 @@ public:
 protected:
 	dentry* __d_alloc(super_block* sb, const qstr* name);
 	void free(dentry* ddentry);
-	void lock() {};
-	void unlock() {};
+	CRITICAL_SECTION m_list_lock;
+	inline void lock() { EnterCriticalSection(&m_list_lock); };
+	inline void unlock() { LeaveCriticalSection(&m_list_lock); };
 public:
 	friend dentry* d_alloc(dentry* parent, const qstr& name);
 	friend void dentry_free(dentry* ddentry);
@@ -183,6 +186,7 @@ public:
 //#ifdef _DEBUG	// 用于跟踪 dentry的申请和回收
 //	size_t m_head = 0, m_tail = 0;
 //#endif
+
 
 
 protected:

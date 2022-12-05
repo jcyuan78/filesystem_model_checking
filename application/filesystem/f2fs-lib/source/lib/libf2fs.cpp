@@ -1232,8 +1232,7 @@ int CF2fsFileSystem::f2fs_get_device_info(f2fs_configuration & c)
 				continue;
 			if (c.zone_blocks &&
 				c.zone_blocks != c.devices[i].zone_blocks) {
-				MSG(0, "\tError: zones of different size are "
-				       "not supported\n");
+				MSG(0, "\tError: zones of different size are not supported\n");
 				return -1;
 			}
 			c.zone_blocks = c.devices[i].zone_blocks;

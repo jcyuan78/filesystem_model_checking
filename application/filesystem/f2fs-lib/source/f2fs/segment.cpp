@@ -179,6 +179,7 @@ void f2fs_register_inmem_page(inode *iinode, page *ppage)
 {
 	inmem_pages *new_page;
 
+	TRACK_PAGE(ppage, L"set page private - ATOMIC_WRITTEN_PAGE");
 	if (PagePrivate(ppage))
 		set_page_private(ppage, (unsigned long)ATOMIC_WRITTEN_PAGE);
 	else
@@ -192,6 +193,7 @@ void f2fs_register_inmem_page(inode *iinode, page *ppage)
 	INIT_LIST_HEAD(&new_page->list);
 
 	/* increase reference count with clean state */
+	TRACK_PAGE(ppage, L"get page");
 	ppage->get_page();
 	mutex_lock(&F2FS_I(iinode)->inmem_lock);
 	list_add_tail(&new_page->list, &F2FS_I(iinode)->inmem_pages);
@@ -265,11 +267,12 @@ next:
 			ClearPageUptodate(page);
 			clear_cold_data(page);
 		}
+		TRACK_PAGE(page, L"clear private");
+
 		f2fs_clear_page_private(page);
 		f2fs_put_page(page, 1);
 
 		list_del(&cur->list);
-//		kmem_cache_free(inmem_entry_slab, cur);
 		kmem_cache_free(NULL, cur);
 		F2FS_I_SB(iinode)->dec_page_count(F2FS_INMEM_PAGES);
 	}
@@ -372,6 +375,7 @@ void f2fs_drop_inmem_page(f2fs_inode_info *inode, page *ppage)
 	kmem_cache_free(NULL, cur);
 
 	ClearPageUptodate(ppage);
+	TRACK_PAGE(ppage, L"clear private");
 	f2fs_clear_page_private(ppage);
 	f2fs_put_page(ppage, 0);
 
@@ -411,7 +415,7 @@ static int __f2fs_commit_inmem_pages(struct inode *inode)
 			set_page_dirty(page);
 			if (clear_page_dirty_for_io(page)) 
 			{
-				F_LOG_DEBUG(L"page.dirty", L" dec: inode=%d, page=%d", inode->i_ino, page->index);
+				LOG_TRACK(L"page.dirty", L" dec: inode=%d, page=%d", inode->i_ino, page->index);
 				inode_dec_dirty_pages(inode);
 				f2fs_remove_dirty_inode(inode);
 			}
@@ -2859,7 +2863,7 @@ void f2fs_sb_info::f2fs_do_write_meta_page(page *ppage, enum iostat_type io_type
 	f2fs_submit_page_write(&fio);
 
 	stat_inc_meta_count(this, ppage->index);
-	f2fs_update_iostat(this, io_type, F2FS_BLKSIZE);
+	f2fs_update_iostat(io_type, F2FS_BLKSIZE);
 }
 
 void f2fs_do_write_node_page(unsigned int nid, f2fs_io_info *fio)
@@ -2867,21 +2871,21 @@ void f2fs_do_write_node_page(unsigned int nid, f2fs_io_info *fio)
 	f2fs_summary sum;
 	set_summary(&sum, nid, 0, 0);
 	do_write_page(&sum, fio);
-	f2fs_update_iostat(fio->sbi, fio->io_type, F2FS_BLKSIZE);
+	fio->sbi->f2fs_update_iostat(fio->io_type, F2FS_BLKSIZE);
 }
 
 
 void f2fs_outplace_write_data(struct dnode_of_data *dn,	struct f2fs_io_info *fio)
 {
-	struct f2fs_sb_info *sbi = fio->sbi;
-	struct f2fs_summary sum;
+	f2fs_sb_info *sbi = fio->sbi;
+	f2fs_summary sum;
 
 	f2fs_bug_on(sbi, dn->data_blkaddr == NULL_ADDR);
 	set_summary(&sum, dn->nid, dn->ofs_in_node, fio->version);
 	do_write_page(&sum, fio);
 	f2fs_update_data_blkaddr(dn, fio->new_blkaddr);
 
-	f2fs_update_iostat(sbi, fio->io_type, F2FS_BLKSIZE);
+	sbi->f2fs_update_iostat(fio->io_type, F2FS_BLKSIZE);
 }
 
 int f2fs_inplace_write_data(struct f2fs_io_info *fio)
@@ -2917,7 +2921,7 @@ int f2fs_inplace_write_data(struct f2fs_io_info *fio)
 	if (!err)
 	{
 		update_device_state(fio);
-		f2fs_update_iostat(fio->sbi, fio->io_type, F2FS_BLKSIZE);
+		fio->sbi->f2fs_update_iostat(fio->io_type, F2FS_BLKSIZE);
 	}
 
 	return err;
@@ -2926,11 +2930,7 @@ drop_bio:
 	{
 		struct bio *bio = *(fio->bio);
 		bio->bi_status = BLK_STS_IOERR;
-#if 0 //TODO
 		bio_endio(bio);
-#else
-		JCASSERT(0);
-#endif
 		*(fio->bio) = NULL;
 	}
 	return err;
@@ -3116,10 +3116,11 @@ int f2fs_sb_info::read_compacted_summaries(void)
 	if (IS_ERR(ppage))		return (int)PTR_ERR(ppage);
 	kaddr = page_address<unsigned char>(ppage);
 
-#ifdef _DEBUG
-	jcvos::Utf8ToUnicode(ppage->m_type, "seg");
-	LOG_DEBUG(L"new page: page=%p, addr=%p, type=%s, index=%d", ppage, ppage->virtual_add, ppage->m_type.c_str(), ppage->index);
+#ifdef DEBUG_PAGE
+	//jcvos::Utf8ToUnicode(ppage->m_type, "seg");
+	ppage->m_type = page::META_PAGE;
 #endif
+	LOG_TRACK(L"[page]", L"new meta page: page=%p, type=%d, index=%d", ppage, ppage->m_type, ppage->index);
 
 	/* Step 1: restore nat cache */
 	seg_i = CURSEG_I(CURSEG_HOT_DATA);

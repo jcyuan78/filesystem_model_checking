@@ -39,4 +39,7 @@ template <typename T, size_t n> inline size_t ARRAY_SIZE(const T(&t)[n]) { retur
 //#define CONFIG_F2FS_CHECK_FS
 
 //<YUAN> 有效：则在前台运行write check point，否则后台运行check point
-#define CONFIG_SYNC_CHECKPT
+//#define CONFIG_SYNC_CHECKPT
+
+// ==== for debug ====
+//#define DEBUG_INODE

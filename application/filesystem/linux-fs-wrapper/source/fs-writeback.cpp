@@ -2195,15 +2195,11 @@ int dirtytime_interval_handler(struct ctl_table *table, int write,
    inode to the appropriate dirty list.
  * Most callers should use mark_inode_dirty() or mark_inode_dirty_sync() instead of calling this directly.
  *
- * CAREFUL!  We only add the inode to the dirty list if it is hashed or if it refers to a blockdev.  Unhashed inodes 
-   will never be added to the dirty list even if they are later hashed, as they will have been marked dirty already.
+ * CAREFUL!  We only add the inode to the dirty list if it is hashed or if it refers to a blockdev.  Unhashed inodes will never be added to the dirty list even if they are later hashed, as they will have been marked dirty already.
  *
  * In short, ensure you hash any inodes _before_ you start marking them dirty.
  *
- * Note that for blockdevs, inode->dirtied_when represents the dirtying time of the block-special inode (/dev/hda1) 
-   itself.  And the ->dirtied_when field of the kernel-internal blockdev inode represents the dirtying time of the
-   blockdev's pages.  This is why for I_DIRTY_PAGES we always use page->mapping->host, so the page-dirtying time is
-   recorded in the internal blockdev inode. */
+ * Note that for blockdevs, inode->dirtied_when represents the dirtying time of the block-special inode (/dev/hda1) itself.  And the ->dirtied_when field of the kernel-internal blockdev inode represents the dirtying time of the blockdev's pages.  This is why for I_DIRTY_PAGES we always use page->mapping->host, so the page-dirtying time is recorded in the internal blockdev inode. */
 void __mark_inode_dirty(inode *iinode, int flags)
 {
 	struct super_block *sb = iinode->i_sb;
@@ -2213,9 +2209,7 @@ void __mark_inode_dirty(inode *iinode, int flags)
 
 	if (flags & I_DIRTY_INODE) 
 	{
-		/* Notify the filesystem about the inode being dirtied, so that (if needed) it can update on-disk fields and 
-		   journal the inode.  This is only needed when the inode itself is being dirtied now.  I.e. it's only needed 
-		   for I_DIRTY_INODE, not for just I_DIRTY_PAGES or I_DIRTY_TIME. */
+		/* Notify the filesystem about the inode being dirtied, so that (if needed) it can update on-disk fields and journal the inode.  This is only needed when the inode itself is being dirtied now.  I.e. it's only needed for I_DIRTY_INODE, not for just I_DIRTY_PAGES or I_DIRTY_TIME. */
 //		trace_writeback_dirty_inode_start(inode, flags);
 		//if (sb->s_op->dirty_inode)
 		//	sb->s_op->dirty_inode(inode, flags & I_DIRTY_INODE);
@@ -2239,13 +2233,13 @@ void __mark_inode_dirty(inode *iinode, int flags)
 	smp_mb();
 #endif
 
-	if ((/*(inode->i_state & flags)==flags*/iinode->TestState(flags)==flags) || (dirtytime && iinode->TestState(I_DIRTY_INODE) ))
+	if ((iinode->TestState(flags)==flags) || (dirtytime && iinode->TestState(I_DIRTY_INODE) ))
 		return;
 
 //	spin_lock(&iinode->i_lock);
-	F_LOG_DEBUG(L"inode_lock", L" inode=%p, waiting for lock, auto", iinode);
+	LOG_TRACK(L"inode_lock", L" inode=%p, waiting for lock, auto", iinode);
 	auto_lock_<inode> inode_lock(*iinode);
-	F_LOG_DEBUG(L"inode_lock", L" inode=%p, locked, auto", iinode);
+	LOG_TRACK(L"inode_lock", L" inode=%p, locked, auto", iinode);
 
 	if (dirtytime && iinode->TestState(I_DIRTY_INODE)) 		return;  //goto out_unlock_inode;
 	if (iinode->TestState(flags) != flags)
@@ -2297,14 +2291,11 @@ void __mark_inode_dirty(inode *iinode, int flags)
 				JCASSERT(1)
 #endif
 			}
-			F_LOG_DEBUG(L"inode_lock", L" inode=%p, keep lock when return", iinode);
+			LOG_TRACK(L"inode_lock", L" inode=%p, keep lock when return", iinode);
 			inode_lock.keep_lock();
 			return;
 		}
 	}
-//out_unlock_inode:
-	//spin_unlock(&iinode->i_lock);
-//	iinode->unlock();
 }
 //EXPORT_SYMBOL(__mark_inode_dirty);
 #if 0 //TODO

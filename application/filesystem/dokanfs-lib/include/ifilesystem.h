@@ -5,6 +5,24 @@
 
 typedef LONG NTSTATUS;
 
+/// <summary>
+/// 描述文件系统的运行状态。通过特殊（$health）文件读取
+/// </summary>
+struct DokanHealthInfo
+{
+	UINT64 m_total_host_write;	// host写入的数据总量，以BYTE为单位
+	UINT64 m_block_host_write;	// 以块为单位，host的写入总量。（快的大小由根据文件系统调整，一般为4KB）
+	UINT64 m_total_block_nr;	// 总的block数量
+	UINT64 m_block_disk_write;	// 写入介质的数据总量
+	UINT64 m_logical_saturation;	// 逻辑饱和度
+	UINT64 m_physical_saturation;	// 物理饱和度
+
+	size_t m_page_cache_size;
+	size_t m_page_cache_free;
+	size_t m_page_cache_active;
+	size_t m_page_cache_inactive;
+};
+
 enum FS_OPTION
 {
 	FS_OPTION_WRITE_PROTECT =8,		// DOKAN_OPTION_WRITE_PROTECT
@@ -33,10 +51,16 @@ public:
 		UINT32 media_read;
 	};
 public:
+	virtual bool InitializeDevice(const boost::property_tree::wptree& config) = 0;
 	virtual size_t GetCapacity(void) = 0;		// in sector
 	virtual UINT GetSectorSize(void) const = 0;
 	virtual bool ReadSectors(void * buf, size_t lba, size_t secs) = 0;
 	virtual bool WriteSectors(void * buf, size_t lba, size_t secs) = 0;
+
+	// offset在overlap中定义
+	virtual bool AsyncWriteSectors(void* buf, size_t secs, OVERLAPPED* overlap, LPOVERLAPPED_COMPLETION_ROUTINE callback) = 0;
+	virtual bool AsyncReadSectors(void* buf, size_t secs, OVERLAPPED* overlap, LPOVERLAPPED_COMPLETION_ROUTINE callback) = 0;
+
 	virtual bool Trim(UINT lba, size_t secs) = 0;
 	virtual bool FlushData(UINT lba, size_t secs) = 0;
 //	virtual void SetSectorSize(UINT size) = 0;

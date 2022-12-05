@@ -326,7 +326,7 @@ public:
 public:
 	void f2fs_init_ckpt_req_control(f2fs_sb_info* sbi);
 	virtual DWORD Run(void) { return issue_checkpoint_thread(); }
-	void WakeUp(void) { SetEvent(m_wait); }
+	void WakeUp(void) { SetEvent(m_wait_for_page); }
 //	DWORD WaitForIo(DWORD timeout) { return WaitForSingleObject(m_wait, timeout); }
 	//<YUAN> request的队列处理私有化
 	void AddRequest(ckpt_req* req);
@@ -356,7 +356,8 @@ protected:
 
 protected:
 	// 用event代替wait queue
-	HANDLE m_wait;			//用于等待IO完成
+	HANDLE m_wait_for_page;			//用于等待IO完成
+	HANDLE m_wait_for_req;			// 用于等待插入request
 	CRITICAL_SECTION m_req_list_lock;
 	atomic_t queued_ckpt;			/* # of queued ckpts */
 	llist_head issue_list;			/* list for command issue */
@@ -1041,7 +1042,7 @@ enum {
 	SBI_IS_DIRTY,				/* dirty flag for checkpoint */
 	SBI_IS_CLOSE,				/* specify unmounting */
 	SBI_NEED_FSCK,				/* need fsck.f2fs to fix */
-	SBI_POR_DOING,				/* recovery is doing or not */
+	SBI_POR_DOING,				/* recovery is doing or not */ 	// POR: Power On Recovery.在Mount的一开始设置，完成初始化后清除（f2fs_fill_super()函数中）
 	SBI_NEED_SB_WRITE,			/* need to recover superblock */
 	SBI_NEED_CP,				/* need to checkpoint */
 	SBI_IS_SHUTDOWN,			/* shutdown by ioctl */
@@ -2663,19 +2664,20 @@ static inline void f2fs_reset_iostat(f2fs_sb_info *sbi)
 void f2fs_record_iostat(f2fs_sb_info* sbi);
 
 
-static inline void f2fs_update_iostat(f2fs_sb_info *sbi, enum iostat_type type, unsigned long long io_bytes)
+//static inline void f2fs_update_iostat(f2fs_sb_info *sbi, enum iostat_type type, unsigned long long io_bytes)
+inline void f2fs_sb_info::f2fs_update_iostat(enum iostat_type type, unsigned long long io_bytes)
 {
-	if (!sbi->iostat_enable)		return;
-	spin_lock(&sbi->iostat_lock);
-	sbi->rw_iostat[type] += io_bytes;
+	if (!iostat_enable)		return;
+	spin_lock(&iostat_lock);
+	rw_iostat[type] += io_bytes;
 
 	if (type == APP_WRITE_IO || type == APP_DIRECT_IO)
-		sbi->rw_iostat[APP_BUFFERED_IO] = sbi->rw_iostat[APP_WRITE_IO] - sbi->rw_iostat[APP_DIRECT_IO];
+		rw_iostat[APP_BUFFERED_IO] = rw_iostat[APP_WRITE_IO] - rw_iostat[APP_DIRECT_IO];
 
 	if (type == APP_READ_IO || type == APP_DIRECT_READ_IO)
-		sbi->rw_iostat[APP_BUFFERED_READ_IO] =	sbi->rw_iostat[APP_READ_IO] - sbi->rw_iostat[APP_DIRECT_READ_IO];
-	spin_unlock(&sbi->iostat_lock);
-	f2fs_record_iostat(sbi);
+		rw_iostat[APP_BUFFERED_READ_IO] =	rw_iostat[APP_READ_IO] - rw_iostat[APP_DIRECT_READ_IO];
+	spin_unlock(&iostat_lock);
+	f2fs_record_iostat(this);
 }
 
 //#define __is_large_section(sbi)		((sbi)->segs_per_sec > 1)
@@ -2714,6 +2716,7 @@ static inline void f2fs_clear_page_private(page *ppage)
 	if (!PagePrivate(ppage)) return;
 	ClearPagePrivate(ppage);
 	set_page_private(ppage, 0);
+	TRACK_PAGE(ppage, L"put page");
 	ppage->put_page();
 }
 #if 0
@@ -2990,7 +2993,6 @@ struct page *f2fs_get_tmp_page(struct f2fs_sb_info *sbi, pgoff_t index);
 //bool f2fs_is_valid_blkaddr(struct f2fs_sb_info *sbi, block_t blkaddr, int type);
 int f2fs_ra_meta_pages(struct f2fs_sb_info *sbi, block_t start, int nrpages, int type, bool sync);
 void f2fs_ra_meta_pages_cond(struct f2fs_sb_info *sbi, pgoff_t index);
-//long f2fs_sync_meta_pages(struct f2fs_sb_info *sbi, enum page_type type, long nr_to_write, enum iostat_type io_type);
 void f2fs_add_ino_entry(struct f2fs_sb_info *sbi, nid_t ino, int type);
 void f2fs_remove_ino_entry(struct f2fs_sb_info *sbi, nid_t ino, int type);
 void f2fs_release_ino_entry(struct f2fs_sb_info *sbi, bool all);
@@ -3027,8 +3029,7 @@ int __init f2fs_init_bioset(void);
 void f2fs_destroy_bioset(void);
 int f2fs_init_bio_entry_cache(void);
 void f2fs_destroy_bio_entry_cache(void);
-void f2fs_submit_bio(struct f2fs_sb_info *sbi,
-				struct bio *bio, enum page_type type);
+//void f2fs_submit_bio(struct f2fs_sb_info *sbi,	struct bio *bio, enum page_type type);
 void f2fs_submit_merged_write(struct f2fs_sb_info *sbi, enum page_type type);
 void f2fs_submit_merged_write_cond(f2fs_sb_info* sbi, inode* inode, struct page* page,
 	nid_t ino, enum page_type type);
@@ -3045,7 +3046,7 @@ void f2fs_update_data_blkaddr(struct dnode_of_data *dn, block_t blkaddr);
 int f2fs_reserve_new_blocks(struct dnode_of_data *dn, blkcnt_t count);
 int f2fs_reserve_new_block(struct dnode_of_data *dn);
 int f2fs_get_block(struct dnode_of_data *dn, pgoff_t index);
-int f2fs_preallocate_blocks(struct kiocb *iocb, struct iov_iter *from);
+//int f2fs_preallocate_blocks(struct kiocb *iocb, struct iov_iter *from);
 int f2fs_reserve_block(struct dnode_of_data *dn, pgoff_t index);
 //struct page *f2fs_get_read_data_page(struct inode *inode, pgoff_t index, int op_flags, bool for_write);
 //struct page *f2fs_find_data_page(struct inode *inode, pgoff_t index);

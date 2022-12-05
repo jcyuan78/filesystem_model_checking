@@ -58,7 +58,7 @@ static void f2fs_submit_discard_endio(struct bio* bio)
 		complete_all(&dc->wait);
 	}
 	spin_unlock_irqrestore(&dc->lock, flags);
-	F_LOG_DEBUG(L"bio", L"bio=%p, call bio_put", bio);
+	LOG_TRACK(L"bio", L"bio=%p, call bio_put", bio);
 	bio_put(bio);
 }
 
@@ -699,11 +699,12 @@ int discard_cmd_control::__submit_discard_cmd(discard_policy* dpolicy, discard_c
 		bio->bi_private = dc;
 		bio->bi_end_io = f2fs_submit_discard_endio;
 		bio->bi_opf |= flag;
-		m_sbi->m_fs->submit_bio(bio);
+//		m_sbi->submit_bio(bio);
+		m_sbi->submit_async_io(bio);
 
 		atomic_inc(&issued_discard);
 
-		f2fs_update_iostat(m_sbi, FS_DISCARD, 1);
+		m_sbi->f2fs_update_iostat(FS_DISCARD, 1);
 
 		lstart += len;
 		start += len;

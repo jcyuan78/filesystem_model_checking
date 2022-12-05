@@ -1040,7 +1040,7 @@ int f2fs_inode_info::ra_data_block(pgoff_t index)
 	f2fs_sb_info *sbi = F2FS_I_SB(this);
 //	address_space *mapping = inode->i_mapping;
 	dnode_of_data dn;
-	struct page *page;
+	struct page *ppage;
 	extent_info ei = {0, 0, 0};
 
 	f2fs_io_info fio;
@@ -1055,8 +1055,8 @@ int f2fs_inode_info::ra_data_block(pgoff_t index)
 	fio.retry = false;
 	int err;
 
-	page = f2fs_grab_cache_page(i_mapping, index, true);
-	if (!page) return -ENOMEM;
+	ppage = f2fs_grab_cache_page(i_mapping, index, true);
+	if (!ppage) return -ENOMEM;
 
 	if (f2fs_lookup_extent_cache(this, index, &ei))
 	{
@@ -1085,11 +1085,11 @@ int f2fs_inode_info::ra_data_block(pgoff_t index)
 	}
 got_it:
 	/* read page */
-	fio.page = page;
+	fio.page = ppage;
 	fio.new_blkaddr = fio.old_blkaddr = dn.data_blkaddr;
 
 	/* don't cache encrypted data into meta inode until previous dirty data were writebacked to avoid racing between GC and flush. */
-	f2fs_wait_on_page_writeback(page, DATA, true, true);
+	f2fs_wait_on_page_writeback(ppage, DATA, true, true);
 
 	f2fs_wait_on_block_writeback(this, dn.data_blkaddr);
 
@@ -1103,16 +1103,18 @@ got_it:
 	err = sbi->f2fs_submit_page_bio(&fio);
 	if (err) goto put_encrypted_page;
 	f2fs_put_page(fio.encrypted_page, 0);
-	f2fs_put_page(page, 1);
+	f2fs_put_page(ppage, 1);
 
-	f2fs_update_iostat(sbi, FS_DATA_READ_IO, F2FS_BLKSIZE);
-	f2fs_update_iostat(sbi, FS_GDATA_READ_IO, F2FS_BLKSIZE);
+	sbi->f2fs_update_iostat(FS_DATA_READ_IO, F2FS_BLKSIZE);
+	sbi->f2fs_update_iostat(FS_GDATA_READ_IO, F2FS_BLKSIZE);
 
 	return 0;
 put_encrypted_page:
+	TRACK_PAGE(fio.encrypted_page, L"put encrypted page");
 	f2fs_put_page(fio.encrypted_page, 1);
 put_page:
-	f2fs_put_page(page, 1);
+	TRACK_PAGE(ppage, L"put page");
+	f2fs_put_page(ppage, 1);
 	return err;
 }
 
@@ -1208,19 +1210,22 @@ int f2fs_inode_info::move_data_block(block_t bidx, int gc_type, unsigned int seg
 	fio.encrypted_page = mpage;
 
 	/* read source block in mpage */
-	if (!PageUptodate(mpage)) {
+	if (!PageUptodate(mpage)) 
+	{
 		err = fio.sbi->f2fs_submit_page_bio(&fio);
-		if (err) {
+		if (err) 
+		{
 			f2fs_put_page(mpage, 1);
 			goto up_out;
 		}
 
-		f2fs_update_iostat(fio.sbi, FS_DATA_READ_IO, F2FS_BLKSIZE);
-		f2fs_update_iostat(fio.sbi, FS_GDATA_READ_IO, F2FS_BLKSIZE);
+		fio.sbi->f2fs_update_iostat(FS_DATA_READ_IO, F2FS_BLKSIZE);
+		fio.sbi->f2fs_update_iostat(FS_GDATA_READ_IO, F2FS_BLKSIZE);
 
+		mpage->WaitOnPageUptodate();
 		lock_page(mpage);
-		if (unlikely(mpage->mapping != META_MAPPING(fio.sbi) ||
-						!PageUptodate(mpage))) {
+		if (unlikely(mpage->mapping != META_MAPPING(fio.sbi) || !PageUptodate(mpage))) 
+		{
 			err = -EIO;
 			f2fs_put_page(mpage, 1);
 			goto up_out;
@@ -1230,11 +1235,9 @@ int f2fs_inode_info::move_data_block(block_t bidx, int gc_type, unsigned int seg
 	set_summary(&sum, dn.nid, dn.ofs_in_node, ni.version);
 
 	/* allocate block address */
-	f2fs_allocate_data_block(fio.sbi, NULL, fio.old_blkaddr, &newaddr,
-				&sum, type, NULL);
+	f2fs_allocate_data_block(fio.sbi, NULL, fio.old_blkaddr, &newaddr,	&sum, type, NULL);
 
-	fio.encrypted_page = f2fs_pagecache_get_page(META_MAPPING(fio.sbi),
-				newaddr, FGP_LOCK | FGP_CREAT, GFP_NOFS);
+	fio.encrypted_page = f2fs_pagecache_get_page(META_MAPPING(fio.sbi),	newaddr, FGP_LOCK | FGP_CREAT, GFP_NOFS);
 	if (!fio.encrypted_page) {
 		err = -ENOMEM;
 		f2fs_put_page(mpage, 1);
@@ -1262,14 +1265,12 @@ int f2fs_inode_info::move_data_block(block_t bidx, int gc_type, unsigned int seg
 		err = -EAGAIN;
 		if (PageWriteback(fio.encrypted_page))
 		{
-#if 0
-			end_page_writeback(fio.encrypted_page)
-#endif
+			end_page_writeback(fio.encrypted_page);
 		};
 		goto put_page_out;
 	}
 
-	f2fs_update_iostat(fio.sbi, FS_GC_DATA_IO, F2FS_BLKSIZE);
+	fio.sbi->f2fs_update_iostat(FS_GC_DATA_IO, F2FS_BLKSIZE);
 
 	f2fs_update_data_blkaddr(&dn, newaddr);
 	set_inode_flag(FI_APPEND_WRITE);
@@ -1348,7 +1349,7 @@ retry:
 		set_page_dirty(ppage);
 		if (clear_page_dirty_for_io(ppage)) 
 		{
-			F_LOG_DEBUG(L"page.dirty", L" dec: inode=%d, page=%d", inode->i_ino, ppage->index);
+			LOG_TRACK(L"page.dirty", L" dec: inode=%d, page=%d", inode->i_ino, ppage->index);
 			inode_dec_dirty_pages(inode);
 			f2fs_remove_dirty_inode(inode);
 		}

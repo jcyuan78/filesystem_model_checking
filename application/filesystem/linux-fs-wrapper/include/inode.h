@@ -80,9 +80,9 @@ class CInodeManager;
 
 #ifdef _TRACK_INODE_LOCK_
 #define LOCK_INODE(ii) {	\
-	F_LOG_DEBUG(L"inode_lock", L" inode=%p, waiting for lock", ii);	\
+	LOG_TRACK(L"inode_lock", L" inode=%p, waiting for lock", ii);	\
 	ii->lock();	\
-	F_LOG_DEBUG(L"inode_lock", L" inode=%p, locked", ii);	\
+	LOG_TRACK(L"inode_lock", L" inode=%p, locked", ii);	\
 }
 #else
 #define LOCK_INODE(ii) ii->lock()

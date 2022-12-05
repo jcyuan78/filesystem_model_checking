@@ -41,7 +41,8 @@ CF2fsFileSystem::~CF2fsFileSystem(void)
 bool CF2fsFileSystem::ConnectToDevice(IVirtualDisk* dev)
 {
 	if (dev == NULL) THROW_ERROR(ERR_APP, L"device cannot be null");
-	m_sb_info->SetDevice(dev);
+	// 做format的时候，m_sb_info=nullptr;
+	if (m_sb_info)	m_sb_info->SetDevice(dev);
 
 	m_config.devices[0].m_fd = dev;
 	m_config.devices[0].total_sectors = dev->GetCapacity();
@@ -126,12 +127,15 @@ bool CF2fsFileSystem::Mount(IVirtualDisk* dev)
 	m_sb_info = new f2fs_sb_info(this, fs_type, m_mount_opt);
 	ConnectToDevice(dev);
 
+
 	int err = m_sb_info->f2fs_fill_super(L"", 0);
 	if (err)
 	{
 		LOG_ERROR(L"[err] failed on calling fill super");
 		return false;
 	}
+
+	InitialSpecialFileList();
 	return true;
 }
 
@@ -144,7 +148,7 @@ void CF2fsFileSystem::Unmount(void)
 		delete m_sb_info;
 		m_sb_info = nullptr;
 	}
-
+	DeleteSpecialFileList();
 	Disconnect();
 }
 
@@ -163,10 +167,10 @@ bool CF2fsFileSystem::MakeFileSystem(IVirtualDisk* dev, UINT32 volume_size, cons
 	fs_type->name = fs_name;
 	fs_type->fs_flags = FS_REQUIRES_DEV;
 
-	m_mount_opt.m_dentry_cache_num = 128;
-	m_mount_opt.m_page_cache_num = 1024;
+	//m_mount_opt.m_dentry_cache_num = 128;
+	//m_mount_opt.m_page_cache_num = 1024;
 
-	m_sb_info = new f2fs_sb_info(this, fs_type, m_mount_opt);
+	//m_sb_info = new f2fs_sb_info(this, fs_type, m_mount_opt);
 
 	ConnectToDevice(dev);
 	f2fs_get_device_info(m_config);
@@ -179,8 +183,8 @@ bool CF2fsFileSystem::MakeFileSystem(IVirtualDisk* dev, UINT32 volume_size, cons
 	}
 	Disconnect();
 
-	delete m_sb_info;
-	m_sb_info = nullptr;
+	//delete m_sb_info;
+	//m_sb_info = nullptr;
 	return br;
 }
 
@@ -251,6 +255,12 @@ const wchar_t* DispToString(IFileSystem::FsCreateDisposition disp)
 NTSTATUS CF2fsFileSystem::DokanCreateFile(IFileInfo*& file, const std::wstring& path, ACCESS_MASK access_mask, DWORD attr, FsCreateDisposition disp, ULONG share, ULONG opt, bool isdir)
 {
 	LOG_STACK_TRACE();
+
+	if (path.size() > 2 && path[0] == '\\' && path[1] == '$')
+	{
+		return OpenSpecialFile(file, path);
+	}
+
 //	LOG_DEBUG(L"[fs_op] Create, %s, disp=%s, fn=%s", isdir?L"Dir":L"File", DispToString(disp), path.c_str());
 	//	(1) 打开parent
 	// 	(2) 在parent中查找目标
@@ -379,53 +389,18 @@ NTSTATUS CF2fsFileSystem::DokanCreateFile(IFileInfo*& file, const std::wstring& 
 NTSTATUS CF2fsFileSystem::DokanDeleteFile(const std::wstring& full_path, IFileInfo* file, bool isdir)
 {
 	LOG_STACK_TRACE();
-	// 如果是dir，检查是否为空
-//	CF2fsFile* f2fs_file = nullptr;
-//	if (!file)
-//	{	// find file by fn
-//		jcvos::auto_interface<IFileInfo> ff;
-//		bool br = DokanCreateFile(ff, fn, GENERIC_READ | GENERIC_WRITE, 0, IFileSystem::FS_OPEN_EXISTING, 0, 0, isdir);
-//		// file not found
-//		if (!br || !ff)
-//		{
-//			LOG_ERROR(L"[err] file or dir (%s) is not found", fn.c_str());
-//			return false;
-//		}
-//		ff.detach<CF2fsFile>(f2fs_file);	JCASSERT(f2fs_file);
-////		ff->CloseFile();
-//	}
-//	else
-//	{
-//		f2fs_file = dynamic_cast<CF2fsFile*>(file);		JCASSERT(f2fs_file);
-//		f2fs_file->AddRef();
-//	}
-
+	// <TODO> 如果是dir，检查是否为空
 	CF2fsFile* ff = dynamic_cast<CF2fsFile*>(file);
 	JCASSERT(ff);
-	LOG_DEBUG(L"dentry=%p, inode=%p, fn=%S, ino=%d", ff->m_dentry, ff->m_inode, ff->m_dentry->d_name.name.c_str(), ff->m_inode->i_ino);
+	LOG_TRACK(L"dentry", L"dentry=%p, inode=%p, fn=%S, ino=%d", ff->m_dentry, ff->m_inode, ff->m_dentry->d_name.name.c_str(), ff->m_inode->i_ino);
 	int err = ff->DeleteThis();
 
-	/*
-	// 打开父节点，
-	jcvos::auto_interface<CF2fsFile> parent_dir;
-	std::wstring fn;
-	OpenParent(parent_dir, full_path, fn);
-	if (parent_dir == nullptr)
-	{
-		LOG_ERROR(L"[err] failed on open parent dir: %s, err=%d", full_path.c_str(), STATUS_NO_SUCH_FILE);
-		return STATUS_NO_SUCH_FILE;
-	}
-
-	// 调用unlink
-	int err = parent_dir->_DeleteChild(fn);
-*/
 	if (err)
 	{
 		LOG_ERROR(L"[err] failed on deleteing file: %s, err=%d", full_path.c_str(), err);
 		if (err == -ENOTEMPTY) return STATUS_DIRECTORY_NOT_EMPTY;
 	}
 	return STATUS_SUCCESS;
-
 }
 
 NTSTATUS CF2fsFileSystem::DokanMoveFile(const std::wstring& src_fn, const std::wstring& dst_fn, bool replace, IFileInfo* file)
@@ -596,17 +571,9 @@ int CF2fsFileSystem::f2fs_finalize_device(void)
 	/* We should call fsync() to flush out all the dirty pages in the block device page cache.	 */
 	for (i = 0; i < m_config.ndevs; i++)
 	{
-		//ret = close(c.devices[i].fd);
-		//if (ret < 0)
-		//{
-		//	MSG(0, "\tError: Failed to close device file!!!\n");
-		//	break;
-		//}
-		//free(c.devices[i].path);
 		RELEASE(m_config.devices[i].m_fd);
 		free(m_config.devices[i].zone_cap_blocks);
 	}
-//	close(m_config.kd);
 	return ret;
 }
 
@@ -644,11 +611,8 @@ int CF2fsFileSystem::__blkdev_issue_discard(block_device* bdev, sector_t lba, se
 		granularity_aligned_lba = round_up<sector_t>(sector_mapped, (discard_granularity >> SECTOR_SHIFT));
 
 		/* Check whether the discard bio starts at a discard_granularity aligned LBA,
-		 * - If no: set (granularity_aligned_lba - sector_mapped) to bi_size of the first split bio, then the second 
-		 bio will start at a discard_granularity aligned LBA on the device.
-		 * - If yes: use bio_aligned_discard_max_sectors() as the max possible bi_size of the first split bio. Then when
-		 this bio is split in device drive, the split ones are very probably to be aligned to discard_granularity of 
-		 the device's queue. */
+		 * - If no: set (granularity_aligned_lba - sector_mapped) to bi_size of the first split bio, then the second bio will start at a discard_granularity aligned LBA on the device.
+		 * - If yes: use bio_aligned_discard_max_sectors() as the max possible bi_size of the first split bio. Then when this bio is split in device drive, the split ones are very probably to be aligned to discard_granularity of the device's queue. */
 		if (granularity_aligned_lba == sector_mapped)	req_sects = min(secs, bio_aligned_discard_max_sectors);
 		else											req_sects = min(secs, granularity_aligned_lba - sector_mapped);
 
@@ -660,7 +624,7 @@ int CF2fsFileSystem::__blkdev_issue_discard(block_device* bdev, sector_t lba, se
 		if (bio_ptr)
 		{
 			bio_chain(bio_ptr, new_bio);
-			submit_bio(bio_ptr);
+			m_sb_info->submit_async_io(bio_ptr);
 		}
 		bio_ptr = new_bio;
 
@@ -672,8 +636,7 @@ int CF2fsFileSystem::__blkdev_issue_discard(block_device* bdev, sector_t lba, se
 		lba += req_sects;
 		secs -= req_sects;
 
-		/* We can loop for a long time in here, if someone does full device discards (like mkfs). Be nice and allow
-		 * us to schedule out to avoid softlocking if preempt is disabled. */
+		/* We can loop for a long time in here, if someone does full device discards (like mkfs). Be nice and allow us to schedule out to avoid softlocking if preempt is disabled. */
 //		cond_resched();
 	}
 	bb = &bio_ptr;
@@ -707,9 +670,61 @@ void f2fs_sb_info::dec_valid_block_count(struct inode* inode, block_t count)
 //	return m_fs->__bio_alloc(fio, npages);
 //}
 
+NTSTATUS CF2fsFileSystem::OpenSpecialFile(IFileInfo*& file, const std::wstring& path)
+{
+	SPECIAL_FILE_ID id = SFID_MAX_FILE_NUM;
+	if (path == L"\\$HEALTH")
+	{
+		CSpecialFile<DokanHealthInfo>* ff = jcvos::CDynamicInstance<CSpecialFile<DokanHealthInfo> >::Create();
+		ff->Init(this, L"\\$HEALTH", SFID_HEALTH);
+		file = ff;
+	}
+	else return STATUS_NO_SUCH_FILE;
+	//file = m_special_file_list[SFID_HEALTH];
+	//file->AddRef();
+	return STATUS_SUCCESS;
+}
+
+void CF2fsFileSystem::InitialSpecialFileList(void)
+{
+	//m_special_file_list = new LP_SPECIALFILE[SFID_MAX_FILE_NUM];
+	//m_special_file_list[SFID_HEALTH] = new  CSpecialFile<DokanHealthInfo>(this, L"$HEALTH", SFID_HEALTH);
+	memset(&m_health_info, 0, sizeof(DokanHealthInfo));
+	//m_health_info = m_special_file_list[SFID_HEALTH]->GetData<DokanHealthInfo>();
+	m_health_info.m_total_block_nr = le64_to_cpu(m_sb_info->raw_super->block_count);
+}
+
+void CF2fsFileSystem::DeleteSpecialFileList(void)
+{
+	//for (size_t ii = 0; ii < SFID_MAX_FILE_NUM; ++ii)
+	//{
+	//	delete m_special_file_list[ii];
+	//}
+	//delete[] m_special_file_list;
+}
+
+DWORD CF2fsFileSystem::GetSpecialData(LPVOID buf, DWORD len, UINT id)
+{
+	DWORD read;
+	switch (id)
+	{
+	case SFID_HEALTH: {
+//		size_t cache_nr, free, active, inactive;
+		DokanHealthInfo* info = reinterpret_cast<DokanHealthInfo*>(buf);
+		memcpy_s(buf, len, &m_health_info, sizeof(DokanHealthInfo));
+		m_sb_info->m_page_manager.GetStatus(info->m_page_cache_size, info->m_page_cache_free, info->m_page_cache_active, info->m_page_cache_inactive);
+		read = sizeof(DokanHealthInfo);
+		break;
+	}
+	default:
+		break;
+	}
+	return read;
+}
+
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// == factory
+// ==== factory ====
 
 jcvos::CStaticInstance<CF2fsFactory> g_factory;
 

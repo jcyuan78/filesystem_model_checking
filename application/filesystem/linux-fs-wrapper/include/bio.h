@@ -428,9 +428,9 @@ static inline struct bio *bio_alloc(gfp_t gfp_mask, unsigned short nr_iovecs)
 }
 
 //extern blk_qc_t submit_bio(struct bio *);
-
+#endif
 extern void bio_endio(struct bio *);
-
+#if 0
 static inline void bio_io_error(struct bio *bio)
 {
 	bio->bi_status = BLK_STS_IOERR;

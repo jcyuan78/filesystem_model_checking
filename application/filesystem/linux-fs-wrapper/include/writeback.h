@@ -1,3 +1,4 @@
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /* SPDX-License-Identifier: GPL-2.0 */
 /*
  * include/linux/writeback.h
@@ -44,21 +45,13 @@ enum writeback_sync_modes {
 	WB_SYNC_ALL,	/* Wait on every mapping */
 };
 
-/*
- * A control structure which tells the writeback code what to do.  These are
- * always on the stack, and hence need no locking.  They are always initialised
- * in a manner such that unspecified fields are set to zero.
- */
+/* A control structure which tells the writeback code what to do.  These are always on the stack, and hence need no locking.  They are always initialised in a manner such that unspecified fields are set to zero. */
 struct writeback_control 
 {
 	long nr_to_write;		/* Write this many pages, and decrement this for each page written */
 	long pages_skipped;		/* Pages which were not written */
 
-	/*
-	 * For a_ops->writepages(): if start or end are non-zero then this is
-	 * a hint that the filesystem need only write out the pages inside that
-	 * byterange.  The byte at `end' is included in the writeout request.
-	 */
+	/* For a_ops->writepages(): if start or end are non-zero then this is a hint that the filesystem need only write out the pages inside that byterange.  The byte at `end' is included in the writeout request. */
 	loff_t range_start;
 	loff_t range_end;
 
@@ -71,14 +64,8 @@ struct writeback_control
 	unsigned range_cyclic:1;	/* range_start is cyclic */
 	unsigned for_sync:1;		/* sync(2) WB_SYNC_ALL writeback */
 
-	/*
-	 * When writeback IOs are bounced through async layers, only the
-	 * initial synchronous phase should be accounted towards inode
-	 * cgroup ownership arbitration to avoid confusion.  Later stages
-	 * can set the following flag to disable the accounting.
-	 */
+	/* When writeback IOs are bounced through async layers, only the initial synchronous phase should be accounted towards inode cgroup ownership arbitration to avoid confusion.  Later stages can set the following flag to disable the accounting.	 */
 	unsigned no_cgroup_owner:1;
-
 	unsigned punt_to_cgroup:1;	/* cgrp punting, see __REQ_CGROUP_PUNT */
 
 #ifdef CONFIG_CGROUP_WRITEBACK

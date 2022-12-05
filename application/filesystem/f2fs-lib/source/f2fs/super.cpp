@@ -1940,7 +1940,7 @@ int f2fs_inode_info::f2fs_inode_dirtied(bool sync)
 //	if (list_empty(&F2FS_I(iinode)->gdirty_list))
 	if (sync && !m_in_list[DIRTY_META])
 	{
-		F_LOG_DEBUG(L"inode", L" add=%p, ino=%d, type=%d - add to sb inode list", this, i_ino, DIRTY_META);
+		LOG_TRACK(L"inode", L" add=%p, ino=%d, type=%d - add to sb inode list", this, i_ino, DIRTY_META);
 //		list_add_tail(&F2FS_I(iinode)->gdirty_list, &m_sbi->inode_list[DIRTY_META]);
 		m_sbi->sb_list_add_tail(this, DIRTY_META);
 		m_sbi->inc_page_count(F2FS_DIRTY_IMETA);
@@ -1966,7 +1966,7 @@ void f2fs_inode_info::f2fs_inode_synced(void)
 	if (!m_sbi->list_empty(DIRTY_META) && m_in_list[DIRTY_META])
 	{
 //		list_del_init(&F2FS_I(iinode)->gdirty_list);
-		F_LOG_DEBUG(L"inode", L" add=%p, ino=%d, type=%d - remove from sb inode list", this, i_ino, DIRTY_META);
+		LOG_TRACK(L"inode", L" add=%p, ino=%d, type=%d - remove from sb inode list", this, i_ino, DIRTY_META);
 
 		m_sbi->sb_list_del_init(this, DIRTY_META);
 		m_sbi->dec_page_count(F2FS_DIRTY_IMETA);
@@ -4600,7 +4600,7 @@ int f2fs_sb_info::f2fs_fill_super(const std::wstring & str_option, int silent)
 				THROW_ERROR(ERR_APP, L"Failed to read root inode");
 				//goto free_node_inode;
 			}
-#ifdef _DEBUG
+#ifdef INODE_DEBUG
 			root->m_description = L"inode for root.";
 #endif
 			if (!S_ISDIR(root->i_mode) || !root->i_blocks || !root->i_size || !root->i_nlink)
@@ -4779,8 +4779,7 @@ free_meta:
 		f2fs_quota_off_umount(this);
 #endif
 	/* Some dirty meta pages can be produced by f2fs_recover_orphan_inodes() failed by EIO. Then, iput(node_inode) 
-	can trigger balance_fs_bg() followed by f2fs_write_checkpoint() through f2fs_write_node_pages(), which falls into 
-	an infinite loop in f2fs_sync_meta_pages(). */
+	can trigger balance_fs_bg() followed by f2fs_write_checkpoint() through f2fs_write_node_pages(), which falls into an infinite loop in f2fs_sync_meta_pages(). */
 	truncate_inode_pages_final(META_MAPPING(this));
 	/* evict some inodes being cached by GC */
 	evict_inodes(this);

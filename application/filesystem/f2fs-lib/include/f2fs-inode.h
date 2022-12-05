@@ -1,6 +1,8 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma once
 
+#include "config.h"
+
 class CF2fsFileSystem;
 struct dnode_of_data;
 
@@ -219,8 +221,9 @@ public:
 	//-- tobe protected;
 	page* f2fs_get_read_data_page(pgoff_t index, int op_flags, bool for_write);
 	page* f2fs_get_lock_data_page(pgoff_t index, bool for_write);
-
-
+protected:
+	int f2fs_preallocate_blocks(kiocb* iocb, iov_iter* from);		// 可以移动到CF2fsFileNode
+public:
 // ==== namei.cpp ===
 	void set_file_temperature(const std::wstring& name);
 	int _internal_new_inode(f2fs_inode_info* dir, umode_t mode);
@@ -282,7 +285,7 @@ public:
 	int filemap_fdatawrite(void) { return i_mapping->filemap_fdatawrite(); }
 	void flush_inline_data(void);
 
-#ifdef _DEBUG
+#ifdef INODE_DEBUG
 public:
 	// 调试信息，
 	std::wstring  m_description;
@@ -411,7 +414,7 @@ public:
 	inline int f2fs_add_link(dentry* entry, f2fs_inode_info* inode)
 	{
 		if (fscrypt_is_nokey_name(entry))	return -ENOKEY;
-#ifdef _DEBUG
+#if 0 // _DEBUG
 //			f2fs_inode_info* fi = (d_inode(entry->d_parent));
 		Cf2fsDirInode* di = dynamic_cast<Cf2fsDirInode*>(d_inode(entry->d_parent));
 		if ( (di == NULL) || (di!=this) ) THROW_ERROR(ERR_APP, L"only dir inode support this feature");
@@ -445,12 +448,11 @@ protected:
 		d->_f = reinterpret_cast<BYTE*>(t) + bitmap_size + reserved_size + SIZE_OF_DIR_ENTRY * entry_cnt;
 	}
 	friend void f2fs_delete_inline_entry(f2fs_dir_entry* dentry, page* ppage, f2fs_inode_info* dir, f2fs_inode_info* iinode);
-#ifdef _DEBUG
+#ifdef INODE_DEBUG
 public:
 	void DebugListItems(void);
 #else
 	void DebugListItems(void) {};
-
 #endif //_DEBUG
 };
 

@@ -387,19 +387,10 @@ static inline struct page *find_lock_head(struct address_space *mapping,
  * @index: the page's index into the mapping
  * @gfp_mask: page allocation mode
  *
- * Looks up the page cache slot at @mapping & @offset.  If there is a
- * page cache page, it is returned locked and with an increased
- * refcount.
- *
- * If the page is not present, a new page is allocated using @gfp_mask
- * and added to the page cache and the VM's LRU list.  The page is
- * returned locked and with an increased refcount.
- *
+ * Looks up the page cache slot at @mapping & @offset.  If there is a page cache page, it is returned locked and with an increased refcount.
+ * If the page is not present, a new page is allocated using @gfp_mask and added to the page cache and the VM's LRU list.  The page is returned locked and with an increased refcount.
  * On memory exhaustion, %NULL is returned.
- *
- * find_or_create_page() may sleep, even if @gfp_flags specifies an
- * atomic allocation!
- */
+ * find_or_create_page() may sleep, even if @gfp_flags specifies an atomic allocation! */
 inline page *find_or_create_page(address_space *mapping, pgoff_t index, gfp_t gfp_mask)
 {
 	page * ppage = pagecache_get_page(mapping, index, FGP_LOCK|FGP_ACCESSED|FGP_CREAT, gfp_mask);
@@ -655,26 +646,25 @@ static inline int lock_page_or_retry(struct page *page, struct mm_struct *mm,
  */
 extern void wait_on_page_bit(struct page *page, int bit_nr);
 extern int wait_on_page_bit_killable(struct page *page, int bit_nr);
+#endif
 
-/* 
- * Wait for a page to be unlocked.
+/* Wait for a page to be unlocked.
  *
- * This must be called with the caller "holding" the page,
- * ie with increased "page->count" so that the page won't
- * go away during the wait..
- */
-static inline void wait_on_page_locked(struct page *page)
+ * This must be called with the caller "holding" the page, ie with increased "page->count" so that the page won't go away during the wait.. */
+static inline void wait_on_page_locked(page *ppage)
 {
-	if (PageLocked(page))
-		wait_on_page_bit(compound_head(page), PG_locked);
+	if (PageLocked(ppage))
+//		wait_on_page_bit(compound_head(page), PG_locked);
+		wait_on_page_bit(ppage, PG_locked);
 }
 
-static inline int wait_on_page_locked_killable(struct page *page)
+static inline int wait_on_page_locked_killable(page *ppage)
 {
-	if (!PageLocked(page))
-		return 0;
-	return wait_on_page_bit_killable(compound_head(page), PG_locked);
+	if (!PageLocked(ppage))		return 0;
+//	return wait_on_page_bit_killable(compound_head(page), PG_locked);
+	return wait_on_page_bit_killable(ppage, PG_locked);
 }
+#if 0
 
 int put_and_wait_on_page_locked(struct page *page, int state);
 void wait_on_page_writeback(struct page *page);

@@ -77,7 +77,7 @@ bio* CBioSet::bio_alloc_bioset(gfp_t gfp_mask, unsigned short nr_iovecs/*, void*
 
 void CBioSet::bio_put(bio* bb)
 {
-	F_LOG_DEBUG(L"bio", L"bio=%p, delete bio", bb);
+	LOG_TRACK(L"bio", L"bio=%p, delete bio", bb);
 	if (bb->bi_io_vec != bb->bi_inline_vecs) delete[] (bb->bi_io_vec);
 	delete bb;
 }
@@ -157,3 +157,38 @@ void bio_init(bio* bio, bio_vec* table, unsigned short max_vecs)
 # define DECLARE_COMPLETION_ONSTACK_MAP(work, map) DECLARE_COMPLETION(work)
 #endif
 
+
+// from bio.c
+/* bio_endio - end I/O on a bio
+* @bio:	bio
+*
+* Description:
+*   bio_endio() will end I/O on the whole bio. bio_endio() is the preferred way to end I/O on a bio. No one should call bi_end_io() directly on a bio unless they own it and thus know that it has an end_io function.
+*   bio_endio() can be called several times on a bio that has been chained using bio_chain().  The ->bi_end_io() function will only be called the last time. */
+void bio_endio(struct bio* bio)
+{
+//again:
+	//if (!bio_remaining_done(bio))	return;
+	//if (!bio_integrity_endio(bio))	return;
+
+	//if (bio->bi_bdev) rq_qos_done_bio(bio->bi_bdev->bd_disk->queue, bio);
+
+	//if (bio->bi_bdev && bio_flagged(bio, BIO_TRACE_COMPLETION))
+	//{
+	//	trace_block_bio_complete(bio->bi_bdev->bd_disk->queue, bio);
+	//	bio_clear_flag(bio, BIO_TRACE_COMPLETION);
+	//}
+
+	/* Need to have a real endio function for chained bios, otherwise various corner cases will break (like stacking block devices that save/restore bi_end_io) - however, we want to avoid unbounded recursion and blowing the stack. Tail call optimization would handle this, but compiling with frame pointers also disables gcc's sibling call optimization. */
+	//if (bio->bi_end_io == bio_chain_endio) 
+	//{
+	//	bio = __bio_chain_endio(bio);
+	//	goto again;
+	//}
+
+	//blk_throtl_bio_endio(bio);
+	///* release cgroup info */
+	//bio_uninit(bio);
+	if (bio->bi_end_io)
+		bio->bi_end_io(bio);
+}

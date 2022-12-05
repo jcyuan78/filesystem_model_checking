@@ -111,6 +111,9 @@
     <ClCompile Include="source\unit_test.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="source\healthinfo-file.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="source\framework.h">

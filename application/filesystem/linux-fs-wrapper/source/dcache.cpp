@@ -3272,6 +3272,7 @@ void __init vfs_caches_init(void)
 CDentryManager::CDentryManager(size_t init_size) : m_buf(nullptr)
 {
 	LOG_DEBUG(L"dentry buf size=%lld", init_size);
+	InitializeCriticalSection(&m_list_lock);
 #if DENTRY_BUF_TYPE == 1
 	m_buf_size = init_size;
 	m_buf = new dentry[m_buf_size];
@@ -3332,6 +3333,7 @@ CDentryManager::~CDentryManager(void)
 #else
 
 #endif
+	DeleteCriticalSection(&m_list_lock);
 }
 
 dentry* CDentryManager::__d_alloc(super_block* sb, const qstr* name)
@@ -3349,7 +3351,7 @@ dentry* CDentryManager::__d_alloc(super_block* sb, const qstr* name)
 	m_free_list.pop_front();
 	m_head++;
 	unlock();
-	F_LOG_DEBUG(L"dentry", L"alloc: dentry=%p, index=%lld, free=%lld, head=%lld, tail=%lld ", ptr_dentry, ptr_dentry - m_buf, m_free_list.size(), m_head, m_tail);
+	LOG_TRACK(L"dentry", L"alloc: dentry=%p, index=%lld, free=%lld, head=%lld, tail=%lld ", ptr_dentry, ptr_dentry - m_buf, m_free_list.size(), m_head, m_tail);
 #elif DENTRY_BUF_TYPE==2
 	lock();
 	if (m_tail == m_head)
@@ -3358,12 +3360,14 @@ dentry* CDentryManager::__d_alloc(super_block* sb, const qstr* name)
 		THROW_ERROR(ERR_MEM, L"no enough buffer for dentry");
 	}
 	ptr_dentry = m_free[m_head];
+	m_free[m_head] = nullptr;		// for debug
 	m_head++;
 	if (m_head >= m_buf_size) m_head = 0;
 	m_used++;
+//	LOG_DEBUG(L"dentry buf, used=%lld, empty=%lld", m_used, m_buf_size - m_used);
+	LOG_TRACK(L"dentry", L"alloc: dentry=%p, index=%lld, head=%lld, tail=%lld ", ptr_dentry, ptr_dentry - m_buf, m_head, m_tail);
 	unlock();
-	LOG_DEBUG(L"dentry buf, used=%lld, empty=%lld", m_used, m_buf_size - m_used);
-	F_LOG_DEBUG(L"dentry", L"alloc: dentry=%p, index=%lld, head=%lld, tail=%lld ", ptr_dentry, ptr_dentry - m_buf, m_head, m_tail);
+	JCASSERT(ptr_dentry);
 #else
 
 #endif
@@ -3430,7 +3434,7 @@ dentry* CDentryManager::__d_alloc(super_block* sb, const qstr* name)
 			m_free_list.push_back(ptr_dentry);
 			m_tail++;
 			unlock();
-			F_LOG_DEBUG(L"dentry", L"reclaim: dentry due to error, dentry=%p, index=%lld, free=%lld, head=%lld, tail=%lld", ptr_dentry, ptr_dentry - m_buf, m_free_list.size(), m_head, m_tail);
+			LOG_TRACK(L"dentry", L"reclaim: dentry due to error, dentry=%p, index=%lld, free=%lld, head=%lld, tail=%lld", ptr_dentry, ptr_dentry - m_buf, m_free_list.size(), m_head, m_tail);
 #elif DENTRY_BUF_TYPE == 2
 			lock();
 			m_tail++;
@@ -3442,8 +3446,8 @@ dentry* CDentryManager::__d_alloc(super_block* sb, const qstr* name)
 			}
 			m_free[m_tail] = ptr_dentry;
 			m_used--;
+			LOG_TRACK(L"dentry", L"reclaim: dentry=%p, index=%lld, head=%lld, tail=%lld, inode=%p", ptr_dentry, ptr_dentry - m_buf, m_head, m_tail, ptr_dentry->d_inode);
 			unlock();
-			F_LOG_DEBUG(L"dentry", L"reclaim: dentry=%p, index=%lld, head=%lld, tail=%lld, inode=%p", ptr_dentry, ptr_dentry - m_buf, m_head, m_tail, ptr_dentry->d_inode);
 #else
 
 #endif
@@ -3484,7 +3488,7 @@ void CDentryManager::free(dentry* ddentry)
 	m_free_list.push_back(ddentry);
 	m_tail++;
 	unlock();
-	F_LOG_DEBUG(L"dentry", L"reclaim: dentry=%p, index=%lld, free=%lld, head=%lld, tail=%lld, inode=%p", ddentry,  ddentry - m_buf, m_free_list.size(), m_head, m_tail, ddentry->d_inode);
+	LOG_TRACK(L"dentry", L"reclaim: dentry=%p, index=%lld, free=%lld, head=%lld, tail=%lld, inode=%p", ddentry,  ddentry - m_buf, m_free_list.size(), m_head, m_tail, ddentry->d_inode);
 #elif DENTRY_BUF_TYPE == 2
 	lock();
 	m_tail++;
@@ -3496,16 +3500,16 @@ void CDentryManager::free(dentry* ddentry)
 	}
 	m_free[m_tail] = ddentry;
 	m_used--;
+	LOG_TRACK(L"dentry", L"reclaim: dentry=%p, index=%lld, head=%lld, tail=%lld, inode=%p", ddentry, ddentry - m_buf, m_head, m_tail, ddentry->d_inode);
 	unlock();
-	F_LOG_DEBUG(L"dentry", L"reclaim: dentry=%p, index=%lld, head=%lld, tail=%lld, inode=%p", ddentry, ddentry - m_buf, m_head, m_tail, ddentry->d_inode);
 #else
 
 #endif
 }
 
-#ifdef _DEBUG
+#ifdef DEBUG_DENTRY
 void dentry::dentry_trace(const wchar_t* func, int line)
 {
-	LOG_DEBUG(L"<call=%s> <line=%d> [d_trace] addr=%p, fn=%S, ref=%d, inode=%p", func, line, this, d_name.name.c_str(), d_lockref.count, d_inode);
+	LOG_TRACK(L"dentry", L"<call=%s> <line=%d> addr=%p, fn=%S, ref=%d, inode=%p", func, line, this, d_name.name.c_str(), d_lockref.count, d_inode);
 }
 #endif

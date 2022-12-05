@@ -159,7 +159,7 @@ int f2fs_convert_inline_page(struct dnode_of_data *dn, struct page *page)
 	f2fs_wait_on_page_writeback(page, DATA, true, true);
 	if (dirty) 
 	{
-		F_LOG_DEBUG(L"page.dirty", L" dec: inode=%d, page=%d", dn->inode->i_ino, page->index);
+		LOG_TRACK(L"page.dirty", L" dec: inode=%d, page=%d", dn->inode->i_ino, page->index);
 		inode_dec_dirty_pages(dn->inode);
 		f2fs_remove_dirty_inode(dn->inode);
 	}

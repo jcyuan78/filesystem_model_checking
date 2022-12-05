@@ -344,8 +344,6 @@ f2fs_dir_entry *f2fs_find_target_dentry(const f2fs_dentry_ptr *d, const f2fs_fil
 //					struct page **res_page)
 f2fs_dir_entry* Cf2fsDirInode::find_in_level(unsigned int level,	const f2fs_filename* fname,	page** res_page)
 {
-//#define ERR_CAST(x) reinterpret_cast<page*>(x)
-
 	int s = GET_DENTRY_SLOTS(fname->disk_name.len);
 	unsigned int nbucket, nblock;
 	unsigned int bidx, end_block;
@@ -361,8 +359,7 @@ f2fs_dir_entry* Cf2fsDirInode::find_in_level(unsigned int level,	const f2fs_file
 	end_block = bidx + nblock;
 
 	for (; bidx < end_block; bidx++) 
-	{
-		/* no need to allocate new dentry pages to all the indices */
+	{	/* no need to allocate new dentry pages to all the indices */
 		dentry_page = f2fs_find_data_page(bidx);
 		if (IS_ERR(dentry_page)) 
 		{
@@ -377,14 +374,14 @@ f2fs_dir_entry* Cf2fsDirInode::find_in_level(unsigned int level,	const f2fs_file
 				break;
 			}
 		}
-#ifdef _DEBUG
-		jcvos::Utf8ToUnicode(dentry_page->m_type, "dentry");
-		LOG_DEBUG(L"got page, page=%llX, addr=%llX, type=%s, index=%d",
-			dentry_page, dentry_page->virtual_add, dentry_page->m_type.c_str(), dentry_page->index);
-		std::wstring fn;
-		jcvos::Utf8ToUnicode(fn, fname->usr_fname->name);
-		dentry_page->m_description = L"dentry contains " + fn;
+#ifdef DEBUG_PAGE
+		dentry_page->m_type = page::DENTRY_PAGE;
+		dentry_page->m_inode = i_ino;
+		//std::wstring fn;
+		//jcvos::Utf8ToUnicode(fn, fname->usr_fname->name);
+		//dentry_page->m_description = L"dentry contains " + fn;
 #endif
+		LOG_TRACE(L"page", L"got page, dentry, page=%llX, index=%d", dentry_page, dentry_page->index);
 
 		de = find_in_block(dentry_page, fname, &max_slots);
 		if (IS_ERR(de)) 
@@ -597,6 +594,7 @@ page* f2fs_inode_info::f2fs_init_inode_metadata(inode* dir, const f2fs_filename*
 		if (S_ISDIR(i_mode)) 
 		{
 			/* in order to handle error case */
+			TRACK_PAGE(ppage, L"get page");
 			ppage->get_page();
 			Cf2fsDirInode* di = dynamic_cast<Cf2fsDirInode*>(this);
 			if (!di) THROW_ERROR(ERR_APP, L"inode type does not match. mode=DIR");
@@ -606,6 +604,7 @@ page* f2fs_inode_info::f2fs_init_inode_metadata(inode* dir, const f2fs_filename*
 				lock_page(ppage);
 				goto put_error;
 			}
+			TRACK_PAGE(ppage, L"put page");
 			ppage->put_page();
 		}
 
@@ -634,7 +633,7 @@ page* f2fs_inode_info::f2fs_init_inode_metadata(inode* dir, const f2fs_filename*
 		/* If link the tmpfile to alias through linkat path, we should remove this inode from orphan list. */
 		if (i_nlink == 0)	f2fs_remove_orphan_inode(F2FS_I_SB(dir), i_ino);
 		f2fs_i_links_write(true);
-		F_LOG_DEBUG(L"inode", L" addr=%p, ino=%d, link=%d - inc_link", this, i_ino, i_nlink);
+		LOG_TRACK(L"inode", L" addr=%p, ino=%d, link=%d - inc_link", this, i_ino, i_nlink);
 	}
 	return ppage;
 
@@ -653,7 +652,7 @@ void Cf2fsDirInode::f2fs_update_parent_metadata(f2fs_inode_info *inode, unsigned
 		if (S_ISDIR(inode->i_mode))
 		{
 			f2fs_i_links_write(true);
-			F_LOG_DEBUG(L"inode", L" addr=%p, ino=%d, link=%d - inc_link", this, i_ino, i_nlink);
+			LOG_TRACK(L"inode", L" addr=%p, ino=%d, link=%d - inc_link", this, i_ino, i_nlink);
 		}
 		clear_inode_flag(inode, FI_NEW_INODE);
 	}
@@ -774,11 +773,12 @@ start:
 	{
 		dentry_page = f2fs_get_new_data_page(NULL, block, true);
 		if (IS_ERR(dentry_page))	return PTR_ERR(dentry_page);
-#ifdef _DEBUG
-		jcvos::Utf8ToUnicode(dentry_page->m_type , "dentry");
-		LOG_DEBUG(L"new page, page=%llX, addr=%llX, type=%s, index=%d",
-			dentry_page, dentry_page->virtual_add, dentry_page->m_type.c_str(), dentry_page->index);
+#ifdef DEBUG_PAGE
+		dentry_page->m_type = page::DENTRY_PAGE;
+		dentry_page->m_inode = i_ino;
+	
 #endif
+		LOG_TRACK(L"[page]", L"new dentry page, page=%p, ino=%d, index=%d",	dentry_page, i_ino, dentry_page->index);
 		dentry_blk = page_address<f2fs_dentry_block>(dentry_page);
 		bit_pos = f2fs_room_for_filename(&dentry_blk->dentry_bitmap, slots, NR_DENTRY_IN_BLOCK);
 		if (bit_pos < NR_DENTRY_IN_BLOCK)	goto add_dentry;
@@ -912,16 +912,16 @@ void f2fs_drop_nlink(f2fs_inode_info *dir, f2fs_inode_info *iinode)
 	if (S_ISDIR(iinode->i_mode))
 	{
 		dir->f2fs_i_links_write(false);
-		F_LOG_DEBUG(L"inode", L" addr=%p, ino=%d, link=%d - dec_link", dir, dir->i_ino, dir->i_nlink);
+		LOG_TRACK(L"inode", L" addr=%p, ino=%d, link=%d - dec_link", dir, dir->i_ino, dir->i_nlink);
 	}
 	iinode->i_ctime = current_time(iinode);
 
 	iinode->f2fs_i_links_write(false);
-	F_LOG_DEBUG(L"inode", L" addr=%p, ino=%d, link=%d - dec_link", dir, dir->i_ino, dir->i_nlink);
+	LOG_TRACK(L"inode", L" addr=%p, ino=%d, link=%d - dec_link", dir, dir->i_ino, dir->i_nlink);
 	if (S_ISDIR(iinode->i_mode)) 
 	{
 		iinode->f2fs_i_links_write(false);
-		F_LOG_DEBUG(L"inode", L" addr=%p, ino=%d, link=%d - dec_link", dir, dir->i_ino, dir->i_nlink);
+		LOG_TRACK(L"inode", L" addr=%p, ino=%d, link=%d - dec_link", dir, dir->i_ino, dir->i_nlink);
 		iinode->f2fs_i_size_write(0);
 	}
 	up_write(&iinode->i_sem);
@@ -968,7 +968,7 @@ void Cf2fsDirInode::f2fs_delete_entry(f2fs_dir_entry* dentry, page* ppage, f2fs_
 		f2fs_clear_page_private(ppage);
 		ClearPageUptodate(ppage);
 		clear_cold_data(ppage);
-		F_LOG_DEBUG(L"page.dirty", L" dec: inode=%d, page=%d", i_ino, ppage->index);
+		LOG_TRACK(L"page.dirty", L" dec: inode=%d, page=%d", i_ino, ppage->index);
 		inode_dec_dirty_pages(this);
 		f2fs_remove_dirty_inode(this);
 	}
@@ -1182,7 +1182,7 @@ const struct file_operations f2fs_dir_operations = {
 #endif
 
 // for Debug
-#ifdef _DEBUG
+#ifdef INODE_DEBUG
 void Cf2fsDirInode::DebugListItems(void)
 {
 	UINT max_depth = i_current_depth;

@@ -158,7 +158,7 @@ void f2fs_inode_info::SetFileAttribute(fmode_t mode_add, fmode_t mode_sub)
 Cf2fsDirInode::Cf2fsDirInode(f2fs_sb_info* sbi, UINT ino) 
 	: f2fs_inode_info(sbi, ino, new Cf2fsDataMapping(this, sbi->GetPageManager()))
 {
-	F_LOG_DEBUG(L"inode", L" addr=%p, - construct dir inode", this);
+	LOG_TRACK(L"inode", L" addr=%p, - construct dir inode", this);
 	JCASSERT(i_mapping);
 //	i_mapping = static_cast<address_space*>(new Cf2fsDataMapping(this));
 	address_space_init_once(i_mapping);
@@ -170,7 +170,7 @@ Cf2fsFileNode::Cf2fsFileNode(f2fs_sb_info* sbi, UINT ino)
 	: f2fs_inode_info(sbi, ino, new Cf2fsDataMapping(this, sbi->GetPageManager()))
 {
 //	i_mapping = static_cast<address_space*>(new Cf2fsDataMapping(this));
-	F_LOG_DEBUG(L"inode", L" addr=%p, - construct file inode", this);
+	LOG_TRACK(L"inode", L" addr=%p, - construct file inode", this);
 	JCASSERT(i_mapping);
 	address_space_init_once(i_mapping);
 }
@@ -178,7 +178,7 @@ Cf2fsFileNode::Cf2fsFileNode(f2fs_sb_info* sbi, UINT ino)
 Cf2fsSymbLink::Cf2fsSymbLink(f2fs_sb_info* sbi, UINT ino) 
 	: f2fs_inode_info(sbi, ino, new Cf2fsDataMapping(this, sbi->GetPageManager()))
 {
-	F_LOG_DEBUG(L"inode", L" addr=%p, - construct symblink inode", this);
+	LOG_TRACK(L"inode", L" addr=%p, - construct symblink inode", this);
 	JCASSERT(i_mapping);
 	//i_mapping = static_cast<address_space*>(new Cf2fsDataMapping(this));
 	address_space_init_once(i_mapping);

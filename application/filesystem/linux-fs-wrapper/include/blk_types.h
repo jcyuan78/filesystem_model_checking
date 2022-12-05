@@ -227,10 +227,8 @@ static inline void bio_issue_init(struct bio_issue *issue,
  * @bv_len:    Number of bytes in the address range.
  * @bv_offset: Start of the address range relative to the start of @bv_page.
  *
- * The following holds for a bvec if n * PAGE_SIZE < bv_offset + bv_len:
-		nth_page(@bv_page, n) == @bv_page + n
- * This holds because page_is_mergeable() checks the above property.
- */
+ * The following holds for a bvec if n * PAGE_SIZE < bv_offset + bv_len:	nth_page(@bv_page, n) == @bv_page + n
+ * This holds because page_is_mergeable() checks the above property. */
 struct bio_vec
 {
 	page* bv_page;
@@ -257,6 +255,8 @@ struct bvec_iter_all
 //<YUAN> end of bvec.h
 
 #define BIO_INLINE_VECS 4
+
+#define TRACK_BIO_IO(bbio, ev)		LOG_TRACK(L"bio.io", L"bio=%p, op=%X, blk=0x%X, blks=%lld, " ev, bbio, bbio->bi_opf & 0xFF, bbio->bi_iter.bi_sector >> 3, bbio->bi_iter.bi_size >> 12)
 
 /* main unit of I/O for the block layer and lower layers (ie drivers and stacking drivers) */
 struct bio 
@@ -301,9 +301,10 @@ struct bio
 	struct bio_vec		*bi_io_vec;	/* the actual vec list */
 //	struct bio_set		*bi_pool;
 	CBioSet* bi_pool;
-	/* We can inline a number of vecs at the end of the bio, to avoid  double allocations for a small number of 
-	bio_vecs. This member MUST obviously be kept at the very end of the bio. */
+	/* We can inline a number of vecs at the end of the bio, to avoid  double allocations for a small number of bio_vecs. This member MUST obviously be kept at the very end of the bio. */
 	bio_vec		bi_inline_vecs[BIO_INLINE_VECS];
+	OVERLAPPED  m_overlapped;	// 用于异步调用	
+	BYTE* m_buf;	// 异步调用必须要保持buffer
 };
 
 #define BIO_RESET_BYTES		offsetof(struct bio, bi_max_vecs)
@@ -735,12 +736,8 @@ static inline unsigned int bio_max_segs(unsigned int nr_segs)
 	return min(nr_segs, BIO_MAX_VECS);
 }
 
-/*
- * drivers should _never_ use the all version - the bio may have been split before it got to the driver and the driver
-	won't own all of it
- */
-#define bio_for_each_segment_all(bvl, bio, iter) \
-	for (bvl = bvec_init_iter_all(&iter); bio_next_segment((bio), &iter); )
+/* drivers should _never_ use the all version - the bio may have been split before it got to the driver and the driver won't own all of it*/
+#define bio_for_each_segment_all(bvl, bio, iter) 	for (bvl = bvec_init_iter_all(&iter); bio_next_segment((bio), &iter); )
 
 // <YUAN> from block/bio.c
 

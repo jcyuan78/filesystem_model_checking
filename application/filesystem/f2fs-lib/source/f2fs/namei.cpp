@@ -74,7 +74,7 @@ f2fs_inode_info* f2fs_sb_info::f2fs_new_inode(Cf2fsDirInode* dir, umode_t mode, 
 	iinode->i_crtime = iinode->i_mtime;
 	iinode->i_generation = prandom_u32();
 
-	F_LOG_DEBUG(L"inode", L" add=%p, ino=%d, mode=%X, - new inode ", iinode, iinode->i_ino, iinode->i_mode);
+	LOG_TRACK(L"inode", L" add=%p, ino=%d, mode=%X, - new inode ", iinode, iinode->i_ino, iinode->i_mode);
 	if (S_ISDIR(iinode->i_mode)) 	iinode->i_current_depth = 1;
 
 	err = m_inodes.insert_inode_locked(iinode);
@@ -367,7 +367,7 @@ int f2fs_inode_info::_internal_new_inode(f2fs_inode_info* dir, umode_t mode)
 	i_crtime = i_mtime;
 	i_generation = prandom_u32();
 
-	F_LOG_DEBUG(L"inode", L" add=%p, ino=%d, - init ", this, i_ino);
+	LOG_TRACK(L"inode", L" add=%p, ino=%d, - init ", this, i_ino);
 
 	if (S_ISDIR(i_mode)) i_current_depth = 1;
 
@@ -640,8 +640,6 @@ static void set_compress_inode(f2fs_sb_info *sbi, f2fs_inode_info*inode, const s
 //static int f2fs_create(user_namespace *mnt_userns, struct inode *dir, struct dentry *dentry, umode_t mode, bool excl)
 int Cf2fsDirInode::create(user_namespace *mnt_userns, dentry *entry, umode_t mode, bool excl)
 {
-//	f2fs_sb_info *sbi = F2FS_I_SB(this);
-//	inode *new_inode;
 	nid_t ino = 0;
 	int err =0;
 
@@ -651,53 +649,47 @@ int Cf2fsDirInode::create(user_namespace *mnt_userns, dentry *entry, umode_t mod
 	err = dquot_initialize(this);
 	if (err)		return err;
 
-//	f2fs_inode_info * new_inode = m_sbi->f2fs_new_inode<Cf2fsFileNode>(this, mode);
-	f2fs_inode_info * new_inode = m_sbi->f2fs_new_inode(this, mode, FILE_INODE);
-	if (IS_ERR(new_inode))		return PTR_ERR(new_inode);
+	f2fs_inode_info * iinode = m_sbi->f2fs_new_inode(this, mode, FILE_INODE);
+	if (IS_ERR(iinode))		return PTR_ERR(iinode);
 	std::wstring fn;
-#ifdef _DEBUG
+#ifdef INODE_DEBUG
 	jcvos::Utf8ToUnicode(fn, entry->d_name.name);
-	new_inode->m_description = L"file of " + fn;
-	//, new_inode->i_size_lock.LockCount);
+	iinode->m_description = L"file of " + fn;
+	//, iinode->i_size_lock.LockCount);
 #endif
-	LOG_DEBUG(L"[inode track] add=%p, ino=%d, fn=%s, create for new file", new_inode, new_inode->i_ino, fn.c_str());
+	LOG_TRACK(L"inode", L" add=%p, ino=%d, fn=%s, create for new file", iinode, iinode->i_ino, fn.c_str());
 
-//	if (!test_opt(m_sbi, DISABLE_EXT_IDENTIFY)) new_inode->set_file_temperature(entry->d_name.name);
-	if (!test_opt(m_sbi, DISABLE_EXT_IDENTIFY)) new_inode->set_file_temperature(fn);
+	if (!test_opt(m_sbi, DISABLE_EXT_IDENTIFY)) iinode->set_file_temperature(fn);
 
-//	set_compress_inode(m_sbi, new_inode, entry->d_name.name);
-	set_compress_inode(m_sbi, new_inode, fn);
-	ino = new_inode->i_ino;
+	set_compress_inode(m_sbi, iinode, fn);
+	ino = iinode->i_ino;
 	{	//m_sbi->f2fs_lock_op();
-//		auto_lock<semaphore_read_lock> lock_op(m_sbi->cp_rwsem);
 		auto_lock<f2fs_sb_info::auto_lock_op> lock_op(*m_sbi);
 
 		// 将inode添加到entry的父节点中
-		err = f2fs_add_link(entry, new_inode);
+		err = f2fs_add_link(entry, iinode);
 		if (err)
 		{
-			f2fs_handle_failed_inode(new_inode);
+			f2fs_handle_failed_inode(iinode);
 			return err;
 		}
 		//m_sbi->f2fs_unlock_op();
 	}
 
 	m_sbi->nm_info->f2fs_alloc_nid_done(ino);
-	d_instantiate_new(entry, new_inode);
-	dentry * dd = new_inode->splice_alias(entry);
+	d_instantiate_new(entry, iinode);
+	dentry * dd = iinode->splice_alias(entry);
 	dput(dd);
+	iput(iinode);
 
 	if (IS_DIRSYNC(this))		m_sbi->sync_fs(1);
 	m_sbi->f2fs_balance_fs(true);
 
-#ifdef _DEBUG
-	DebugListItems();
-#endif
+//#ifdef _DEBUG
+//	DebugListItems();
+//#endif
 
 	return 0;
-//out:
-//	f2fs_handle_failed_inode(new_inode);
-//	return err;
 }
 
 #if 0
@@ -872,7 +864,7 @@ dentry *Cf2fsDirInode::lookup(dentry *src_entry, unsigned int flags)
 //	std::wstring fn;
 //	jcvos::Utf8ToUnicode(fn, fname.usr_fname->name);
 //	new_node->m_description = L"file of " + fn;
-	F_LOG_DEBUG(L"inode", L" addr=%p, ino=%d, lock=%d, file=%S - got for file",
+	LOG_TRACK(L"inode", L" addr=%p, ino=%d, lock=%d, file=%S - got for file",
 		new_node, new_node->i_ino, new_node->i_size_lock.LockCount, src_entry->d_name.name.c_str());
 //#endif
 
@@ -1055,13 +1047,14 @@ int Cf2fsDirInode::enum_childs(dentry* parent, std::list<dentry*>& result)
 				if (bidx >= npages) break;
 				/* no need to allocate new dentry pages to all the indices */
 				page* dentry_page = f2fs_find_data_page(bidx);
+#ifdef DEBUG_PAGE
+				dentry_page->m_type = page::DENTRY_PAGE;
+				dentry_page->m_inode = i_ino;
+#endif
+				LOG_TRACK(L"page", "page=%d, got dentry page", dentry_page);
 				if (IS_ERR(dentry_page))
 				{
-					if (PTR_ERR(dentry_page) == -ENOENT)
-					{
-//						room = true;
-						continue;
-					}
+					if (PTR_ERR(dentry_page) == -ENOENT)	{	continue;	}
 					else THROW_ERROR(ERR_APP, L"failed on open data page, blocks=%d, index=%d", npages, bidx);
 				}
 
@@ -1262,7 +1255,7 @@ int Cf2fsDirInode::mkdir(user_namespace* mnt_userns, dentry* ddentry, umode_t mo
 	f2fs_inode_info* iinode = m_sbi->f2fs_new_inode(this, S_IFDIR | mode, DIR_INODE);
 	if (IS_ERR(iinode))	return PTR_ERR(iinode);
 
-	F_LOG_DEBUG(L"inode", L" addr=%p, ino=%d, fn=%S, - create for new dir", iinode, iinode->i_ino, ddentry->d_name.name.c_str());
+	LOG_TRACK(L"inode", L" addr=%p, ino=%d, fn=%S, - create for new dir", iinode, iinode->i_ino, ddentry->d_name.name.c_str());
 
 	iinode->inode_nohighmem();
 	iinode->set_inode_flag(FI_INC_LINK);
@@ -1284,6 +1277,7 @@ int Cf2fsDirInode::mkdir(user_namespace* mnt_userns, dentry* ddentry, umode_t mo
 	d_instantiate_new(ddentry, iinode);
 	dentry* dd = iinode->splice_alias(ddentry);
 	dput(dd);
+	iput(iinode);
 
 	if (IS_DIRSYNC(this))	m_sbi->sync_fs(1);
 	m_sbi->f2fs_balance_fs(true);
@@ -1571,10 +1565,10 @@ int f2fs_sb_info::f2fs_rename(Cf2fsDirInode *old_dir, dentry *old_dentry, Cf2fsD
 			if (old_dir_entry)
 			{
 				f2fs_new_inode->f2fs_i_links_write(false);
-				F_LOG_DEBUG(L"inode", L" addr=%p, ino=%d, link=%d - dec_link for replace old", f2fs_new_inode, f2fs_new_inode->i_ino, f2fs_new_inode->i_nlink);
+				LOG_TRACK(L"inode", L" addr=%p, ino=%d, link=%d - dec_link for replace old", f2fs_new_inode, f2fs_new_inode->i_ino, f2fs_new_inode->i_nlink);
 			}
 			f2fs_new_inode->f2fs_i_links_write(false);
-			F_LOG_DEBUG(L"inode", L" addr=%p, ino=%d, link=%d - dec_link for replace", f2fs_new_inode, f2fs_new_inode->i_ino, f2fs_new_inode->i_nlink);
+			LOG_TRACK(L"inode", L" addr=%p, ino=%d, link=%d - dec_link for replace", f2fs_new_inode, f2fs_new_inode->i_ino, f2fs_new_inode->i_nlink);
 			up_write(&f2fs_new_inode->i_sem);
 
 			if (!new_inode->i_nlink)	f2fs_add_orphan_inode(f2fs_new_inode);
@@ -1598,7 +1592,7 @@ int f2fs_sb_info::f2fs_rename(Cf2fsDirInode *old_dir, dentry *old_dentry, Cf2fsD
 		if (old_dir_entry)
 		{
 			new_dir->f2fs_i_links_write(true);
-			F_LOG_DEBUG(L"inode", L" addr=%p, ino=%d, link=%d - inc_link for new dir", new_dir, new_dir->i_ino, new_dir->i_nlink);
+			LOG_TRACK(L"inode", L" addr=%p, ino=%d, link=%d - inc_link for new dir", new_dir, new_dir->i_ino, new_dir->i_nlink);
 		}
 	}
 
@@ -1642,7 +1636,7 @@ int f2fs_sb_info::f2fs_rename(Cf2fsDirInode *old_dir, dentry *old_dentry, Cf2fsD
 		}
 		else			f2fs_put_page(old_dir_page, 0);
 		old_dir->f2fs_i_links_write(false);
-		F_LOG_DEBUG(L"inode", L" addr=%p, ino=%d, link=%d - dec_link for old dir", old_dir, old_dir->i_ino, old_dir->i_nlink);
+		LOG_TRACK(L"inode", L" addr=%p, ino=%d, link=%d - dec_link for old dir", old_dir, old_dir->i_ino, old_dir->i_nlink);
 	}
 	if (F2FS_OPTION(this).fsync_mode == FSYNC_MODE_STRICT)
 	{

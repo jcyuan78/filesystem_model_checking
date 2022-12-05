@@ -165,7 +165,7 @@ static vm_fault_t f2fs_vm_page_mkwrite(struct vm_fault *vmf)
 	if (!PageUptodate(page))
 		SetPageUptodate(page);
 
-	f2fs_update_iostat(sbi, APP_MAPPED_IO, F2FS_BLKSIZE);
+	sbi->f2fs_update_iostat(APP_MAPPED_IO, F2FS_BLKSIZE);
 	sbi->f2fs_update_time( REQ_TIME);
 
 	trace_f2fs_vm_page_mkwrite(page, DATA);
@@ -4193,7 +4193,7 @@ ssize_t Cf2fsFileNode::read_iter(kiocb* iocb, iov_iter* iter)
 	int ret;
 	if (!f2fs_is_compress_backend_ready(this)) 	return -EOPNOTSUPP;
 	ret = generic_file_read_iter(iocb, iter);
-	if (ret > 0)		f2fs_update_iostat(F2FS_I_SB(this), APP_READ_IO, ret);
+	if (ret > 0)		m_sbi->f2fs_update_iostat(APP_READ_IO, ret);
 	return ret;
 }
 
@@ -4228,7 +4228,7 @@ ssize_t Cf2fsFileNode::write_iter(kiocb*iocb, iov_iter*from)
 			goto out;
 		}
 	} 
-	else {	this->inode_lock();	}
+	else {	inode_lock();	}
 
 	if (unlikely(IS_IMMUTABLE(this))) 
 	{
@@ -4252,14 +4252,14 @@ ssize_t Cf2fsFileNode::write_iter(kiocb*iocb, iov_iter*from)
 				f2fs_has_inline_data(this) || f2fs_force_buffered_io(this, iocb, from))
 			{
 				clear_inode_flag(this, FI_NO_PREALLOC);
-				this->inode_unlock();
+				inode_unlock();
 				ret = -EAGAIN;
 				goto out;
 			}
 			goto write;
 		}
 
-		if (this->is_inode_flag_set(FI_NO_PREALLOC))		goto write;
+		if (is_inode_flag_set(FI_NO_PREALLOC))		goto write;
 
 		if (iocb->ki_flags & IOCB_DIRECT) 
 		{
@@ -4296,7 +4296,7 @@ write:
 			up_write(&i_gc_rwsem[WRITE]);
 		}
 
-		if (ret > 0)	f2fs_update_iostat(m_sbi, APP_WRITE_IO, ret);
+		if (ret > 0)	m_sbi->f2fs_update_iostat(APP_WRITE_IO, ret);
 	}
 unlock:
 	inode_unlock();

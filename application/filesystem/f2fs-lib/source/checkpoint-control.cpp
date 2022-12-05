@@ -15,7 +15,8 @@ ckpt_req_control::ckpt_req_control(f2fs_sb_info * sbi)
 	f2fs_init_ckpt_req_control(sbi);
 	InitializeCriticalSection(&stat_lock);
 	InitializeCriticalSection(&m_req_list_lock);
-	m_wait = CreateEvent(NULL, FALSE, FALSE, NULL);
+	m_wait_for_page = CreateEvent(NULL, FALSE, FALSE, NULL);
+	m_wait_for_req = CreateEvent(NULL, FALSE, FALSE, NULL);
 #ifdef _DEBUG
 	m_thread_name = L"checkpoint control";
 #endif 
@@ -42,7 +43,8 @@ ckpt_req_control::~ckpt_req_control(void)
 {
 	DeleteCriticalSection(&m_req_list_lock);
 	DeleteCriticalSection(&stat_lock);
-	CloseHandle(m_wait);
+	CloseHandle(m_wait_for_page);
+	CloseHandle(m_wait_for_req);
 }
 
 DWORD ckpt_req_control::issue_checkpoint_thread(void)
@@ -63,7 +65,7 @@ DWORD ckpt_req_control::issue_checkpoint_thread(void)
 
 //		wait_event_interruptible(*q, kthread_should_stop() || !llist_empty(&issue_list));
 		//<YUAN> 用event代替wait queue
-		DWORD ir = WaitForSingleObject(m_wait, INFINITE);
+		DWORD ir = WaitForSingleObject(m_wait_for_req, INFINITE);
 		if (ir != 0)	THROW_ERROR(ERR_APP, L"failed on waiting checkpoint thread, err=%d", ir);
 		//goto repeat;
 	}
@@ -113,5 +115,6 @@ void ckpt_req_control::AddRequest(ckpt_req* req)
 	llist_add(&req->llnode, &issue_list);
 	LeaveCriticalSection(&m_req_list_lock);
 	atomic_inc(&queued_ckpt);
-	WakeUp();
+//	WakeUp();
+	SetEvent(m_wait_for_req);
 }

@@ -2777,42 +2777,47 @@ int __test_set_page_writeback(struct page *page, bool keep_write)
 EXPORT_SYMBOL(__test_set_page_writeback);
 
 #endif //TODO
-/*
- * Wait for a page to complete writeback
- */
+
+int page::WaitOnPageUptodate(void)
+{
+	SleepEx(20, TRUE);
+	while (!PageUptodate(this))
+	{
+		SleepEx(0, TRUE);
+		WaitOnPageBitCommon(PG_uptodate, TASK_KILLABLE | TASK_POSITIVE, SHARED);
+	}
+	return 1;
+}
+
+/* Wait for a page to complete writeback */
 void wait_on_page_writeback(struct page *page)
 {
+//	SleepEx(20, TRUE);
 	while (PageWriteback(page)) {
 		//trace_wait_on_page_writeback(page, page_mapping(page));
-		wait_on_page_bit(page, PG_writeback);
+//		wait_on_page_bit(page, PG_writeback);
+		SleepEx(0, TRUE);
+		wait_on_page_bit_killable(page, PG_writeback);		// 需要让IO调用complate函数
 	}
 }
 //EXPORT_SYMBOL_GPL(wait_on_page_writeback);
-#if 0 //TODO
-/*
- * Wait for a page to complete writeback.  Returns -EINTR if we get a
- * fatal signal while waiting.
- */
+/* Wait for a page to complete writeback.  Returns -EINTR if we get a fatal signal while waiting. */
 int wait_on_page_writeback_killable(struct page *page)
 {
-	while (PageWriteback(page)) {
-		trace_wait_on_page_writeback(page, page_mapping(page));
-		if (wait_on_page_bit_killable(page, PG_writeback))
-			return -EINTR;
+	while (PageWriteback(page)) 
+	{
+//		trace_wait_on_page_writeback(page, page_mapping(page));
+		SleepEx(0, TRUE);
+		if (wait_on_page_bit_killable(page, PG_writeback))		return -EINTR;
 	}
-
 	return 0;
 }
-EXPORT_SYMBOL_GPL(wait_on_page_writeback_killable);
-#endif //TODO
-/**
- * wait_for_stable_page() - wait for writeback to finish, if necessary.
+//EXPORT_SYMBOL_GPL(wait_on_page_writeback_killable);
+
+/* wait_for_stable_page() - wait for writeback to finish, if necessary.
  * @page:	The page to wait on.
  *
- * This function determines if the given page is related to a backing device
- * that requires page contents to be held stable during writeback.  If so, then
- * it will wait for any pending writeback to complete.
- */
+ * This function determines if the given page is related to a backing device that requires page contents to be held stable during writeback.  If so, then it will wait for any pending writeback to complete. */
 void wait_for_stable_page(struct page *page)
 {
 //	page = thp_head(page);

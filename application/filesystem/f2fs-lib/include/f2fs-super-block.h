@@ -422,6 +422,7 @@ public:
 	void f2fs_add_orphan_inode(f2fs_inode_info* iinode);
 	int f2fs_acquire_orphan_inode(void);
 	void f2fs_release_orphan_inode(void);
+	int __f2fs_write_meta_page(page* ppage, writeback_control* wbc, enum iostat_type io_type);
 
 
 protected:
@@ -433,7 +434,6 @@ protected:
 	int get_checkpoint_version(block_t cp_addr, f2fs_checkpoint** cp_block, page** cp_page, unsigned long long* version);
 	int do_checkpoint(cp_control* cpc);
 	void commit_checkpoint(void* src, block_t blk_addr);
-	int __f2fs_write_meta_page(page* ppage, writeback_control* wbc, enum iostat_type io_type);
 	void __add_ino_entry(nid_t ino, unsigned int devidx, int type);
 
 		friend void f2fs_add_ino_entry(f2fs_sb_info* sbi, nid_t ino, int type);
@@ -478,12 +478,6 @@ protected:
 	friend void set_prefree_as_free_segments(f2fs_sb_info* sbi);
 
 	inline int __f2fs_get_curseg(unsigned int segno);
-	//{
-	//	int i;
-	//	for (i = CURSEG_HOT_DATA; i < NO_CHECK_TYPE; i++) {	if (CURSEG_I(i)->segno == segno)	break;	}
-	//	return i;
-	//}
-
 
 public:
 	inline free_segmap_info* FREE_I(void) {	return (sm_info->free_info); }
@@ -559,9 +553,29 @@ public:
 	friend static int f2fs_read_single_page(f2fs_inode_info* inode, page* ppage, unsigned nr_pages,
 		struct f2fs_map_blocks* map, bio** bio_ret, sector_t* last_block_in_bio, bool is_readahead);
 
+	/* submit_bio_wait - submit a bio, and wait until it completes
+	 * @bio: The &struct bio which describes the I/O
+	 * Simple wrapper around submit_bio(). Returns 0 on success, or the error from bio_endio() on failure.
+	 * WARNING: Unlike to how submit_bio() is usually used, this function does not result in bio reference to be consumed. The caller must drop the reference on his own. */
+	int submit_bio_wait(bio* bbio);
+	inline void f2fs_submit_bio(bio* bio, enum page_type type) {	__submit_bio(bio, type); }
+	inline void __submit_bio(bio* bio, enum page_type type);
+//	void submit_bio(bio* bb);
+
 protected:
 	bool io_is_mergeable(bio* bio, f2fs_bio_info* io, f2fs_io_info* fio, block_t last_blkaddr, block_t cur_blkaddr);
 	bool page_is_mergeable(bio* bio, block_t last_blkaddr, block_t cur_blkaddr);
+	void __submit_merged_bio(f2fs_bio_info* io);
+//	friend int f2fs_mpage_readpages(f2fs_inode_info* inode, readahead_control* rac, struct page* ppage);
+	void __f2fs_submit_merged_write(enum page_type type, enum temp_type temp);
+
+	void submit_sync_io(bio* bb);
+	void submit_async_io(bio* bb);
+	static void WriteCompletionRoutine(DWORD err_code, DWORD written, LPOVERLAPPED overlapped);
+	static void ReadCompletionRoutine(DWORD err_code, DWORD written, LPOVERLAPPED overlapped);
+
+	friend int discard_cmd_control::__submit_discard_cmd(discard_policy* dpolicy, discard_cmd* dc, unsigned int* issued);
+	friend void __submit_merged_write_cond(f2fs_sb_info* sbi, struct inode* inode, struct page* page, nid_t ino, enum page_type type, bool force);
 
 
 protected:
@@ -574,6 +588,7 @@ public:
 	page* f2fs_get_node_page(pgoff_t nid) { return __get_node_page(nid, NULL, 0); }
 	bool f2fs_in_warm_node_list(page*);
 	int read_node_page(page* page, int op_flags);
+	void set_node_addr(node_info* ni, block_t new_blkaddr, bool fsync_done);
 
 
 protected:
@@ -763,5 +778,7 @@ public:
 		unsigned int segs = boost::numeric_cast<UINT>((get_pages(block_type) + pages_per_sec - 1) >> log_blocks_per_seg);
 		return segs / segs_per_sec;
 	}
+	inline void f2fs_update_iostat(enum iostat_type type, unsigned long long io_bytes);
+
 };
 

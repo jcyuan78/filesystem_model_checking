@@ -54,7 +54,6 @@ public:
 	// 当Close文件时，删除此文件。判断条件由DokanApp实现。有些应用（Explorer）会通过这个方法删除文件。
 	virtual void SetDeleteOnClose(bool del) { m_delete_on_close = del; }
 
-
 public:
 	friend class CF2fsFileSystem;
 	template <class T> T* GetInode(void) { return dynamic_cast<T*>(m_inode); }
@@ -73,15 +72,100 @@ protected:
 	CF2fsFileSystem* m_fs;
 	file m_file;
 	bool m_delete_on_close = false;
+	// 为防止多线程是 m_dentry和m_inode被删除的同时，进行其他操作。
+	long m_valid = 0;
 };
+
+class CF2fsSpecialFile : public IFileInfo
+{
+public:
+//	CF2fsSpecialFile(CF2fsFileSystem * fs) :m_fs(fs) {};
+	CF2fsSpecialFile(void) : m_fs(nullptr) {};
+	~CF2fsSpecialFile(void);
+	void Init(CF2fsFileSystem* fs, const std::wstring& fn, UINT id)
+	{
+		m_fs = fs;
+		m_fn = fn;
+		m_fid = id;
+	}
+
+public:
+	virtual void Cleanup(void) { }
+	virtual void CloseFile(void) {};
+	virtual bool DokanReadFile(LPVOID buf, DWORD len, DWORD& read, LONGLONG offset);
+	virtual bool DokanWriteFile(const void* buf, DWORD len, DWORD& written, LONGLONG offset) {	return false; };
+
+	virtual bool LockFile(LONGLONG offset, LONGLONG len) { UNSUPPORT_1(bool); }
+	virtual bool UnlockFile(LONGLONG offset, LONGLONG len) { UNSUPPORT_1(bool); }
+	virtual bool EnumerateFiles(EnumFileListener* listener) const { return false; }
+
+	virtual bool GetFileInformation(LPBY_HANDLE_FILE_INFORMATION fileinfo) const;
+	virtual std::wstring GetFileName(void) const;
+
+	virtual bool DokanGetFileSecurity(SECURITY_INFORMATION psinfo, PSECURITY_DESCRIPTOR psdesc, ULONG& buf_size) { UNSUPPORT_1(bool); }
+	virtual bool DokanSetFileSecurity(PSECURITY_INFORMATION psinfo, PSECURITY_DESCRIPTOR psdesc, ULONG buf_size) { UNSUPPORT_1(bool); }
+	// for dir only
+	virtual bool IsDirectory(void) const { return false; }
+	virtual bool IsEmpty(void) const { return true; }			// 对于目录，返回目录是否为空；对于非目录，返回true.
+
+	virtual bool SetAllocationSize(LONGLONG size) { UNSUPPORT_1(bool); }
+	virtual bool SetEndOfFile(LONGLONG) { UNSUPPORT_1(bool); }
+	virtual void DokanSetFileAttributes(DWORD attr) { UNSUPPORT_0; }
+
+	virtual void SetFileTime(const FILETIME* ct, const FILETIME* at, const FILETIME* mt) { UNSUPPORT_0; }
+	virtual bool FlushFile(void) { return true; }
+
+	virtual void GetParent(IFileInfo*& parent) {}
+
+	// 删除所有给文件分配的空间。如果是目录，删除目录下的所有文件。
+	virtual void ClearData(void) { UNSUPPORT_0; }
+
+	virtual bool OpenChild(IFileInfo*& file, const wchar_t* fn, UINT32 mode) const { UNSUPPORT_1(bool); }
+	virtual bool OpenChildEx(IFileInfo*& file, const wchar_t* fn, size_t len) { UNSUPPORT_1(bool); }
+	virtual bool CreateChild(IFileInfo*& file, const wchar_t* fn, bool dir, UINT32 mode) { UNSUPPORT_1(bool); }
+	// 当Close文件时，删除此文件。判断条件由DokanApp实现。有些应用（Explorer）会通过这个方法删除文件。
+	virtual void SetDeleteOnClose(bool del) { }
+
+	template <typename T> T* GetData(void) { return (T*)(m_data_ptr); }
+public:
+	friend class CF2fsFileSystem;
+
+protected:
+	CF2fsFileSystem* m_fs;
+	void* m_data_ptr;
+	size_t m_data_size;
+	std::wstring m_fn;
+	DWORD m_fid;
+};
+
+template <typename T> class CSpecialFile : public CF2fsSpecialFile
+{
+public:
+	CSpecialFile<T>(/*CF2fsFileSystem * fs, const std::wstring & name, UINT id*/) 
+	{
+		//m_fs = fs;
+		m_data_ptr = (void*)(&m_data); 
+		m_data_size = sizeof(T);
+		//m_fn = name;
+		//m_fid = id;
+		memset(&m_data, 0, sizeof(T));
+	}
+public:
+	T m_data;
+};
+
 
 typedef UINT64 off64_t;
 
 #define DIR_SEPARATOR	('\\')
 
+enum SPECIAL_FILE_ID
+{
+	SFID_HEALTH,
+	SFID_MAX_FILE_NUM,
+};
 
-
-class CF2fsFileSystem : public IFileSystem/*, public CLinuxFsBase*/
+class CF2fsFileSystem : public IFileSystem
 {
 public:
 	CF2fsFileSystem(void);
@@ -96,8 +180,6 @@ public:
 	// 考虑将这个方法放到IJCInterface中
 	virtual bool CreateObject(IJCInterface*& fs) { JCASSERT(0); return 0; }
 	virtual ULONG GetFileSystemOption(void) const;
-	//virtual bool ConnectToDevice(IVirtualDisk * dev) = 0;
-	//virtual void Disconnect(void) = 0;
 	virtual bool Mount(IVirtualDisk* dev);
 	virtual void Unmount(void);
 	virtual bool MakeFileSystem(IVirtualDisk* dev, UINT32 volume_size, const std::wstring& volume_name, const std::wstring & options);
@@ -111,7 +193,6 @@ public:
 	virtual NTSTATUS DokanCreateFile(IFileInfo*& file, const std::wstring& fn, ACCESS_MASK access_mask,
 		DWORD attr, FsCreateDisposition disp, ULONG share, ULONG opt, bool isdir);
 	virtual bool MakeDir(const std::wstring& dir) { JCASSERT(0); return 0; }
-	//virtual bool OpenFile(IFileInfo * & file, UINT32 f_inode) = 0;
 
 	virtual NTSTATUS DokanDeleteFile(const std::wstring& fn, IFileInfo* file, bool isdir);
 	//virtual void FindFiles(void) = 0;
@@ -130,6 +211,22 @@ public:
 protected:
 	bool OpenParent(CF2fsFile*& dir, const std::wstring & path, std::wstring &fn);
 	bool _GetRoot(CF2fsFile*& root);
+
+	NTSTATUS OpenSpecialFile(IFileInfo*& file, const std::wstring& paht);
+	void InitialSpecialFileList(void);
+	void DeleteSpecialFileList(void);
+	// special files
+	typedef CF2fsSpecialFile* LP_SPECIALFILE;
+	LP_SPECIALFILE* m_special_file_list;
+	DokanHealthInfo m_health_info;
+public:
+	DWORD GetSpecialData(LPVOID buf, DWORD len, UINT id);
+	void UpdateHostWriteNr(UINT64 bytes, UINT64 blocks) 
+	{
+		InterlockedAdd64((LONG64*)&(m_health_info.m_total_host_write), bytes);
+		InterlockedAdd64((LONG64*)&(m_health_info.m_block_host_write), blocks);
+	}
+	void UpdateDiskWrite(size_t blocks) { InterlockedAdd64((LONG64*)&(m_health_info.m_block_disk_write), blocks); }
 
 
 protected:
@@ -280,7 +377,7 @@ public:
 	 * @bio: The &struct bio which describes the I/O
 	 * Simple wrapper around submit_bio(). Returns 0 on success, or the error from bio_endio() on failure.
 	 * WARNING: Unlike to how submit_bio() is usually used, this function does not result in bio reference to be consumed. The caller must drop the reference on his own. */
-	int submit_bio_wait(bio* bbio);
+	//int submit_bio_wait(bio* bbio);
 
 
 //<YUAN> from block/blk-flush.c
@@ -295,12 +392,12 @@ public:
 		bio_init(&bio, NULL, 0);
 		bio_set_dev(&bio, bdev);
 		bio.bi_opf = REQ_OP_WRITE | REQ_PREFLUSH;
-		return submit_bio_wait(&bio);
+		return m_sb_info->submit_bio_wait(&bio);
 	}
 
 	// 模拟Linux Block IO
-	void submit_bio(bio* bb);
-	inline void __submit_bio(bio* bio, enum page_type type);
+	//void submit_bio(bio* bb);
+	//inline void __submit_bio(bio* bio, enum page_type type);
 //	bio* __bio_alloc(f2fs_io_info* fio, int npages);
 	int __blkdev_issue_discard(block_device * , sector_t lba, sector_t len, gfp_t gfp_mask, int flag, bio **);
 // == data.cpp
@@ -354,23 +451,12 @@ protected:
 
 // == super.cpp
 protected:
-//	int f2fs_fill_super(/*super_block* sb, */const std::wstring & str_option, int silent);
 	int parse_mount_options(super_block* sb, const boost::property_tree::wptree& options, bool is_mount);
-	//int read_raw_super_block(f2fs_sb_info* sbi, f2fs_super_block* & raw_super, int* valid_super_block, int* recovery);
-//	bool sanity_check_area_boundary(f2fs_sb_info* sbi, CBufferHead* bh);
-//	int sanity_check_raw_super(f2fs_sb_info* sbi, CBufferHead* bh);
-//	int f2fs_scan_devices(f2fs_sb_info* sbi);
-//	int f2fs_disable_checkpoint(f2fs_sb_info* sbi);
-
-	//int load_default_options(bool is_mount);
 	// 从 buffer.c __bread_gfp()移植
 	//	block为block地址，sector = block * size / sector_size. 参考"buffer.c" submit_bh_wbc()
 	CBufferHead* bread(sector_t block, size_t size);
 
 // == checkpoing.cpp
-//	int f2fs_get_valid_checkpoint(void);
-//	page* validate_checkpoint(block_t cp_addr, unsigned long long* version);
-//	int get_checkpoint_version(block_t cp_addr, f2fs_checkpoint** cp_block, page** cp_page, unsigned long long* version);
 
 // == node.cpp
 public:
@@ -388,6 +474,10 @@ public:
 protected:
 	list_head m_f2fs_list;
 	CRITICAL_SECTION m_f2fs_list_lock;
+
+
+public:
+
 
 protected:
 

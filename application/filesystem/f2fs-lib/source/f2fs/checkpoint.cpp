@@ -61,6 +61,8 @@ repeat:
 	return ppage;
 }
 
+
+
 page *f2fs_sb_info::__get_meta_page(pgoff_t index, bool is_meta)
 {
 	address_space *mapping = META_MAPPING(this);
@@ -80,12 +82,8 @@ page *f2fs_sb_info::__get_meta_page(pgoff_t index, bool is_meta)
 	if (unlikely(!is_meta))		fio.op_flags &= ~REQ_META;
 repeat:
 	ppage = f2fs_grab_cache_page(mapping, index, false);
-	if (!ppage) 
-	{
-//		cond_resched();
-		goto repeat;
-	}
-#ifdef _DEBUG
+	if (!ppage) {goto repeat;}
+#if 0 // _DEBUG
 	jcvos::Utf8ToUnicode(ppage->m_type, "meta");
 	LOG_DEBUG(L"get page: page=%llX, type=%s, index=0x%X", ppage, ppage->m_type.c_str(), ppage->index);
 #endif
@@ -97,14 +95,12 @@ repeat:
 	if (err) 
 	{
 		f2fs_put_page(ppage, 1);
-//		return ERR_PTR(err);
-//		THROW_ERROR(ERR_APP, L"failed on submit ppage io");
 		LOG_ERROR(L"[err] failed on submit page io");
 		return NULL;
 	}
 
-	f2fs_update_iostat(this, FS_META_READ_IO, F2FS_BLKSIZE);
-
+	f2fs_update_iostat(FS_META_READ_IO, F2FS_BLKSIZE);
+	ppage->WaitOnPageUptodate();
 	lock_page(ppage);
 	if (unlikely(ppage->mapping != mapping)) 
 	{
@@ -112,11 +108,10 @@ repeat:
 		goto repeat;
 	}
 
+
 	if (unlikely(!PageUptodate(ppage)))
 	{
 		f2fs_put_page(ppage, 1);
-//		return ERR_PTR(-EIO);
-//		THROW_ERROR(ERR_APP, L"failed on update ppage");
 		LOG_ERROR(L"[err] failed on update page");
 		return NULL;
 	}
@@ -261,11 +256,11 @@ int f2fs_sb_info::f2fs_ra_meta_pages(block_t start, int nrpages, int type, bool 
 
 		page = f2fs_grab_cache_page(META_MAPPING(this),	fio.new_blkaddr, false);
 		if (!page)			continue;
-#ifdef _DEBUG
-		jcvos::Utf8ToUnicode(page->m_type, "meta");
-		LOG_DEBUG(L"new page, page=%llX, addr=%llX, type=%s, index=%d", 
-			page, page->virtual_add, page->m_type.c_str(), page->index);
+#ifdef DEBUG_PAGE
+		page->m_type = page::META_PAGE;
+		page->m_inode = 0;
 #endif
+		LOG_TRACK(L"page", L"new meta page, page=%p, index=%d", page, page->index);
 		if (PageUptodate(page)) 
 		{
 			f2fs_put_page(page, 1);
@@ -276,7 +271,7 @@ int f2fs_sb_info::f2fs_ra_meta_pages(block_t start, int nrpages, int type, bool 
 		err = f2fs_submit_page_bio(&fio);
 		if (err) 		{ 			LOG_ERROR(L"[err] failed on submitting page bio, err=%d", err);		}
 		f2fs_put_page(page, err ? 1 : 0);
-		if (!err)		f2fs_update_iostat(this, FS_META_READ_IO, F2FS_BLKSIZE);
+		if (!err)		f2fs_update_iostat(FS_META_READ_IO, F2FS_BLKSIZE);
 	}
 out:
 	blk_finish_plug(&plug);
@@ -300,13 +295,12 @@ void f2fs_ra_meta_pages_cond(struct f2fs_sb_info *sbi, pgoff_t index)
 //static int __f2fs_write_meta_page(struct page *ppage, struct writeback_control *wbc, enum iostat_type io_type)
 int f2fs_sb_info::__f2fs_write_meta_page(page* ppage, writeback_control* wbc, enum iostat_type io_type)
 {
-	LOG_DEBUG(L"write meta page: index=0x%X", ppage->index);
-//	struct f2fs_sb_info *sbi = F2FS_P_SB(ppage);
+//	LOG_DEBUG(L"write meta page: index=0x%X", ppage->index);
 	//trace_f2fs_writepage(ppage, META);
 
 	if (unlikely(this->f2fs_cp_error()))
 		goto redirty_out;
-	if (unlikely(this->is_sbi_flag_set( SBI_POR_DOING)))
+	if (unlikely(is_sbi_flag_set( SBI_POR_DOING)))
 		goto redirty_out;
 	if (wbc->for_reclaim && ppage->index < GET_SUM_BLOCK(this, 0))
 		goto redirty_out;
@@ -325,7 +319,7 @@ int f2fs_sb_info::__f2fs_write_meta_page(page* ppage, writeback_control* wbc, en
 	return 0;
 
 redirty_out:
-#if 0 //TODO
+#if 1 //TODO
 	redirty_page_for_writepage(wbc, ppage);
 #else
 	JCASSERT(0);
@@ -336,8 +330,9 @@ redirty_out:
 //static int f2fs_write_meta_page(struct page *page, struct writeback_control *wbc)
 int Cf2fsMetaMapping::write_page(page * page, writeback_control *wbc)
 {
-#if 0
-	return __f2fs_write_meta_page(page, wbc, FS_META_IO);
+#if 1
+	f2fs_sb_info * sb = dynamic_cast<f2fs_sb_info*>(host->i_sb);
+	return sb->__f2fs_write_meta_page(page, wbc, FS_META_IO);
 #else
 	JCASSERT(0);
 	return -1;
@@ -346,7 +341,6 @@ int Cf2fsMetaMapping::write_page(page * page, writeback_control *wbc)
 //static int f2fs_write_meta_pages(address_space *mapping, struct writeback_control *wbc)
 int Cf2fsMetaMapping::write_pages(writeback_control * wbc)
 {
-#if 1
 //	struct f2fs_sb_info *sbi = F2FS_M_SB(mapping);
 	f2fs_sb_info* sbi = dynamic_cast<f2fs_sb_info*>(host->i_sb);
 	long diff, written;
@@ -372,9 +366,6 @@ int Cf2fsMetaMapping::write_pages(writeback_control * wbc)
 skip_write:
 	wbc->pages_skipped += sbi->get_pages( F2FS_DIRTY_META);
 //	trace_f2fs_writepages(mapping->host, wbc, META);
-#else
-	JCASSERT(0);
-#endif
 	return 0;
 }
 
@@ -409,21 +400,17 @@ long f2fs_sb_info::f2fs_sync_meta_pages(enum page_type type, long nr_to_write, e
 				pagevec_release(&pvec);
 				goto stop;
 			}
-
-			//auto_lock<page_auto_lock> page_locker(*ppage);
 			auto_lock_<page> page_locker(*ppage);
 //			lock_page(ppage);
 
 			if (unlikely(ppage->mapping != mapping)) 
 			{
-//continue_unlock:
 //				unlock_page(ppage);
 				continue;
 			}
 			if (!PageDirty(ppage)) 
 			{
 				/* someone wrote it for us */
-//				goto continue_unlock;
 //				unlock_page(ppage);
 				continue;
 			}
@@ -435,7 +422,6 @@ long f2fs_sb_info::f2fs_sync_meta_pages(enum page_type type, long nr_to_write, e
 			{
 //				unlock_page(ppage);
 				continue;
-//				goto continue_unlock;
 			}
 
 			if (__f2fs_write_meta_page(ppage, &wbc, io_type)) 
@@ -470,6 +456,7 @@ int Cf2fsMetaMapping::set_node_page_dirty(page * page)
 	{
 		__set_page_dirty_nobuffers(page);
 		F2FS_P_SB(page)->inc_page_count( F2FS_DIRTY_META);
+		TRACK_PAGE(page, L"set node private - dirty");
 		f2fs_set_page_private(page, 0);
 		return 1;
 	}
@@ -940,7 +927,7 @@ int f2fs_sb_info::f2fs_get_valid_checkpoint(void)
 	cp_start_blk_no += ((UINT32)1) << le32_to_cpu(fsb->log_blocks_per_seg);
 	cp2 = validate_checkpoint(cp_start_blk_no, &cp2_version);
 	LOG_DEBUG(L"read cp, cp1:page_index=0x%X, ver=%d, cp2:page_index=0x%X, ver=%d", 
-		cp1->index, cp1_version, cp2->index, cp2_version);
+		cp1?cp1->index:0, cp1_version, cp2?cp2->index:0, cp2_version);
 	if (cp1 && cp2) 
 	{
 		if (ver_after(cp2_version, cp1_version))	cur_page = cp2;
@@ -1018,7 +1005,7 @@ static void __add_dirty_inode(f2fs_inode_info*iinode, inode_type type)
 	if (!f2fs_is_volatile_file(iinode))
 	{
 //		list_add_tail(&F2FS_I(iinode)->dirty_list, &sbi->inode_list[type]);
-		F_LOG_DEBUG(L"inode", L" add=%p, ino=%d, type=%d - add to sb iinode list", iinode, iinode->i_ino, type);
+		LOG_TRACK(L"inode", L" add=%p, ino=%d, type=%d - add to sb iinode list", iinode, iinode->i_ino, type);
 		sbi->sb_list_add_tail(iinode, type);
 	}
 	stat_inc_dirty_inode(sbi, type);
@@ -1033,7 +1020,7 @@ static void __remove_dirty_inode(f2fs_inode_info*iinode, enum inode_type type)
 	int flag = (type == DIR_INODE) ? FI_DIRTY_DIR : FI_DIRTY_FILE;
 	if (get_dirty_pages(iinode) || !is_inode_flag_set(iinode, flag))		return;
 	//list_del_init(&F2FS_I(iinode)->dirty_list);
-	F_LOG_DEBUG(L"inode", L" add=%p, ino=%d, type=%d - add to sb inode list", iinode, iinode->i_ino, type);
+	LOG_TRACK(L"inode", L" add=%p, ino=%d, type=%d - add to sb inode list", iinode, iinode->i_ino, type);
 	sbi->sb_list_del_init(iinode, type);
 	clear_inode_flag(iinode, flag);
 	stat_dec_dirty_inode(sbi, type);
@@ -1050,10 +1037,10 @@ void f2fs_update_dirty_page(f2fs_inode_info*inode, struct page *page)
 	spin_lock(&sbi->inode_lock[type]);
 	if (type != FILE_INODE || test_opt(sbi, DATA_FLUSH))
 		__add_dirty_inode(inode, type);
-	F_LOG_DEBUG(L"page.dirty", L" inc: inode=%d, page=%d", inode->i_ino, page->index);
+	LOG_TRACK(L"page.dirty", L" inc: inode=%d, page=%d", inode->i_ino, page->index);
 	inode_inc_dirty_pages(inode);
 	spin_unlock(&sbi->inode_lock[type]);
-
+	TRACK_PAGE(page, L"set private");
 	f2fs_set_page_private(page, 0);
 }
 
@@ -1149,7 +1136,7 @@ int f2fs_sync_inode_meta(f2fs_sb_info *sbi)
 		}
 //		fi = list_first_entry(head, f2fs_inode_info, gdirty_list);
 		fi = sbi->get_list_first_entry(DIRTY_META);
-		F_LOG_DEBUG(L"inode", L" add=%p, ino=%d, - try to sync", fi, fi->i_ino);
+		LOG_TRACK(L"inode", L" add=%p, ino=%d, - try to sync", fi, fi->i_ino);
 		inode* iinode = igrab(fi);
 		spin_unlock(&sbi->inode_lock[DIRTY_META]);
 		if (iinode)
@@ -1186,16 +1173,14 @@ static bool __need_flush_quota(struct f2fs_sb_info *sbi)
 		return false;
 
 	down_write(&sbi->quota_sem);
-	if (sbi->is_sbi_flag_set( SBI_QUOTA_SKIP_FLUSH)) {
-		ret = false;
-	} else if (sbi->is_sbi_flag_set( SBI_QUOTA_NEED_REPAIR)) {
-		ret = false;
-	} else if (sbi->is_sbi_flag_set( SBI_QUOTA_NEED_FLUSH)) {
+	if (sbi->is_sbi_flag_set( SBI_QUOTA_SKIP_FLUSH)) {	ret = false;} 
+	else if (sbi->is_sbi_flag_set( SBI_QUOTA_NEED_REPAIR)) {	ret = false;} 
+	else if (sbi->is_sbi_flag_set( SBI_QUOTA_NEED_FLUSH)) 
+	{
 		clear_sbi_flag(sbi, SBI_QUOTA_NEED_FLUSH);
 		ret = true;
-	} else if (sbi->get_pages( F2FS_DIRTY_QDATA)) {
-		ret = true;
 	}
+	else if (sbi->get_pages( F2FS_DIRTY_QDATA)) {	ret = true;	}
 	up_write(&sbi->quota_sem);
 	return ret;
 }
@@ -1214,9 +1199,9 @@ static int block_operations(struct f2fs_sb_info *sbi)
 	f2fs_flush_inline_data(sbi);
 
 retry_flush_quotas:
-	LOG_DEBUG(L"try to block all op")
+	LOG_TRACK(L"sbi.lock", L"try to block all op")
 	sbi->f2fs_lock_all();
-	LOG_DEBUG(L"got block all op")
+	LOG_TRACK(L"sbi.lock", L"got block all op")
 	if (__need_flush_quota(sbi)) 
 	{
 		int locked;
@@ -1228,7 +1213,7 @@ retry_flush_quotas:
 			goto retry_flush_dents;
 		}
 		sbi->f2fs_unlock_all();
-		LOG_DEBUG(L"unblock all op");
+		LOG_TRACK(L"sbi.lock", L"unblock all op");
 
 		/* only failed during mount/umount/freeze/quotactl */
 		locked = down_read_trylock(&sbi->s_umount);
@@ -1243,7 +1228,7 @@ retry_flush_dents:
 	if (sbi->get_pages( F2FS_DIRTY_DENTS)) 
 	{
 		sbi->f2fs_unlock_all();
-		LOG_DEBUG(L"unblock all op");
+		LOG_TRACK(L"sbi.lock", L"unblock all op");
 		err = f2fs_sync_dirty_inodes(sbi, DIR_INODE);
 		if (err)			return err;
 		// cond_resched();
@@ -1256,7 +1241,7 @@ retry_flush_dents:
 	{
 		up_write(&sbi->node_change);
 		sbi->f2fs_unlock_all();
-		LOG_DEBUG(L"unblock all op");
+		LOG_TRACK(L"sbi.lock", L"unblock all op");
 		err = f2fs_sync_inode_meta(sbi);
 		if (err)		return err;
 		// cond_resched();
@@ -1275,7 +1260,7 @@ retry_flush_nodes:
 		{
 			up_write(&sbi->node_change);
 			sbi->f2fs_unlock_all();
-			LOG_DEBUG(L"unblock all op");
+			LOG_TRACK(L"sbi.lock", L"unblock all op");
 			return err;
 		}
 		//cond_resched();
@@ -1297,9 +1282,7 @@ static void unblock_operations(struct f2fs_sb_info *sbi)
 
 void ckpt_req_control::f2fs_wait_on_all_pages(/*f2fs_sb_info *sbi,*/ int type)
 {
-#if 1 //TODO
 //	DEFINE_WAIT(wait);
-
 	for (;;) 
 	{
 		LOG_DEBUG(L"pending page for %d = %d", type, m_sbi->get_pages(type));
@@ -1310,13 +1293,12 @@ void ckpt_req_control::f2fs_wait_on_all_pages(/*f2fs_sb_info *sbi,*/ int type)
 
 //		prepare_to_wait(&sbi->cp_wait, &wait, TASK_UNINTERRUPTIBLE);
 //		io_schedule_timeout(DEFAULT_IO_TIMEOUT);
-		DWORD ir = WaitForSingleObject(m_wait, DEFAULT_IO_TIMEOUT);
-		if (ir != 0) LOG_WIN32_ERROR(L"[err] IO timeout");
+		SleepEx(0, TRUE);
+		DWORD ir = WaitForSingleObject(m_wait_for_page, DEFAULT_IO_TIMEOUT);
+//		if (ir != 0) LOG_WIN32_ERROR(L"[err] IO timeout");
+		if (ir != 0 && ir != WAIT_TIMEOUT) THROW_WIN32_ERROR(L"failed on waiting object");
 	}
 //	finish_wait(&sbi->cp_wait, &wait);
-#else
-	JCASSERT(0);
-#endif
 }
 
 

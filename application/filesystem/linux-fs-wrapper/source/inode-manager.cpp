@@ -42,15 +42,15 @@ void CInodeManager::new_inode(inode* iinode)
 	// alloc_inode()
 	inode_init_always(false, iinode);
 	{	
-		F_LOG_DEBUG(L"inode_lock", L" inode=%p, waiting for lock, auto", iinode);
+		LOG_TRACK(L"inode_lock", L" inode=%p, waiting for lock, auto", iinode);
 		auto_lock<spin_locker> lock(iinode->i_lock);
-		F_LOG_DEBUG(L"inode_lock", L" inode=%p, locked, auto", iinode);
+		LOG_TRACK(L"inode_lock", L" inode=%p, locked, auto", iinode);
 		//spin_lock(&iinode->i_lock);
 		iinode->i_state = 0;
 		//spin_unlock(&iinode->i_lock);
 	}
 	INIT_LIST_HEAD(&iinode->i_sb_list);
-	F_LOG_DEBUG(L"inode", L", add=%p, - add to sb", iinode);
+	LOG_TRACK(L"inode", L", add=%p, - add to sb", iinode);
 	inode_sb_list_add(iinode);
 }
 
@@ -103,7 +103,7 @@ out:
 
 void CInodeManager::internal_iget_locked(inode * iinode, bool thp_support, unsigned long ino)
 {
-	F_LOG_DEBUG(L"inode", L" app=%p, ino=%d, - get locked", iinode, iinode->i_ino);
+	LOG_TRACK(L"inode", L" app=%p, ino=%d, - get locked", iinode, iinode->i_ino);
 //	f2fs_inode_info* ptr_inode = new f2fs_inode_info;
 //	inode * node = new inode;
 	// initialize inode
@@ -113,7 +113,7 @@ void CInodeManager::internal_iget_locked(inode * iinode, bool thp_support, unsig
 	iinode->i_state |= I_NEW;
 
 	INIT_LIST_HEAD(&iinode->i_sb_list);
-	F_LOG_DEBUG(L"inode", L", add=%p, - add to sb", iinode);
+	LOG_TRACK(L"inode", L", add=%p, - add to sb", iinode);
 	inode_sb_list_add(iinode);
 
 //	return ptr_node;
@@ -185,7 +185,7 @@ int CInodeManager::insert_inode_locked(inode* iinode)
 //				hlist_add_head_rcu(&iinode->i_hash, head);
 				spin_unlock(&iinode->i_lock);
 //				spin_unlock(&inode_hash_lock);
-				F_LOG_DEBUG(L"inode", L" addr=%p, ino=%d, hash=%d - insert to hash", iinode, ino, hash_val);
+				LOG_TRACK(L"inode", L" addr=%p, ino=%d, hash=%d - insert to hash", iinode, ino, hash_val);
 				return 0;
 			}
 			if (unlikely(old->TestState(I_CREATING) ))
@@ -232,7 +232,7 @@ repeat:
 		if (iinode->i_ino != ino)			continue;
 //		if (iinode->i_sb != sb)			continue;		// 对于单一文件系统，省略
 		spin_lock(&iinode->i_lock);
-		F_LOG_DEBUG(L"inode", L" addr=%p, ino=%d, state=%X - found inode", iinode, iinode->i_ino, iinode->i_state);
+		LOG_TRACK(L"inode", L" addr=%p, ino=%d, state=%X - found inode", iinode, iinode->i_ino, iinode->i_state);
 		if (iinode->i_state & (I_FREEING | I_WILL_FREE))
 		{
 			// 由于调用过程中 iinode 会被删除，
@@ -344,12 +344,12 @@ void iput(inode* iinode)
 {
 	if (!iinode)	return;
 	JCASSERT(iinode->i_count > 0);
-	BUG_ON(/*iinode->i_state & I_CLEAR*/iinode->TestState(I_CLEAR));
+	BUG_ON(iinode->TestState(I_CLEAR));
 retry:
 //	if (atomic_dec_and_lock(&iinode->i_count, &iinode->i_lock))
 	if (iinode->atomic_decount_and_lock())
 	{
-		if (iinode->i_nlink && /*(iinode->i_state & I_DIRTY_TIME)*/iinode->TestState(I_DIRTY_TIME))
+		if (iinode->i_nlink && iinode->TestState(I_DIRTY_TIME))
 		{
 			atomic_inc(&iinode->i_count);
 			//spin_unlock(&iinode->i_lock);
@@ -448,14 +448,14 @@ void inode::lock(void)
 void inode::unlock(void) 
 {
 	spin_unlock(&i_lock); 
-	F_LOG_DEBUG(L"inode_lock", L" inode=%p, unlocked", this);
+	LOG_TRACK(L"inode_lock", L" inode=%p, unlocked", this);
 }
 
 bool inode::trylock(void)
 {
-	F_LOG_DEBUG(L"inode_lock", L" inode=%p, try to lock", this);
+	LOG_TRACK(L"inode_lock", L" inode=%p, try to lock", this);
 	bool br = spin_trylock(&i_lock);
-	F_LOG_DEBUG(L"inode_lock", L" inode=%p, res=%d, try to lock", this, br);
+	LOG_TRACK(L"inode_lock", L" inode=%p, res=%d, try to lock", this, br);
 	return br;
 }
 
@@ -468,13 +468,13 @@ int inode::atomic_decount_and_lock(void)
 	} while (!InterlockedCompareExchange(&i_count, c - 1, c));
 	if (c != 1) return 0;
 
-	F_LOG_DEBUG(L"inode_lock", L" inode=%p, count=%d, waiting for lock and decount", this, i_count);
+	LOG_TRACK(L"inode_lock", L" inode=%p, count=%d, waiting for lock and decount", this, i_count);
 	spin_lock(&i_lock);
-	F_LOG_DEBUG(L"inode_lock", L" inode=%p, count=%d, locked", this, i_count);
+	LOG_TRACK(L"inode_lock", L" inode=%p, count=%d, locked", this, i_count);
 	//	if (c) return c;
 	if (InterlockedDecrement(&i_count) == 0) return 1;
 	spin_unlock(&i_lock);
-	F_LOG_DEBUG(L"inode_lock", L" inode=%p, count=%d, unlocked", this, i_count);
+	LOG_TRACK(L"inode_lock", L" inode=%p, count=%d, unlocked", this, i_count);
 	return 0;
 }
 
