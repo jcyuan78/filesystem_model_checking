@@ -1,0 +1,85 @@
+1, 抓取log
+
+
+(1) 获取整个disk的file mapping
+	.\ntfs_start.ps1 C: <out_fn>
+		<out_fn> => disk-mapping.csv
+	记下offset和size
+
+(2) 实时获取test file的mapping
+	pcmv.ps1 <out_fn>： 
+		<out_fn> => file-mapping.txt
+	
+(3) 获取trace：
+	<a>	运行bushound
+	config: filter: CMD，OK， IN， OUT
+	column： Device, Phase, Data, Description, Delta Cmd.Phase.Ofs, Time	
+		(*) 必须按照上述顺序输出列。Data列的宽度设置为16字节
+	保存到 => trace.txt
+	
+	<b> Analyzer获取TRACE
+	Decode NVMe => spreadsheet view (color) => export to csv.
+	=> LeCroy.csv
+	
+(4) 运行processmonitor
+	filter: Process Name, is not, PCMark.exe, then, exclude.
+	class: file system only
+	=> event.csv
+	
+(5) 运行PCMV
+
+(6) 暂停pcmv.ps1
+	ctrl+c
+	暂停bushound, 保存到trace.txt
+	保存process monitor到event.csv
+
+
+log解析：
+(1) 加载workload-analysis模块
+	import-module workload-analysis.dll
+	
+(2) 解析trace,保存结果到trace.csv
+	<a> bushound: 	.\parse-bushund.ps1 <source> <dst.csv>
+		=> source = trace.txt
+		=> dst.csv = trace.csv
+		
+	<b> LeCroy Analyzer
+		.\parse-nvme.ps1 <source> <dst.csv>
+		=> source = LeCroy.csv
+		=> dst.csv = trace.csv
+	
+(3) 解析
+	.\mark-trace.ps1 -tar <log文件夹> -offset <offset> -size <disk_size>
+	
+具体分析内容(已在mark-trace.ps1中实现)
+#(2.1) 解析bushound:
+#	.\parse-bushund.ps1 <source> <dst.csv>
+#		=> source = trace.txt
+#		=> dst.csv = trace.csv
+		
+(2.2) 解析file mapping:
+	$file_mapping = .\parse-mapping.ps1 <mapping_file> -offset <offset>
+	$file_mapping | export-clixml <xml_file>
+	
+	<mapping_file> => file-mapping.txt
+	<xml_file> => file-mapping.xml
+	
+	
+#(2.3) 处理event:
+#	.\process-event.ps1 -src_fn <process monitor file.csv> -mapping_list $mapping -offset | export-csv <out>
+#		event.csv => result.csv
+		
+(2.3) 处理event：
+	.\parse-event.ps1 -src_fn event.csv | export-csv event-new.csv
+
+(2.4) 导入mapping
+Import-Csv .\disk-mapping.csv | Set-StaticMapping -secs <disk size in sector> -offset <disk first lba>
+Add-FileMapping -fn $file_mapping[0].fn -segments $file_mapping[0].segments -disk_offset <disk first lba>
+	
+(2.5) 分析trace，标记trace
+标记trace
+Import-Csv .\trace.csv | Convert-Trace | Select-Object cmd_id,cmd,op_code,lba,len,offset,fid,fn | export-csv .\trace-mark.csv
+标记event
+import-csv .\event-new.csv | convert-event -disk_offset $offset | select-object "Time of Day","Operation","lba","secs","offset","fid","Path","Detail" | export-csv .\event-mark.csv
+
+	
