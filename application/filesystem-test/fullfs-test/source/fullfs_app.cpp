@@ -3,6 +3,9 @@
 #include <jcapp.h>
 
 #include "../include/full_tester.h"
+#include "../include/multithread-tester.h"
+#include "../include/trace_tester.h"
+
 #include <boost/property_tree/json_parser.hpp>
 
 #ifdef _DEBUG
@@ -78,7 +81,7 @@ void CFsTesterApp::CleanUp(void)
 
 int CFsTesterApp::Run(void)
 {
-	CFullTester tester;
+	CTesterBase *tester= nullptr;
 
 	// loading config
 	std::string str_config_fn;
@@ -86,10 +89,23 @@ int CFsTesterApp::Run(void)
 	boost::property_tree::wptree pt_config;
 	boost::property_tree::read_json(str_config_fn, pt_config);
 	const boost::property_tree::wptree& test_config = pt_config.get_child(L"test");
+
+	const std::wstring& test_type = test_config.get<std::wstring>(L"type", L"");
+	if (test_type == L"full") { tester = new CFullTester; }
+	else if (test_type == L"full_multi_thread") { tester = new CMultiThreadTest; }
+	else if (test_type == L"trace_test") { tester = new CTraceTester; }
+
+	if (tester == nullptr)
+	{
+		THROW_ERROR(ERR_MEM, L"memory full or unknown test type=%s", test_type.c_str());
+	}
+
 	// prepare for test
-	tester.Config(test_config);
-	if (!m_root.empty()) tester.SetTestRoot(m_root);
+	tester->Config(test_config, m_root);
+//	if (!m_root.empty()) tester->SetTestRoot(m_root);
 	// runtest
-	int err = tester.StartTest();
+	int err = tester->StartTest();
+
+	delete tester;
 	return err;
 }

@@ -27,6 +27,12 @@
     <ClCompile Include="source\reference_fs.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="source\multithread-tester.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="source\trace_tester.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="source\pch.h">
@@ -36,6 +42,12 @@
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="include\reference_fs.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\multithread-tester.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\trace_tester.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>

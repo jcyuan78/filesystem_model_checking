@@ -4,32 +4,11 @@
 #include <boost/cast.hpp>
 #include <Psapi.h>
 
+#include "../../../filesystem/dokanfs-lib/dokanfs-lib.h"
+
 
 LOCAL_LOGGER_ENABLE(L"fulltester", LOGGER_LEVEL_DEBUGINFO);
 
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// ==== help functions ====
-
-#define TEST_LOG_SINGLE(...)  {\
-	swprintf_s(m_log_buf, __VA_ARGS__);	\
-	LOG_DEBUG(m_log_buf);	\
-	if (m_log_file) {fwprintf_s(m_log_file, L"%s\n", m_log_buf); \
-	fflush(m_log_file);} }
-
-#define TEST_LOG(...)  {\
-	swprintf_s(m_log_buf, __VA_ARGS__);	\
-	LOG_DEBUG(m_log_buf);	\
-	if (m_log_file) {fwprintf_s(m_log_file, m_log_buf); \
-	/*fflush(m_log_file);*/ }}
-
-#define TEST_ERROR(...) {	\
-	swprintf_s(m_log_buf, __VA_ARGS__); \
-	if (m_log_file) {fwprintf_s(m_log_file, L"[err] %s\n", m_log_buf); fflush(m_log_file);}\
-	THROW_ERROR(ERR_USER, m_log_buf);	}
-
-#define TEST_CLOSE_LOG {\
-	if (m_log_file) {fwprintf_s(m_log_file, L"\n"); \
-	fflush(m_log_file); }}
 
 
 void FillData(char* buf, size_t size)
@@ -104,19 +83,11 @@ OP_ID StringToOpId(const std::wstring& str)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// ==== CFullTester ====
+// ==== CFullTesterDokan ====
 
 
 
-void CFullTester::SetLogFile(const std::wstring& log_fn)
-{
-	if (!log_fn.empty())
-	{
-		m_log_file = _wfsopen(log_fn.c_str(), L"w+", _SH_DENYNO);
-		if (!m_log_file) THROW_ERROR(ERR_USER, L"failed on opening log file %s", log_fn.c_str());
-	}
 
-}
 
 
 int CFullTester::FsOperate(CReferenceFs& ref, FS_OP* op)
@@ -462,69 +433,17 @@ int CFullTester::Verify(const CReferenceFs& ref)
 	return err;
 }
 
-int CFullTester::StartTest(void)
+
+void CFullTester::Config(const boost::property_tree::wptree& pt, const std::wstring& root)
 {
-	m_ts_start = boost::posix_time::microsec_clock::local_time();
-
-	int err = 0;
-	try
-	{
-		err = PrepareTest();
-		if (err) { LOG_ERROR(L"[err] failed on preparing test, err=%d", err); }
-
-		// 启动监控线程
-		m_running = 1;
-		m_monitor_event = CreateEvent(NULL, FALSE, FALSE, NULL);
-		DWORD thread_id = 0;
-		m_monitor_thread = CreateThread(NULL, 0, _Monitor, (PVOID)this, 0, &thread_id);
-		
-		err = RunTest();
-		if (err) { LOG_ERROR(L"[err] failed on testing, err=%d", err); }
-
-	}
-	catch (jcvos::CJCException& err)
-	{
-		// show stack
-		TEST_LOG(L"\n\n=== result ===\n");
-		TEST_LOG(L"  Test failed\n [err] test failed with error: %s\n", err.WhatT());
-		TEST_LOG(L"\n=== statck ===\n");
-		for (int dd = 0; dd <= m_test_depth; ++dd)
-		{
-			fwprintf_s(m_log_file, L"stacks[%d]:\n", dd);
-			m_test_state[dd].OutputState(m_log_file);
-		}
-		wprintf_s(L" Test failed! \n");
-	}
-
-	InterlockedExchange(&m_running, 0);
-	SetEvent(m_monitor_event);
-	WaitForSingleObject(m_monitor_thread, INFINITE);
-	CloseHandle(m_monitor_thread);
-	m_monitor_thread = NULL;
-	CloseHandle(m_monitor_event);
-	m_monitor_event = NULL;
-
-	err = FinishTest();
-	if (m_log_file) { fclose(m_log_file); }
-
-	boost::posix_time::ptime ts_cur = boost::posix_time::microsec_clock::local_time();
-	INT64 ts = (ts_cur - m_ts_start).total_seconds();
-	PrintProgress(ts);
-	wprintf_s(L"Test completed\n");
-	return err;
-}
-
-void CFullTester::Config(const boost::property_tree::wptree& pt)
-{
-	m_root = pt.get<std::wstring>(L"root_dir");
+	CTesterBase::Config(pt, root);
+	//m_root = pt.get<std::wstring>(L"root_dir");
 	m_test_depth = pt.get<int>(L"depth", 5);
 	m_max_child_num = pt.get<size_t>(L"max_child", 5);
 	m_max_file_size = pt.get<size_t>(L"max_file_size", 1048576);
-	const std::wstring & log_fn  = pt.get<std::wstring>(L"log_file", L"");
-	if (!log_fn.empty()) SetLogFile(log_fn);
+	//const std::wstring & log_fn  = pt.get<std::wstring>(L"log_file", L"");
+	//if (!log_fn.empty()) SetLogFile(log_fn);
 	m_clear_temp = pt.get<int>(L"clear_temp", 1);
-	m_timeout = pt.get<DWORD>(L"timeout", INFINITE);
-	m_message_interval = pt.get<DWORD>(L"message_interval", 30);		// 以秒为单位的更新时间
 	// 读取测试项目
 	const boost::property_tree::wptree& pt_ops = pt.get_child(L"operaters");
 	for (auto it = pt_ops.begin(); it != pt_ops.end(); it++)
@@ -596,6 +515,17 @@ int CFullTester::FinishTest(void)
 	return err;
 }
 
+void CFullTester::ShowTestFailure(FILE * log)
+{
+	if (log == nullptr) return;
+	TEST_LOG(L"\n=== statck ===\n");
+	for (int dd = 0; dd <= m_test_depth; ++dd)
+	{
+		fwprintf_s(log, L"stacks[%d]:\n", dd);
+		m_test_state[dd].OutputState(log);
+	}
+}
+
 
 int CFullTester::RunTest(void)
 {
@@ -605,7 +535,6 @@ int CFullTester::RunTest(void)
 
 	// initlaize state
 	CTestState* cur_state = m_test_state;
-//	cur_state->EnumerateOp(m_test_spor);
 	m_cur_depth = 0;
 	while (1)
 	{
@@ -655,16 +584,6 @@ int CFullTester::RunTest(void)
 			EnumerateOp(*next_state);
 			cur_state = next_state;
 		}
-
-		//boost::posix_time::ptime ts_cur = boost::posix_time::microsec_clock::local_time();
-		//if ((ts_cur - ts_update).total_seconds() > 30)
-		//{	// update lot
-		//	INT64 ts = (ts_cur - m_ts_start).total_seconds();
-		//	// get memory info
-		//	bool br = PrintProgress(ts);
-		//	if (!br) THROW_ERROR(ERR_USER, L"failed on getting space or health");
-		//	ts_update = ts_cur;
-		//}
 		SetEvent(m_monitor_event);
 	}
 
@@ -749,56 +668,7 @@ bool CFullTester::EnumerateOp(CTestState& state)
 	return true;
 }
 
-DWORD CFullTester::Monitor(void)
-{
-	wprintf_s(L"start monitoring, message=%d, timeout=%d\n", m_message_interval, m_timeout);
-	boost::posix_time::ptime ts_update = boost::posix_time::microsec_clock::local_time();;
 
-	while (InterlockedAdd(&m_running, 0))
-	{
-		DWORD ir = WaitForSingleObject(m_monitor_event, m_timeout);
-		boost::posix_time::ptime ts_cur = boost::posix_time::microsec_clock::local_time();
-		INT64 ts = (ts_cur - m_ts_start).total_seconds();
-		if ((ts_cur - ts_update).total_seconds() > m_message_interval)
-		{	// update lot
-//			INT64 ts = (ts_cur - m_ts_start).total_seconds();
-			// get memory info
-			bool br = PrintProgress(ts);
-			if (!br) THROW_ERROR(ERR_USER, L"failed on getting space or health");
-			ts_update = ts_cur;
-		}
-		if (ir == WAIT_TIMEOUT)
-		{
-			wprintf_s(L"ts=%llds, test failed: timeout.\n", ts);
-			break;
-		}
-	}
-	wprintf_s(L"finished testing\n");
-
-	return 0;
-}
-
-bool CFullTester::PrintProgress(INT64 ts)
-{
-	HANDLE handle = GetCurrentProcess();
-	PROCESS_MEMORY_COUNTERS_EX pmc = { 0 };
-	GetProcessMemoryInfo(handle, (PROCESS_MEMORY_COUNTERS*)&pmc, sizeof(pmc));
-
-	//IVirtualDisk::HEALTH_INFO hinfo;
-	//bool br1 = m_dev->GetHealthInfo(hinfo);
-	//if (!br1) LOG_ERROR(L"failed on getting disk health info");
-
-
-	ULONGLONG free_bytes=0, total_bytes=0, total_free_bytes=0;
-	//bool br2 = m_fs->DokanGetDiskSpace(free_bytes, total_bytes, total_free_bytes);
-	//if (!br2) LOG_ERROR(L"failed on getting fs space");
-
-	float usage = (float)(total_bytes - free_bytes) / total_bytes * 100;
-	wprintf_s(L"ts=%llds, op=%d, fs_usage=%.1f%%, disk_usage=%d, write=%d, mem=%.1fMB \n",
-		ts, m_op_sn, usage, /*m_total_block - hinfo.empty_block*/0, /*hinfo.media_write*/0,
-		(float)pmc.WorkingSetSize / 1024.0);
-	return true;
-}
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // ==== Test State ====
 void CTestState::AddOperation(OP_ID op_id, const std::wstring& src_path, const std::wstring& param1, UINT64 param3, UINT64 param4)
@@ -870,3 +740,160 @@ void CTestState::Initialize(const std::wstring & root_path)
 	m_cur_op = 0;
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// // ==== CTesterBase ==== // //
+
+CTesterBase::CTesterBase(void)
+{
+}
+
+void CTesterBase::Config(const boost::property_tree::wptree& pt, const std::wstring& root)
+{
+	m_root = root;
+	const std::wstring & log_fn  = pt.get<std::wstring>(L"log_file", L"");
+	if (!log_fn.empty()) SetLogFile(log_fn);
+	m_timeout = pt.get<DWORD>(L"timeout", INFINITE);
+	m_message_interval = pt.get<DWORD>(L"message_interval", 30);		// 以秒为单位的更新时间
+
+}
+
+int CTesterBase::StartTest(void)
+{
+	m_ts_start = boost::posix_time::microsec_clock::local_time();
+
+	int err = 0;
+	try
+	{
+		err = PrepareTest();
+		if (err) { LOG_ERROR(L"[err] failed on preparing test, err=%d", err); }
+		// 打开监控文件
+		std::wstring health_fn = m_root + L"\\$HEALTH";
+		m_fsinfo_file = CreateFile(health_fn.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
+		//m_fs->DokanCreateFile(m_health_file, L"\\$HEALTH", GENERIC_READ, 0, IFileSystem::FS_OPEN_EXISTING, FILE_SHARE_READ, 0, false);
+		if (m_fsinfo_file == INVALID_HANDLE_VALUE || m_fsinfo_file == nullptr)
+		{
+			LOG_WARNING(L"file system does not support health info");
+			m_fsinfo_file = nullptr;
+		}
+
+		// 启动监控线程
+		m_running = 1;
+		m_monitor_event = CreateEvent(NULL, FALSE, FALSE, NULL);
+		DWORD thread_id = 0;
+		m_monitor_thread = CreateThread(NULL, 0, _Monitor, (PVOID)this, 0, &thread_id);
+
+		err = RunTest();
+		if (err) { LOG_ERROR(L"[err] failed on testing, err=%d", err); }
+
+	}
+	catch (jcvos::CJCException& err)
+	{
+		// show stack
+		TEST_LOG(L"\n\n=== result ===\n");
+		TEST_LOG(L"  Test failed\n [err] test failed with error: %s\n", err.WhatT());
+		ShowTestFailure(m_log_file);
+		wprintf_s(L" Test failed! \n");
+	}
+
+	InterlockedExchange(&m_running, 0);
+	SetEvent(m_monitor_event);
+	WaitForSingleObject(m_monitor_thread, INFINITE);
+	CloseHandle(m_monitor_thread);
+	m_monitor_thread = NULL;
+	CloseHandle(m_monitor_event);
+	m_monitor_event = NULL;
+
+	err = FinishTest();
+	if (m_log_file) { fclose(m_log_file); }
+
+	boost::posix_time::ptime ts_cur = boost::posix_time::microsec_clock::local_time();
+	INT64 ts = (ts_cur - m_ts_start).total_seconds();
+	PrintProgress(ts);
+	wprintf_s(L"Test completed\n");
+	return err;
+}
+
+
+
+bool CTesterBase::PrintProgress(INT64 ts)
+{
+	bool health_valid = false;
+	DokanHealthInfo health;
+	memset(&health, 0, sizeof(DokanHealthInfo));
+	if (m_fsinfo_file)
+	{
+		DWORD read = 0;
+		BOOL br = ReadFile(m_fsinfo_file, &health, sizeof(DokanHealthInfo), &read, nullptr);
+		if (br && read > 0) health_valid = true;
+	}
+
+	HANDLE handle = GetCurrentProcess();
+	PROCESS_MEMORY_COUNTERS_EX pmc = { 0 };
+	GetProcessMemoryInfo(handle, (PROCESS_MEMORY_COUNTERS*)&pmc, sizeof(pmc));
+
+	//IVirtualDisk::HEALTH_INFO hinfo;
+	//bool br1 = m_dev->GetHealthInfo(hinfo);
+	//if (!br1) LOG_ERROR(L"failed on getting disk health info");
+
+
+	ULONGLONG free_bytes = 0, total_bytes = 0, total_free_bytes = 0;
+	//bool br2 = m_fs->DokanGetDiskSpace(free_bytes, total_bytes, total_free_bytes);
+	//if (!br2) LOG_ERROR(L"failed on getting fs space");
+
+	float usage = (float)(total_bytes - free_bytes) / total_bytes * 100;
+	//wprintf_s(L"ts=%llds, op=%d, fs_usage=%.1f%%, disk_usage=%d, write=%d, mem=%.1fMB \n",
+	//	ts, m_op_sn, usage, /*m_total_block - hinfo.empty_block*/0, /*hinfo.media_write*/0,
+	//	(float)pmc.WorkingSetSize / 1024.0);
+
+	if (health_valid)
+	{
+		wprintf_s(L"ts=%llds, op=%d, total_blocks=%lld, host_write=%lld(blk), media_write=%lld(blk), mem=%.1fMB \n",
+			ts, m_op_sn, health.m_total_block_nr, health.m_block_host_write, health.m_block_disk_write, (float)pmc.WorkingSetSize / 1024.0);
+	}
+	else
+	{
+		wprintf_s(L"ts=%llds, op=%d, mem=%.1fMB \n", ts, m_op_sn, (float)pmc.WorkingSetSize / 1024.0);
+
+	}
+	return true;
+}
+
+
+DWORD CTesterBase::Monitor(void)
+{
+	wprintf_s(L"start monitoring, message=%d, timeout=%d\n", m_message_interval, m_timeout);
+	boost::posix_time::ptime ts_update = boost::posix_time::microsec_clock::local_time();;
+
+	while (InterlockedAdd(&m_running, 0))
+	{
+		DWORD ir = WaitForSingleObject(m_monitor_event, m_timeout);
+		boost::posix_time::ptime ts_cur = boost::posix_time::microsec_clock::local_time();
+		INT64 ts = (ts_cur - m_ts_start).total_seconds();
+		if ((ts_cur - ts_update).total_seconds() > m_message_interval)
+		{	// update lot
+			// get memory info
+			bool br = PrintProgress(ts);
+			if (!br) THROW_ERROR(ERR_USER, L"failed on getting space or health");
+			ts_update = ts_cur;
+		}
+		if (ir == WAIT_TIMEOUT)
+		{
+			wprintf_s(L"ts=%llds, test failed: timeout.\n", ts);
+			break;
+		}
+	}
+	if (m_fsinfo_file) CloseHandle(m_fsinfo_file);
+	wprintf_s(L"finished testing\n");
+
+	return 0;
+}
+
+void CTesterBase::SetLogFile(const std::wstring& log_fn)
+{
+	if (!log_fn.empty())
+	{
+		m_log_file = _wfsopen(log_fn.c_str(), L"w+", _SH_DENYNO);
+		if (!m_log_file) THROW_ERROR(ERR_USER, L"failed on opening log file %s", log_fn.c_str());
+	}
+
+}
