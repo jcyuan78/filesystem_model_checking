@@ -2,7 +2,7 @@
 #include "stdafx.h"
 #include "../include/dokan_callback.h"
 
-LOCAL_LOGGER_ENABLE(_T("dokan"), LOGGER_LEVEL_DEBUGINFO);
+LOCAL_LOGGER_ENABLE(_T("dokan"), LOGGER_LEVEL_NOTICE);
 
 inline IFileSystem * AchieveFileSystem(PDOKAN_FILE_INFO info)
 {
@@ -110,8 +110,7 @@ const wchar_t* DispToString(IFileSystem::FsCreateDisposition disp)
 ///////////////////////////////////////////////////////////////////////////////
 // -- wrap of DOKAN_OPERATIONS
 NTSTATUS DOKAN_CALLBACK dokancb_CreateFile(LPCWSTR fn,                    // FileName
-	PDOKAN_IO_SECURITY_CONTEXT context, // SecurityContext, see
-										// https://msdn.microsoft.com/en-us/library/windows/hardware/ff550613(v=vs.85).aspx
+	PDOKAN_IO_SECURITY_CONTEXT context, // SecurityContext, see https://msdn.microsoft.com/en-us/library/windows/hardware/ff550613(v=vs.85).aspx
 	ACCESS_MASK access,                // DesiredAccess
 	ULONG attri,                      // FileAttributes
 	ULONG share,                      // ShareAccess
@@ -123,23 +122,16 @@ NTSTATUS DOKAN_CALLBACK dokancb_CreateFile(LPCWSTR fn,                    // Fil
 	jcvos::auto_interface<IFileSystem> fs(AchieveFileSystem(info));
 //	IFileSystem * fs = AchieveFileSystem(info);
 
-	LOG_DEBUG(L"create file: %s, attri=%X, opt=%X, disp=%X, share=%X", fn, attri, option, disp, share);
+//	LOG_TRACK(L"dokan", L"Create file: %s, attri=%X, opt=%X, disp=%X, share=%X", fn, attri, option, disp, share);
 
 	DWORD user_attribute;
 	DWORD user_disposition;
-
 	ACCESS_MASK out_access=NULL;
-#if 1
 	DokanMapKernelToUserCreateFileFlags(access, attri, option, disp, &out_access, &user_attribute, &user_disposition);
-	LOG_DEBUG(L"attribute=%X, dispo=%X, access=%X", user_attribute, user_disposition, out_access);
-#else
-	DokanMapKernelToUserCreateFileFlags(attri, option, disp, &user_attribute, &user_disposition);
-	LOG_DEBUG(L"attribute=%X, dispo=%X", user_attribute, user_disposition);
-#endif
+//	LOG_TRACK(L"dokan", L"attribute=%X, dispo=%X, access=%X", user_attribute, user_disposition, out_access);
 
 	HANDLE handle = DokanOpenRequestorToken(info);
 	IFileSystem::FsCreateDisposition create_disposition = (IFileSystem::FsCreateDisposition)(user_disposition);
-//	reinterpret_cast<IFileSystem::FsCreateDisposition>(user_disposition);
 	if (handle == INVALID_HANDLE_VALUE) LOG_WIN32_ERROR(L" failed on getting dokan token")
 	else
 	{
@@ -168,9 +160,9 @@ NTSTATUS DOKAN_CALLBACK dokancb_CreateFile(LPCWSTR fn,                    // Fil
 //	IFileInfo * file = NULL;
 	jcvos::auto_interface<IFileInfo> file;
 	bool dir = option & FILE_DIRECTORY_FILE;
-	LOG_DEBUG(L"is directory info=%d, option=%d, %s", info->IsDirectory, dir,
+	LOG_DEBUG_(1, L"is directory info=%d, option=%d, %s", info->IsDirectory, dir,
 		user_attribute & FILE_FLAG_DELETE_ON_CLOSE?L"delete":L"-");
-	LOG_DEBUG(L"[fs_op] Create, %s, disp=%s, fn=%s", dir ? L"Dir" : L"File", DispToString(create_disposition), fn);
+	LOG_TRACK(L"dokan", L"Create %s, disp=%s, fn=%s, attri=%X, opt=%X, share=%X", dir ? L"Dir_" : L"File", DispToString(create_disposition), fn, attri, option, share);
 	NTSTATUS st = fs->DokanCreateFile(file, fn, out_access, user_attribute, create_disposition, share, option, dir);
 
 	info->Context = 0;
@@ -182,7 +174,7 @@ NTSTATUS DOKAN_CALLBACK dokancb_CreateFile(LPCWSTR fn,                    // Fil
 		if (!dir && file->IsDirectory())
 		{
 			file->CloseFile();
-			LOG_DEBUG(L"[fs_op] Create, opened item is a dir, status=0x%X", STATUS_ACCESS_DENIED);
+			LOG_TRACK(L"dokan", L" Create, opened item is a dir, status=0x%X", STATUS_ACCESS_DENIED);
 			return STATUS_ACCESS_DENIED;
 		}
 #endif
@@ -197,9 +189,7 @@ NTSTATUS DOKAN_CALLBACK dokancb_CreateFile(LPCWSTR fn,                    // Fil
 	}
 	else {	LOG_NOTICE(L"[err] failed on creating file %s, err=0x%X", fn, st); }
 
-	//if (file)	file->Release();
-	//if (fs)		fs->Release();
-	LOG_DEBUG(L"[fs_op] Create, Status=0x%X", st);
+	LOG_TRACK(L"dokan", L"Create, Status = 0x % X", st);
 	return st;
 }
 
@@ -207,10 +197,9 @@ void DOKAN_CALLBACK dokancb_Cleanup(LPCWSTR fn, // FileName
 	PDOKAN_FILE_INFO info)
 {
 	LOG_STACK_TRACE();
-	LOG_DEBUG(L"[fs_op] Cleanup, fn=%s", fn);
+	LOG_TRACK(L"dokan", L"Cleanup, fn = % s", fn);
 
 	IFileInfo * file = AchieveFileInfo(info);
-//	LOG_DEBUG(L"file=%s, object=0x%p, ref=%d", fn, file);
 	if (!file) return;
 	file->Cleanup();
 	file->Release();
@@ -220,8 +209,7 @@ void DOKAN_CALLBACK dokancb_CloseFile(LPCWSTR fn, PDOKAN_FILE_INFO info)
 {
 	LOG_STACK_TRACE();
 	IFileInfo * file = AchieveFileInfo(info);
-	LOG_DEBUG(L"[fs_op] Close File, fn=%s, , file=%p", fn, file);
-//	LOG_DEBUG(L"file=%s, object=0x%p", fn, file);
+	LOG_TRACK(L"dokan", L" Close File, fn=%s, , file=%p", fn, file);
 	if (!file) return;
 	file->CloseFile();
 	info->Context = NULL;
@@ -237,12 +225,12 @@ NTSTATUS DOKAN_CALLBACK dokancb_ReadFile(LPCWSTR fn,  // FileName
 	PDOKAN_FILE_INFO info)
 {
 	LOG_STACK_TRACE();
-	LOG_DEBUG(L"[fs_op] ReadFile, fn=%s, len=%d, offset=%d", fn, len, offset);
+	LOG_TRACK(L"dokan", L" ReadFile, fn=%s, offset=%d, len=%d", fn, offset, len);
 	IFileInfo * file = AchieveFileInfo(info);
 	if (!file) { LOG_ERROR(L"[err] file %s is not opened.", fn); return STATUS_ACCESS_DENIED; }
 	bool br = file->DokanReadFile(buf, len, *read, offset);
 	file->Release();
-	LOG_DEBUG(L"[fs_op] ReadFile: %d bytes read", *read);
+	//LOG_TRACK(L"dokan", L" ReadFile: %d bytes read", *read);
 	return (br) ? (STATUS_SUCCESS) : (STATUS_ACCESS_DENIED);
 }
 
@@ -255,14 +243,13 @@ NTSTATUS DOKAN_CALLBACK dokancb_WriteFile
 	PDOKAN_FILE_INFO info)
 {
 	LOG_STACK_TRACE();
-	LOG_DEBUG(L"[fs_op] WriteFile, fn=%s, len=%d, offset=%d", fn, len, offset);
+	LOG_TRACK(L"dokan", L" WriteFile, fn=%s, offset=%d, len=%d", fn, offset, len);
 	IFileInfo * file = AchieveFileInfo(info);
 	if (!file) { LOG_ERROR(L"[err] file %s is not opened.", fn); return STATUS_ACCESS_DENIED; }
 	bool br = file->DokanWriteFile(buf, len, *written, offset);
 	file->Release();
-	LOG_DEBUG(L"[fs_op] WriteFIle, %d bytes written", *written);
+	//LOG_TRACK(L"dokan", L" WriteFIle, %d bytes written", *written);
 	return (br) ? (STATUS_SUCCESS) : (STATUS_ACCESS_DENIED);
-//	return st;
 }
 
 NTSTATUS DOKAN_CALLBACK dokancb_FlushFileBuffers
@@ -277,9 +264,6 @@ NTSTATUS DOKAN_CALLBACK dokancb_GetFileInformation(LPCWSTR fn,   // [in] FileNam
 		PDOKAN_FILE_INFO info)
 {
 	LOG_STACK_TRACE();
-	//LOG_DEBUG(L"[fs_op] GetFileInfo, fn=%s", fn);
-
-	//LOG_DEBUG(L"file: %s", fn);
 	IFileInfo * file = AchieveFileInfo(info);
 	if (!file)
 	{
@@ -288,18 +272,17 @@ NTSTATUS DOKAN_CALLBACK dokancb_GetFileInformation(LPCWSTR fn,   // [in] FileNam
 	}
 	bool br = file->GetFileInformation(file_info);
 	file->Release();
-	LOG_DEBUG(L"[fs_op] GetFileInfo, fn=%s, atrr=%08X, size=%d", fn, file_info->dwFileAttributes, file_info->nFileSizeLow);
+	LOG_TRACK(L"dokan", L" GetFileInfo, fn=%s, atrr=%08X, size=%d", fn, file_info->dwFileAttributes, file_info->nFileSizeLow);
 	return (br) ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
 }
 
-// FindFilesWithPattern is checking first. If it is not implemented or
-// returns STATUS_NOT_IMPLEMENTED, then FindFiles is called, if implemented.
+// FindFilesWithPattern is checking first. If it is not implemented or returns STATUS_NOT_IMPLEMENTED, then FindFiles is called, if implemented.
 NTSTATUS DOKAN_CALLBACK dokancb_FindFiles(LPCWSTR fn,	// PathName
 	PFillFindData fill_data,					// call this function with PWIN32_FIND_DATAW
 	PDOKAN_FILE_INFO info)						//  (see PFillFindData definition)
 {
 	LOG_STACK_TRACE();
-	LOG_DEBUG(L"[fs_op] FindFiles: fn=%s", fn);
+	LOG_TRACK(L"dokan", L" FindFiles: fn=%s", fn);
 	IFileInfo * file = AchieveFileInfo(info);
 	if (!file) return STATUS_UNSUCCESSFUL;
 
@@ -310,21 +293,14 @@ NTSTATUS DOKAN_CALLBACK dokancb_FindFiles(LPCWSTR fn,	// PathName
 
 }
 
-//NTSTATUS(DOKAN_CALLBACK *FindFilesWithPattern)
-//(LPCWSTR,       // PathName
-// LPCWSTR,       // SearchPattern
-// PFillFindData, // call this function with PWIN32_FIND_DATAW
-// PDOKAN_FILE_INFO);
-
-// SetFileAttributes and SetFileTime are called only if both of them
-// are implemented.
+// SetFileAttributes and SetFileTime are called only if both of them are implemented.
 NTSTATUS DOKAN_CALLBACK dokancb_SetFileAttributes
 (	LPCWSTR fn, // FileName
 	DWORD attr,   // FileAttributes
 	PDOKAN_FILE_INFO info)
 {
 	LOG_STACK_TRACE();
-	LOG_DEBUG(L"[fs_op] SetAttribute, fn=%s, attr = 0x%08X", fn, attr);
+	LOG_TRACK(L"dokan", L" SetAttribute, fn=%s, attr = 0x%08X", fn, attr);
 	IFileInfo * file = AchieveFileInfo(info);
 	if (!file) return STATUS_UNSUCCESSFUL;
 	file->DokanSetFileAttributes(attr);
@@ -341,7 +317,7 @@ NTSTATUS DOKAN_CALLBACK dokancb_SetFileTime
 	PDOKAN_FILE_INFO info)
 {
 	LOG_STACK_TRACE();
-	LOG_DEBUG(L"[fs_op] SetFileTime, fn=%s, ct=0x%p, at=0x%p, mt=0x%p", fn, create_time, access_time, modify_time);
+	LOG_TRACK(L"dokan", L" SetFileTime, fn=%s, ct=0x%p, at=0x%p, mt=0x%p", fn, create_time, access_time, modify_time);
 	IFileInfo * file = AchieveFileInfo(info);
 	if (!file) return STATUS_UNSUCCESSFUL;
 	if (create_time && create_time->dwHighDateTime == 0 && create_time->dwLowDateTime == 0) create_time = nullptr;
@@ -360,7 +336,7 @@ NTSTATUS DOKAN_CALLBACK dokancb_DeleteFile
 	LOG_STACK_TRACE();
 	IFileSystem * fs = AchieveFileSystem(info);
 	IFileInfo * file = AchieveFileInfo(info);
-	LOG_DEBUG(L"[fs_op] Delete File, fn=%s", fn);
+	LOG_TRACK(L"dokan", L" Delete File, fn=%s", fn);
 
 //	LOG_DEBUG(L"delete file=%s, object=0x%p", fn, file);
 	if (file->IsDirectory())
@@ -395,7 +371,7 @@ NTSTATUS DOKAN_CALLBACK dokancb_DeleteDirectory
 	IFileInfo * file = AchieveFileInfo(info);
 
 //	LOG_DEBUG(L"delete directory=%s, object=0x%p", fn, file);
-	LOG_DEBUG(L"[fs_op] Delete Dir, fn=%s", fn);
+	LOG_TRACK(L"dokan", L" Delete Dir, fn=%s", fn);
 
 	if (!file->IsDirectory())
 	{
@@ -432,7 +408,7 @@ NTSTATUS DOKAN_CALLBACK dokancb_MoveFile
 	PDOKAN_FILE_INFO info)
 {
 	LOG_STACK_TRACE();
-	LOG_DEBUG(L"[fs_op] MoveFile src=%s to dst=%s, replace=%d", src_fn, dst_fn, replace);
+	LOG_TRACK(L"dokan", L" MoveFile src=%s to dst=%s, replace=%d", src_fn, dst_fn, replace);
 	IFileSystem * fs = AchieveFileSystem(info);
 	IFileInfo * file = AchieveFileInfo(info);
 
@@ -452,7 +428,7 @@ NTSTATUS DOKAN_CALLBACK dokancb_SetEndOfFile
 	PDOKAN_FILE_INFO info)
 {
 	LOG_STACK_TRACE();
-	LOG_DEBUG(L"[fs_op] set end of file, fn=%s, length=%d", fn, (DWORD)flen);
+	LOG_TRACK(L"dokan", L" set end of file, fn=%s, length=%d", fn, (DWORD)flen);
 	NTSTATUS st = STATUS_SUCCESS;
 	IFileInfo * file = AchieveFileInfo(info);
 	if (!file)
@@ -472,8 +448,7 @@ NTSTATUS DOKAN_CALLBACK dokancb_SetAllocationSize
 	PDOKAN_FILE_INFO info)
 {
 	LOG_STACK_TRACE();
-	LOG_DEBUG(L"[fs_op] SetAllocationSize, fn=%s, length=%d", fn, (DWORD)flen);
-//	LOG_DEBUG(L"set file allocaiton size, fn=%s, length=%d", fn, (DWORD)flen);
+	LOG_TRACK(L"dokan", L" SetAllocationSize, fn=%s, length=%d", fn, (DWORD)flen);
 	IFileInfo * file = AchieveFileInfo(info);
 	if (!file) return STATUS_UNSUCCESSFUL;
 	bool br = file->SetAllocationSize(flen);
@@ -487,7 +462,7 @@ NTSTATUS DOKAN_CALLBACK dokancb_LockFile(LPCWSTR fn,		// FileName
 	PDOKAN_FILE_INFO info)
 {
 	LOG_STACK_TRACE();
-	LOG_DEBUG(L"[fs_op] LockFile, fn=%s, length=%zd, offset=%zd", fn, len, offset);
+	LOG_TRACK(L"dokan", L" LockFile, fn=%s, length=%zd, offset=%zd", fn, len, offset);
 	IFileInfo * file = AchieveFileInfo(info);
 	if (!file) return STATUS_UNSUCCESSFUL;
 	NTSTATUS st = file->LockFile(offset, len);
@@ -501,7 +476,7 @@ NTSTATUS DOKAN_CALLBACK dokancb_UnlockFile(LPCWSTR fn,	// FileName
 	PDOKAN_FILE_INFO info)
 {
 	LOG_STACK_TRACE();
-	LOG_DEBUG(L"[fs_op] UnlockFile, fn=%s, length=%zd, offset=%zd", fn, len, offset);
+	LOG_TRACK(L"dokan", L" UnlockFile, fn=%s, length=%zd, offset=%zd", fn, len, offset);
 	IFileInfo * file = AchieveFileInfo(info);
 	if (!file) return STATUS_UNSUCCESSFUL;
 	NTSTATUS st = file->UnlockFile(offset, len);
@@ -509,10 +484,8 @@ NTSTATUS DOKAN_CALLBACK dokancb_UnlockFile(LPCWSTR fn,	// FileName
 	return st;
 }
 
-// Neither GetDiskFreeSpace nor GetVolumeInformation
-// save the DokanFileContext->Context.
-// Before these methods are called, CreateFile may not be called.
-// (ditto CloseFile and Cleanup)
+// Neither GetDiskFreeSpace nor GetVolumeInformation save the DokanFileContext->Context.
+// Before these methods are called, CreateFile may not be called. (ditto CloseFile and Cleanup)
 
 // see Win32 API GetDiskFreeSpaceEx
 NTSTATUS DOKAN_CALLBACK dokancb_GetDiskFreeSpace(
@@ -533,10 +506,7 @@ NTSTATUS DOKAN_CALLBACK dokancb_GetDiskFreeSpace(
 	return STATUS_SUCCESS;
 }
 
-// Note:
-// FILE_READ_ONLY_VOLUME is automatically added to the
-// FileSystemFlags if DOKAN_OPTION_WRITE_PROTECT was
-// specified in DOKAN_OPTIONS when the volume was mounted.
+// Note: FILE_READ_ONLY_VOLUME is automatically added to the FileSystemFlags if DOKAN_OPTION_WRITE_PROTECT was specified in DOKAN_OPTIONS when the volume was mounted.
 
 // see Win32 API GetVolumeInformation
 NTSTATUS DOKAN_CALLBACK dokancb_GetVolumeInformation(LPWSTR name,  // [out] VolumeNameBuffer
@@ -570,8 +540,6 @@ NTSTATUS DOKAN_CALLBACK dokancb_Mounted(LPCWSTR MountPoint, PDOKAN_FILE_INFO inf
 {
 	LOG_STACK_TRACE();
 	LOG_DEBUG(L"mount point = %s, optional mount point=%s", MountPoint, info->DokanOptions->MountPoint);
-	//IFileSystem* fs = AchieveFileSystem(info);
-	//fs->Mount();
 	return STATUS_SUCCESS;
 }
 
@@ -581,7 +549,6 @@ NTSTATUS DOKAN_CALLBACK dokancb_Unmounted(PDOKAN_FILE_INFO info)
 	LOG_DEBUG(L"global_context = %016I64X", info->DokanOptions->GlobalContext);
 	IFileSystem * fs = AchieveFileSystem(info);
 	JCASSERT(fs);
-//	fs->Disconnect();
 	fs->Unmount();
 	fs->Release();	// 和Run()中 set dokan options时的AddRef()对应。
 	return STATUS_SUCCESS;
@@ -644,6 +611,7 @@ void PrepareDokan(IFileSystem* fs, const std::wstring& mount, DOKAN_OPTIONS & op
 								//opt.Options = DOKAN_OPTION_WRITE_PROTECT | DOKAN_OPTION_DEBUG | DOKAN_OPTION_STDERR;
 #ifdef _DEBUG
 	opt.Options = fs->GetFileSystemOption() /*| DOKAN_OPTION_DEBUG | DOKAN_OPTION_STDERR*/;
+	opt.Options |= DOKAN_OPTION_MOUNT_MANAGER;
 	int debug_mode = fs->GetDebugMode();
 	if (debug_mode) opt.Options |= (DOKAN_OPTION_DEBUG | DOKAN_OPTION_STDERR);
 #else
@@ -681,8 +649,6 @@ void PrepareDokan(IFileSystem* fs, const std::wstring& mount, DOKAN_OPTIONS & op
 	oper.GetFileSecurityW = dokancb_GetFileSecurity;
 	oper.SetFileSecurityW = dokancb_SetFileSecurity;
 	oper.FindStreams = dokancb_FindStreams;
-
-
 }
 
 int StartDokan(IFileSystem* fs, const std::wstring & mount)
@@ -705,8 +671,8 @@ int StartDokanAsync(IFileSystem* fs, const std::wstring& mount)
 	DOKAN_OPERATIONS oper;
 	PrepareDokan(fs, mount, opt, oper);
 
-	DOKAN_HANDLE hh;
 	DokanInit();
+	DOKAN_HANDLE hh;
 	int err = DokanCreateFileSystem(&opt, &oper, &hh);
 	if (err)
 	{
@@ -716,6 +682,5 @@ int StartDokanAsync(IFileSystem* fs, const std::wstring& mount)
 	DokanWaitForFileSystemClosed(hh, INFINITE);
 	int ir = 0;
 	LOG_NOTICE(L"DokanMain returns %d", ir);
-//	fs->Release();
 	return ir;
 }

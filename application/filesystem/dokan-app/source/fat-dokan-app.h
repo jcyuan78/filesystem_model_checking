@@ -3,6 +3,9 @@
 #include <jcapp.h>
 #include "../../dokanfs-lib/include/ifilesystem.h"
 
+// config
+//#define SYNC_DOKAN
+
 
 class CFatDokanApp
 	: public jcvos::CJCAppSupport<jcvos::AppArguSupport>

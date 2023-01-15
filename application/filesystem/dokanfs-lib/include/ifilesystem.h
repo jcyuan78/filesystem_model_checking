@@ -58,8 +58,8 @@ public:
 	virtual bool WriteSectors(void * buf, size_t lba, size_t secs) = 0;
 
 	// offset在overlap中定义
-	virtual bool AsyncWriteSectors(void* buf, size_t secs, OVERLAPPED* overlap, LPOVERLAPPED_COMPLETION_ROUTINE callback) = 0;
-	virtual bool AsyncReadSectors(void* buf, size_t secs, OVERLAPPED* overlap, LPOVERLAPPED_COMPLETION_ROUTINE callback) = 0;
+	virtual bool AsyncWriteSectors(void* buf, size_t secs, OVERLAPPED* overlap) = 0;
+	virtual bool AsyncReadSectors(void* buf, size_t secs, OVERLAPPED* overlap) = 0;
 
 	virtual bool Trim(UINT lba, size_t secs) = 0;
 	virtual bool FlushData(UINT lba, size_t secs) = 0;
@@ -127,7 +127,6 @@ public:
 
 class IFileInfo : public IJCInterface
 {
-
 public:
 	virtual void Cleanup(void) = 0;
 	virtual void CloseFile(void) = 0;
@@ -165,11 +164,6 @@ public:
 
 	// 当Close文件时，删除此文件。判断条件由DokanApp实现。有些应用（Explorer）会通过这个方法删除文件。
 	virtual void SetDeleteOnClose(bool del) = 0;
-
-//// for tester
-//public:
-//	virtual bool ConnectToDevice(IVirtualDevice * dev) = 0;
-//	virtual void Disconnect(void) = 0;
 };
 
 class IFileSystem : public IJCInterface
@@ -192,11 +186,9 @@ public:
 	// 考虑将这个方法放到IJCInterface中
 	virtual bool CreateObject(IJCInterface*& fs) = 0;
 	virtual ULONG GetFileSystemOption(void) const = 0;
-	//virtual bool ConnectToDevice(IVirtualDisk * dev) = 0;
-	//virtual void Disconnect(void) = 0;
 	virtual bool Mount(IVirtualDisk * dev) = 0;
 	virtual void Unmount(void) = 0;
-	virtual bool MakeFileSystem(IVirtualDisk * dev, UINT32 volume_size, const std::wstring & volume_name, const std::wstring & options = L"") = 0;
+	virtual bool MakeFileSystem(IVirtualDisk * dev, size_t volume_size, const std::wstring & volume_name, const std::wstring & options = L"") = 0;
 	// fsck，检查文件系统，返回检查结果
 	virtual FsCheckResult FileSystemCheck(IVirtualDisk * dev, bool repair) = 0;
 
