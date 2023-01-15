@@ -63,7 +63,7 @@ int CMultiThreadTest::RunTest(void)
 			m_cur_depth--;
 			cur_state = m_test_state + m_cur_depth;
 			JCASSERT(cur_state->m_cur_op > 0);
-			FS_OP& op = cur_state->m_ops[cur_state->m_cur_op - 1];
+			TRACE_ENTRY& op = cur_state->m_ops[cur_state->m_cur_op - 1];
 			Rollback(cur_state->m_ref_fs, &op);
 			continue;
 		}

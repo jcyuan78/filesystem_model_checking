@@ -2,7 +2,6 @@
 #include "pch.h"
 #include "../include/full_tester.h"
 #include <boost/cast.hpp>
-#include <Psapi.h>
 
 #include "../../../filesystem/dokanfs-lib/dokanfs-lib.h"
 
@@ -16,7 +15,7 @@ void FillData(char* buf, size_t size)
 	for (size_t ii = 0; ii < size; ++ii)			buf[ii] = ii % 26 + 'A';
 }
 
-int CompareData(const char* src, const char* tar, size_t size)
+int CTesterBase::CompareData(const char* src, const char* tar, size_t size)
 {
 	for (size_t ii = 0; ii < size; ++ii)
 	{
@@ -64,20 +63,20 @@ DWORD CalFileChecksum(HANDLE file)
 	return checksum;
 }
 
-OP_ID StringToOpId(const std::wstring& str)
+OP_CODE StringToOpId(const std::wstring& str)
 {
-	OP_ID id;
+	OP_CODE id;
 	if (false) {}
-	else if (str == L"CreateFile") id = OP_ID::CREATE_FILE;
-	else if (str == L"CreateDir") id = OP_ID::CREATE_DIR;
-	else if (str == L"Append") id = OP_ID::APPEND_FILE;
-	else if (str == L"OverWrite") id = OP_ID::OVER_WRITE;
-	else if (str == L"DeleteFile") id = OP_ID::DELETE_FILE;
-	else if (str == L"DeleteDir") id = OP_ID::DELETE_DIR;
-	else if (str == L"Move") id = OP_ID::MOVE;
-	else if (str == L"Mount") id = OP_ID::DEMOUNT_MOUNT;
-	else if (str == L"PowerCycle") id = OP_ID::POWER_OFF_RECOVERY;
-	else id = OP_ID::OP_NONE;
+	else if (str == L"CreateFile")	id = OP_CODE::OP_FILE_CREATE;
+	else if (str == L"CreateDir")	id = OP_CODE::OP_DIR_CREATE;
+	//else if (str == L"Append")		id = OP_CODE::APPEND_FILE;
+	else if (str == L"OverWrite")	id = OP_CODE::OP_FILE_WRITE;
+	else if (str == L"DeleteFile")	id = OP_CODE::OP_FILE_DELETE;
+	else if (str == L"DeleteDir")	id = OP_CODE::OP_DIR_DELETE;
+	else if (str == L"Move")		id = OP_CODE::OP_MOVE;
+	else if (str == L"Mount")		id = OP_CODE::OP_DEMOUNT_MOUNT;
+	else if (str == L"PowerCycle")	id = OP_CODE::OP_POWER_OFF_RECOVER;
+	else							id = OP_CODE::OP_NOP;
 	return id;
 
 }
@@ -90,56 +89,56 @@ OP_ID StringToOpId(const std::wstring& str)
 
 
 
-int CFullTester::FsOperate(CReferenceFs& ref, FS_OP* op)
+int CFullTester::FsOperate(CReferenceFs& ref, TRACE_ENTRY* op)
 {
 	int err = 0;
 	bool isdir = true;
 //	size_t len = 0;
 	JCASSERT(op);
-	switch (op->op_id)
+	switch (op->op_code)
 	{
-	case OP_ID::CREATE_FILE: isdir = false;
-	case OP_ID::CREATE_DIR: 	// 共用代码
+	case OP_CODE::OP_FILE_CREATE: isdir = false;
+	case OP_CODE::OP_DIR_CREATE: 	// 共用代码
 		// 检查自己点数量是否超标
-		err = TestCreate(ref, op->path, op->param1_str, isdir);
+		err = TestCreate(ref, op->file_path, isdir);
 		if (err == OK_ALREADY_EXIST)
 		{
-			op->op_id = OP_ID::OP_NO_EFFECT;
+			op->op_code = OP_CODE::OP_NO_EFFECT;
 			err = 0;
 		}
 		break;
 
-	case OP_ID::DELETE_FILE:	break;
-	case OP_ID::DELETE_DIR:	break;
-	case OP_ID::MOVE:			break;
-	case OP_ID::OVER_WRITE:
+	case OP_CODE::OP_FILE_DELETE:	break;
+	case OP_CODE::OP_DIR_DELETE:	break;
+	case OP_CODE::OP_MOVE:			break;
+	case OP_CODE::OP_FILE_WRITE:
 //		swscanf_s(op->param1.c_str(), L"%zd", &len);
-		err = TestWrite(ref, op->path, op->param3_val, op->param4_val);
+		err = TestWrite(ref, op->file_path, op->offset, op->length);
 		break;
-	case OP_ID::APPEND_FILE:
+//	case OP_CODE::OP_APPEND_FILE:
 //		swscanf_s(op->param1.c_str(), L"%zd", &len);
-		//err = TestWrite(ref, false, op->path, op->param3_val);
-		break;
-	case OP_ID::DEMOUNT_MOUNT:
+		//err = TestWrite(ref, false, op->file_path, op->param3_val);
+//		break;
+	case OP_CODE::OP_DEMOUNT_MOUNT:
 		//TestMount(fs, ref);
 		break;
-	case OP_ID::POWER_OFF_RECOVERY:
+	case OP_CODE::OP_POWER_OFF_RECOVER:
 		//TestPower(fs, ref);
 		break;
 	}
 	return err;
 }
 
-int CFullTester::TestCreate(CReferenceFs& ref, const std::wstring& src_path, const std::wstring& fn, bool isdir)
+int CFullTester::TestCreate(CReferenceFs& ref, /*const std::wstring& src_path, const std::wstring& fn,*/const std::wstring & path, bool isdir)
 {
 	int err = 0;
 	// 检查自己点数量是否超标
 	// create full path name
-	TEST_LOG(L"[OPERATE ](%d) CREATE %s, path=%s, fn=%s,", m_op_sn++, isdir ? L"DIR" : L"FILE", src_path.c_str(), fn.c_str());
+	TEST_LOG(L"[OPERATE ](%d) CREATE %s, path=%s,", m_op_sn++, isdir ? L"DIR" : L"FILE", path.c_str()/*, fn.c_str()*/);
 
-	std::wstring path;
-	if (src_path.size() > 1)	path = src_path + L"\\" + fn;	//non-root
-	else path = src_path + fn;		// root
+	//std::wstring path;
+	//if (src_path.size() > 1)	path = src_path + L"\\" + fn;	//non-root
+	//else path = src_path + fn;		// root
 
 	std::wstring file_path = path;
 	bool create_result = false;
@@ -186,7 +185,7 @@ int CFullTester::TestCreate(CReferenceFs& ref, const std::wstring& src_path, con
 	return err;
 }
 
-int CFullTester::TestWrite(CReferenceFs& ref, /*bool overwrite,*/ const std::wstring& path, size_t offset, size_t len)
+int CFullTester::TestWrite(CReferenceFs& ref, const std::wstring& path, size_t offset, size_t len)
 {
 	int err = 0;
 	len &= ~3;		// DWORD对齐
@@ -251,19 +250,20 @@ int CFullTester::TestWrite(CReferenceFs& ref, /*bool overwrite,*/ const std::wst
 	return err;
 }
 
-int CFullTester::Rollback(CReferenceFs& ref, const FS_OP* op)
+int CFullTester::Rollback(CReferenceFs& ref, const TRACE_ENTRY* op)
 {
 	int err = 0;
 	// 对op进行你操作
 	std::wstring path;
-	switch (op->op_id)
+	switch (op->op_code)
 	{
-	case OP_ID::OP_NO_EFFECT:
+	case OP_CODE::OP_NO_EFFECT:
 		TEST_LOG(L"[ROLLBACK](%d) (op=%d) NO OPERATION", m_op_sn++, op->op_sn);
 		break;
-	case OP_ID::CREATE_FILE: {
-		if (op->path == L"\\") path = op->path + op->param1_str;
-		else path = op->path + L"\\" + op->param1_str;
+	case OP_CODE::OP_FILE_CREATE: {
+		//if (op->file_path == L"\\") path = op->file_path + op->target_path;
+		//else path = op->file_path + L"\\" + op->target_path;
+		path = op->file_path;
 		TEST_LOG(L"[ROLLBACK](%d) (op=%d) DELETE FILE, path=%s", m_op_sn++, op->op_sn, path.c_str());
 		BOOL br = DeleteFile(path.c_str());
 
@@ -277,9 +277,10 @@ int CFullTester::Rollback(CReferenceFs& ref, const FS_OP* op)
 		TEST_CLOSE_LOG;
 		break; }
 
-	case OP_ID::CREATE_DIR: {	// rollback for: 在 “op->path”创建dir“op->param" => 删除dir:"op->path\\op->param"
-		if (op->path == L"\\") path = op->path + op->param1_str;
-		else path = op->path + L"\\" + op->param1_str;
+	case OP_CODE::OP_DIR_CREATE: {	// rollback for: 在 “op->path”创建dir“op->param" => 删除dir:"op->path\\op->param"
+		//if (op->file_path == L"\\") path = op->file_path + op->target_path;
+		//else path = op->file_path + L"\\" + op->target_path;
+		path = op->file_path;
 		TEST_LOG(L"[ROLLBACK](%d) (op=%d) DELETE DIR, path=%s", m_op_sn++, op->op_sn, path.c_str());
 		BOOL br = RemoveDirectory(path.c_str());
 		if (!br)
@@ -292,52 +293,52 @@ int CFullTester::Rollback(CReferenceFs& ref, const FS_OP* op)
 		TEST_CLOSE_LOG;
 		break; }
 
-	case OP_ID::DELETE_FILE:	break;
-	case OP_ID::DELETE_DIR:	break;
-	case OP_ID::MOVE:			break;
-	case OP_ID::OVER_WRITE: {
+	case OP_CODE::OP_FILE_DELETE:	break;
+	case OP_CODE::OP_DIR_DELETE:	break;
+	case OP_CODE::OP_MOVE:			break;
+	case OP_CODE::OP_FILE_WRITE: {
 		if (!m_support_trunk) break;
 		// overwrite没有逆操作，只能删除文件，同时删除ref中的文件 X
-		TEST_LOG(L"[ROLLBACK](%d) (op=%d) TRUNK FILE, path=%s", m_op_sn++, op->op_sn, op->path.c_str());
+		TEST_LOG(L"[ROLLBACK](%d) (op=%d) TRUNK FILE, path=%s", m_op_sn++, op->op_sn, op->file_path.c_str());
 		size_t cur_len;
 		DWORD cur_checksum;
-		CReferenceFs::CRefFile* ref_file = ref.FindFile(op->path);
-		if (!ref_file) THROW_ERROR(ERR_USER, L"cannof find ref file: %s", op->path.c_str());
+		CReferenceFs::CRefFile* ref_file = ref.FindFile(op->file_path);
+		if (!ref_file) THROW_ERROR(ERR_USER, L"cannof find ref file: %s", op->file_path.c_str());
 		ref.GetFileInfo(*ref_file, cur_checksum, cur_len);
 
-		HANDLE file = CreateFile(op->path.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, TRUNCATE_EXISTING, 0, 0);
+		HANDLE file = CreateFile(op->file_path.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, TRUNCATE_EXISTING, 0, 0);
 		if (!file || file == INVALID_HANDLE_VALUE)
 		{
 			err = ERR_OPEN_FILE;
-			THROW_WIN32_ERROR(L"failed on open file=%s", op->path.c_str());
+			THROW_WIN32_ERROR(L"failed on open file=%s", op->file_path.c_str());
 		}
 		CloseHandle(file);
 		TEST_LOG(L", closed");
 		ref.UpdateFile(*ref_file, 0, 0);
 		TEST_CLOSE_LOG;
 		break; }
-
-	case OP_ID::APPEND_FILE: {
+/*
+	case OP_CODE::OP_APPEND_FILE: {
 		if (!m_support_trunk) break;
 		size_t cur_len;
 		DWORD cur_checksum;
-		CReferenceFs::CRefFile* ref_file = ref.FindFile(op->path);
-		TEST_LOG(L"[ROLLBACK](%d) TRUNK, path=%s", m_op_sn++, op->path.c_str());
-		if (!ref_file) THROW_ERROR(ERR_USER, L"cannof find ref file: %s", op->path.c_str());
+		CReferenceFs::CRefFile* ref_file = ref.FindFile(op->file_path);
+		TEST_LOG(L"[ROLLBACK](%d) TRUNK, path=%s", m_op_sn++, op->file_path.c_str());
+		if (!ref_file) THROW_ERROR(ERR_USER, L"cannof find ref file: %s", op->file_path.c_str());
 		ref.GetFileInfo(*ref_file, cur_checksum, cur_len);
 
-		HANDLE file = CreateFile(op->path.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, TRUNCATE_EXISTING, 0, 0);
+		HANDLE file = CreateFile(op->file_path.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, TRUNCATE_EXISTING, 0, 0);
 		if (!file || file == INVALID_HANDLE_VALUE)
 		{
 			err = ERR_OPEN_FILE;
-			THROW_WIN32_ERROR(L"failed on open file=%s", op->path.c_str());
+			THROW_WIN32_ERROR(L"failed on open file=%s", op->file_path.c_str());
 		}
 		BY_HANDLE_FILE_INFORMATION info;
 		BOOL br = GetFileInformationByHandle(file, &info);
 		if (!br)
 		{
 			err = ERR_GET_INFOMATION;
-			THROW_WIN32_ERROR(L"failed on getting file info, file=%s", op->path.c_str());
+			THROW_WIN32_ERROR(L"failed on getting file info, file=%s", op->file_path.c_str());
 		}
 		TEST_LOG(L"\t cur_size=%d, org_size=%zd", info.nFileSizeLow, cur_len);
 
@@ -350,6 +351,7 @@ int CFullTester::Rollback(CReferenceFs& ref, const FS_OP* op)
 
 		TEST_CLOSE_LOG;
 		break; }
+*/
 	}
 	return err;
 }
@@ -450,7 +452,7 @@ void CFullTester::Config(const boost::property_tree::wptree& pt, const std::wstr
 	{
 		const boost::property_tree::wptree& pt_op = it->second;
 		const std::wstring& str_op = pt_op.get<std::wstring>(L"name");
-		OP_ID op_id = StringToOpId(str_op);
+		OP_CODE op_id = StringToOpId(str_op);
 		const std::wstring& str_cond = pt_op.get<std::wstring>(L"condition");
 		if (str_cond == L"File") m_file_op_set.push_back(op_id);
 		else if (str_cond == L"Dir") m_dir_op_set.push_back(op_id);
@@ -485,18 +487,18 @@ int CFullTester::FinishTest(void)
 		{
 			CTestState& state = m_test_state[depth];
 			if (state.m_cur_op == 0) continue;
-			FS_OP& op = state.m_ops[state.m_cur_op - 1];
-			std::wstring path;
+			TRACE_ENTRY& op = state.m_ops[state.m_cur_op - 1];
+			const std::wstring& path = op.file_path;
 
-			if (op.path == L"\\") path = op.path + op.param1_str;
-			else path = op.path + L"\\" + op.param1_str;
+			//if (op.file_path == L"\\") path = op.file_path + op.target_path;
+			//else path = op.file_path + L"\\" + op.target_path;
 			BOOL br;
-			if (op.op_id == OP_ID::CREATE_FILE)
+			if (op.op_code == OP_CODE::OP_FILE_CREATE)
 			{
 				br = DeleteFile(path.c_str());
 				LOG_DEBUG(L"delete file %s, res=%d", path.c_str(), br);
 			}
-			else if (op.op_id == OP_ID::CREATE_DIR)
+			else if (op.op_code == OP_CODE::OP_DIR_CREATE)
 			{	// rollback for: 在 “op->path”创建dir“op->param" => 删除dir:"op->path\\op->param"
 				br = RemoveDirectory(path.c_str());
 				LOG_DEBUG(L"delete dir %s, res=%d", path.c_str(), br);
@@ -547,11 +549,11 @@ int CFullTester::RunTest(void)
 			m_cur_depth--;
 			cur_state = m_test_state + m_cur_depth;
 			JCASSERT(cur_state->m_cur_op > 0);
-			FS_OP& op = cur_state->m_ops[cur_state->m_cur_op - 1];
+			TRACE_ENTRY& op = cur_state->m_ops[cur_state->m_cur_op - 1];
 			Rollback(cur_state->m_ref_fs, &op);
 			continue;
 		}
-		FS_OP& op = cur_state->m_ops[cur_state->m_cur_op];
+		TRACE_ENTRY& op = cur_state->m_ops[cur_state->m_cur_op];
 		cur_state->m_cur_op++;
 
 		// test
@@ -628,15 +630,17 @@ bool CFullTester::EnumerateOp(CTestState& state)
 
 				switch (*op_it)
 				{
-				case OP_ID::CREATE_FILE:
-					state.AddOperation(OP_ID::CREATE_FILE, path, fn, 0);
+				case OP_CODE::OP_FILE_CREATE:
+//					state.AddOperation(OP_CODE::OP_FILE_CREATE, path, fn, 0);
+					state.AddCreateOperation(path, fn, false);
 					break;
 
-				case OP_ID::CREATE_DIR:
-					state.AddOperation(OP_ID::CREATE_DIR, path, fn, 0);
+				case OP_CODE::OP_DIR_CREATE:
+//					state.AddOperation(OP_CODE::OP_DIR_CREATE, path, fn, 0);
+					state.AddCreateOperation(path, fn, true);
 					break;
 
-				case OP_ID::MOVE:
+				case OP_CODE::OP_MOVE:
 					break;
 				}
 			}
@@ -649,37 +653,61 @@ bool CFullTester::EnumerateOp(CTestState& state)
 				size_t offset = rand() * file_len / RAND_MAX;
 				switch (*op_it)
 				{
-				//case OP_ID::APPEND_FILE:
-				//	state.AddOperation(OP_ID::APPEND_FILE, path, L"", len);
+				//case OP_CODE::APPEND_FILE:
+				//	state.AddOperation(OP_CODE::APPEND_FILE, path, L"", len);
 				//	break;
-				case OP_ID::OVER_WRITE:
-					state.AddOperation(OP_ID::OVER_WRITE, path, L"", offset, len);
+				case OP_CODE::OP_FILE_WRITE:
+//					state.AddOperation(OP_CODE::OP_FILE_WRITE, path, L"", offset, len);
+					state.AddWriteOperation(path, offset, len);
 					break;
-				case OP_ID::MOVE:
+				case OP_CODE::OP_MOVE:
 					break;
 				}
 			}
 		}
 	}
-	for (auto op_it = m_fs_op_set.begin(); op_it != m_fs_op_set.end(); ++op_it)
-	{
-		state.AddOperation(*op_it, L"", L"", 0);
-	}
+	//for (auto op_it = m_fs_op_set.begin(); op_it != m_fs_op_set.end(); ++op_it)
+	//{
+	//	state.AddOperation(*op_it, L"", L"", 0);
+	//}
 	return true;
 }
 
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // ==== Test State ====
-void CTestState::AddOperation(OP_ID op_id, const std::wstring& src_path, const std::wstring& param1, UINT64 param3, UINT64 param4)
+//void CTestState::AddOperation(OP_CODE op_id, const std::wstring& src_path, const std::wstring& param1, UINT64 param3, UINT64 param4)
+//{
+//	m_ops.emplace_back();
+//	TRACE_ENTRY& op = m_ops.back();
+//	op.op_code = op_id;
+//	op.file_path = src_path;
+//	op.param1_str = param1;
+//	op.param3_val = param3;
+//	op.param4_val = param4;
+//}
+
+void CTestState::AddCreateOperation(const std::wstring& src_path, const std::wstring tar_path, bool is_dir)
 {
 	m_ops.emplace_back();
-	FS_OP& op = m_ops.back();
-	op.op_id = op_id;
-	op.path = src_path;
-	op.param1_str = param1;
-	op.param3_val = param3;
-	op.param4_val = param4;
+	TRACE_ENTRY& op = m_ops.back();
+	if (is_dir) op.op_code = OP_CODE::OP_DIR_CREATE;
+	else op.op_code = OP_CODE::OP_FILE_CREATE;
+
+	if (src_path.size() > 1) op.file_path = src_path + L"\\" + tar_path;
+	else op.file_path = src_path + tar_path;
+	op.is_dir = is_dir;
+	op.is_async = false;
+}
+
+void CTestState::AddWriteOperation(const std::wstring& src_path, UINT64 offset, UINT64 length)
+{
+	m_ops.emplace_back();
+	TRACE_ENTRY& op = m_ops.back();
+	op.op_code = OP_CODE::OP_FILE_WRITE;
+	op.file_path = src_path;
+	op.offset = offset;
+	op.length = length;
 }
 
 void CTestState::OutputState(FILE* log_file)
@@ -707,22 +735,22 @@ void CTestState::OutputState(FILE* log_file)
 	}
 	// output op
 //	JCASSERT(m_cur_op > 0);
-	FS_OP& op = m_ops[m_cur_op - 1];
+	TRACE_ENTRY& op = m_ops[m_cur_op - 1];
 	const wchar_t* op_name = NULL;
-	switch (op.op_id)
+	switch (op.op_code)
 	{
-	case OP_ID::OP_NONE:		op_name = L"none       ";	break;
-	case OP_ID::CREATE_FILE:	op_name = L"create-file";	break;
-	case OP_ID::CREATE_DIR:		op_name = L"create-dir ";	break;
-	case OP_ID::DELETE_FILE:	op_name = L"delete-file";	break;
-	case OP_ID::DELETE_DIR:		op_name = L"delete-dir ";	break;
-	case OP_ID::MOVE:			op_name = L"move       ";	break;
-	case OP_ID::APPEND_FILE:	op_name = L"append     ";	break;
-	case OP_ID::OVER_WRITE:		op_name = L"overwrite  ";	break;
-	case OP_ID::DEMOUNT_MOUNT:	op_name = L"demnt-mount";	break;
-	default:					op_name = L"unknown    ";	break;
+	case OP_CODE::OP_NOP:			op_name = L"none       ";	break;
+	case OP_CODE::OP_FILE_CREATE:	op_name = L"create-file";	break;
+	case OP_CODE::OP_DIR_CREATE:	op_name = L"create-dir ";	break;
+	case OP_CODE::OP_FILE_DELETE:	op_name = L"delete-file";	break;
+	case OP_CODE::OP_DIR_DELETE:	op_name = L"delete-dir ";	break;
+	case OP_CODE::OP_MOVE:			op_name = L"move       ";	break;
+	//case OP_CODE::APPEND_FILE:	op_name = L"append     ";	break;
+	case OP_CODE::OP_FILE_WRITE:	op_name = L"overwrite  ";	break;
+	case OP_CODE::OP_DEMOUNT_MOUNT:	op_name = L"demnt-mount";	break;
+	default:						op_name = L"unknown    ";	break;
 	}
-	fwprintf_s(log_file, L"[%s] path=%s, %s, %lld, %lld\n", op_name, op.path.c_str(), op.param1_str.c_str(), op.param3_val, op.param4_val);
+	fwprintf_s(log_file, L"[%s] path=%s\n", op_name, op.file_path.c_str() /*, op.param1_str.c_str(), op.param3_val, op.param4_val*/);
 }
 
 void CTestState::Initialize(const CReferenceFs* src)
@@ -732,6 +760,8 @@ void CTestState::Initialize(const CReferenceFs* src)
 	m_ops.clear();
 	m_cur_op = 0;
 }
+
+
 
 void CTestState::Initialize(const std::wstring & root_path)
 {
@@ -743,8 +773,18 @@ void CTestState::Initialize(const std::wstring & root_path)
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // // ==== CTesterBase ==== // //
 
-CTesterBase::CTesterBase(void)
+CTesterBase::CTesterBase(IFileSystem* fs, IVirtualDisk* disk)
 {
+	m_fs = fs;
+	if (m_fs) m_fs->AddRef();
+	m_disk = disk;
+	if (m_disk) m_disk->AddRef();
+}
+
+CTesterBase::~CTesterBase(void)
+{
+	RELEASE(m_disk);
+	RELEASE(m_fs);
 }
 
 void CTesterBase::Config(const boost::property_tree::wptree& pt, const std::wstring& root)
@@ -754,6 +794,9 @@ void CTesterBase::Config(const boost::property_tree::wptree& pt, const std::wstr
 	if (!log_fn.empty()) SetLogFile(log_fn);
 	m_timeout = pt.get<DWORD>(L"timeout", INFINITE);
 	m_message_interval = pt.get<DWORD>(L"message_interval", 30);		// 以秒为单位的更新时间
+	m_format = pt.get<bool>(L"format_before_test", false);
+	m_mount = pt.get<bool>(L"mount_before_test", false);
+	m_volume_size = pt.get<size_t>(L"volume_size", 0);
 
 }
 
@@ -764,6 +807,16 @@ int CTesterBase::StartTest(void)
 	int err = 0;
 	try
 	{
+		if (m_format)
+		{
+			bool br = m_fs->MakeFileSystem(m_disk, m_volume_size, L"FSTESTER");
+			if (!br) THROW_ERROR(ERR_APP, L"failed on format fs, size=%lld", m_volume_size);
+		}
+		if (m_mount)
+		{
+			bool br = m_fs->Mount(m_disk);
+			if (!br) THROW_ERROR(ERR_APP, L"failed on mount fs");
+		}
 		err = PrepareTest();
 		if (err) { LOG_ERROR(L"[err] failed on preparing test, err=%d", err); }
 		// 打开监控文件
@@ -809,91 +862,28 @@ int CTesterBase::StartTest(void)
 	boost::posix_time::ptime ts_cur = boost::posix_time::microsec_clock::local_time();
 	INT64 ts = (ts_cur - m_ts_start).total_seconds();
 	PrintProgress(ts);
+
+	if (m_mount)
+	{
+		m_fs->Unmount();
+	}
+
 	wprintf_s(L"Test completed\n");
+
+
 	return err;
 }
 
 
 
-bool CTesterBase::PrintProgress(INT64 ts)
-{
-	bool health_valid = false;
-	DokanHealthInfo health;
-	memset(&health, 0, sizeof(DokanHealthInfo));
-	if (m_fsinfo_file)
-	{
-		DWORD read = 0;
-		BOOL br = ReadFile(m_fsinfo_file, &health, sizeof(DokanHealthInfo), &read, nullptr);
-		if (br && read > 0) health_valid = true;
-	}
-
-	HANDLE handle = GetCurrentProcess();
-	PROCESS_MEMORY_COUNTERS_EX pmc = { 0 };
-	GetProcessMemoryInfo(handle, (PROCESS_MEMORY_COUNTERS*)&pmc, sizeof(pmc));
-
-	//IVirtualDisk::HEALTH_INFO hinfo;
-	//bool br1 = m_dev->GetHealthInfo(hinfo);
-	//if (!br1) LOG_ERROR(L"failed on getting disk health info");
 
 
-	ULONGLONG free_bytes = 0, total_bytes = 0, total_free_bytes = 0;
-	//bool br2 = m_fs->DokanGetDiskSpace(free_bytes, total_bytes, total_free_bytes);
-	//if (!br2) LOG_ERROR(L"failed on getting fs space");
-
-	float usage = (float)(total_bytes - free_bytes) / total_bytes * 100;
-	//wprintf_s(L"ts=%llds, op=%d, fs_usage=%.1f%%, disk_usage=%d, write=%d, mem=%.1fMB \n",
-	//	ts, m_op_sn, usage, /*m_total_block - hinfo.empty_block*/0, /*hinfo.media_write*/0,
-	//	(float)pmc.WorkingSetSize / 1024.0);
-
-	if (health_valid)
-	{
-		wprintf_s(L"ts=%llds, op=%d, total_blocks=%lld, host_write=%lld(blk), media_write=%lld(blk), mem=%.1fMB \n",
-			ts, m_op_sn, health.m_total_block_nr, health.m_block_host_write, health.m_block_disk_write, (float)pmc.WorkingSetSize / 1024.0);
-	}
-	else
-	{
-		wprintf_s(L"ts=%llds, op=%d, mem=%.1fMB \n", ts, m_op_sn, (float)pmc.WorkingSetSize / 1024.0);
-
-	}
-	return true;
-}
 
 
-DWORD CTesterBase::Monitor(void)
-{
-	wprintf_s(L"start monitoring, message=%d, timeout=%d\n", m_message_interval, m_timeout);
-	boost::posix_time::ptime ts_update = boost::posix_time::microsec_clock::local_time();;
-
-	while (InterlockedAdd(&m_running, 0))
-	{
-		DWORD ir = WaitForSingleObject(m_monitor_event, m_timeout);
-		boost::posix_time::ptime ts_cur = boost::posix_time::microsec_clock::local_time();
-		INT64 ts = (ts_cur - m_ts_start).total_seconds();
-		if ((ts_cur - ts_update).total_seconds() > m_message_interval)
-		{	// update lot
-			// get memory info
-			bool br = PrintProgress(ts);
-			if (!br) THROW_ERROR(ERR_USER, L"failed on getting space or health");
-			ts_update = ts_cur;
-		}
-		if (ir == WAIT_TIMEOUT)
-		{
-			wprintf_s(L"ts=%llds, test failed: timeout.\n", ts);
-			break;
-		}
-	}
-	if (m_fsinfo_file) CloseHandle(m_fsinfo_file);
-	wprintf_s(L"finished testing\n");
-
-	return 0;
-}
-
-void CTesterBase::SetLogFile(const std::wstring& log_fn)
-{
-	if (!log_fn.empty())
-	{
-		m_log_file = _wfsopen(log_fn.c_str(), L"w+", _SH_DENYNO);
-		if (!m_log_file) THROW_ERROR(ERR_USER, L"failed on opening log file %s", log_fn.c_str());
-	}
-
-}
+//
+//TRACE_ENTRY::TRACE_ENTRY(const TRACE_ENTRY& entry)
+//{
+//	ts = entry.ts;
+//	op_code = entry.op_code;
+//	thread_id = entry.thread_id
+//}

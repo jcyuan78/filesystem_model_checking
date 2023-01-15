@@ -1,42 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma once
 
-#include "full_tester.h"
-
-class TRACE_ENTRY
-{
-public:
-	enum OP_CODE
-	{
-		OP_NOP,
-		OP_THREAD_CREATE, OP_THREAD_EXIT,
-		OP_FILE_CREATE, OP_FILE_CLOSE, OP_FILE_READ, OP_FILE_WRITE, OP_FILE_FLUSH,
-		OP_CREATE_DIR, OP_FILE_OPEN,   OP_FILE_DELETE, OP_FILE_OVERWRITE,
-	};
-
-public:
-	UINT64 ts;
-	OP_CODE code;
-	DWORD thread_id;
-	DWORD fid;
-	std::wstring file_path;
-	UINT64 duration =0;	// 操作所用的时间
-	union {
-		struct {	// for thread
-			DWORD new_thread_id;
-		};
-		struct {	// for create
-			//OP_CODE mode;
-			bool is_dir;
-			bool is_async;
-		};
-		struct {	// for read write
-			size_t offset;
-			size_t length;
-		};
-	};
-};
-
+#include "tester_base.h"
 class CTraceTester;
 
 class TRACE_INFO
@@ -49,8 +14,7 @@ public:
 	DWORD m_tid;		// trace id，不是thread id
 	size_t m_max_buf_size = 0;
 	BYTE* m_buf = nullptr;
-	//HANDLE* m_files = nullptr;
-	//UINT* m_open_ref = nullptr;
+	size_t m_trace_nr=0;		// trace entry的数量
 };
 
 #define MAX_THREAD 10
@@ -76,7 +40,7 @@ public:
 	UINT64			total_write = 0;
 	bool			is_dir;
 	UINT			child_nr = 0;
-	HANDLE			file_handle[MAX_THREAD];
+	IFileInfo *		file_handle[MAX_THREAD];
 	UINT			open_ref[MAX_THREAD];	//文件打开计数
 	DWORD			revision = 1;	// 写入的版本号
 	SRWLOCK			file_lock;		// 文件锁
@@ -85,7 +49,7 @@ public:
 class CTraceTester : public CTesterBase
 {
 public:
-	CTraceTester(void);
+	CTraceTester(IFileSystem* fs, IVirtualDisk* disk);
 	virtual ~CTraceTester(void);
 protected:
 	virtual void Config(const boost::property_tree::wptree& pt, const std::wstring& root);
@@ -97,11 +61,11 @@ protected:
 protected:
 	void CalculateFileAccess(TRACE_ENTRY& op);
 	DWORD NewFileInfo(TRACE_ENTRY& op);
-	UINT64 WriteTest(const FILE_ACCESS_INFO& info, HANDLE file, BYTE * buf, size_t start, size_t len);
-	UINT64 ReadTest(const FILE_ACCESS_INFO& info, HANDLE file, BYTE * buf, size_t start, size_t len);
-	void FillFile(HANDLE file, const FILE_ACCESS_INFO & info, size_t start, size_t len);
-	void ReserveFile(HANDLE file, const FILE_ACCESS_INFO& info);
+	UINT64 WriteTest(const FILE_ACCESS_INFO& info, IFileInfo* file, BYTE * buf, size_t start, size_t len);
+	UINT64 ReadTest(const FILE_ACCESS_INFO& info, IFileInfo * file, BYTE * buf, size_t start, size_t len);
+	void ReserveFile(IFileInfo* file, const FILE_ACCESS_INFO& info);
 	DWORD FindOrNewFile(const std::wstring& path, bool is_dir);
+	void PrepareFiles(void);
 
 	// 从fn读取trace, 添加到tid中。
 	void LoadTrace(const std::wstring& fn, UINT tid);
@@ -115,7 +79,8 @@ protected:
 
 
 protected:
-	static TRACE_ENTRY::OP_CODE StringToOpCode(const std::wstring& str);
+	static OP_CODE StringToOpCode(const std::wstring& str);
+	static OP_CODE StringToOpCode(const char* str);
 
 protected:
 	std::vector<TRACE_INFO> m_traces;
@@ -125,4 +90,7 @@ protected:
 	std::vector<FILE_ACCESS_INFO> m_file_access;
 
 	LONGLONG m_total_write_time = 0, m_total_read_time;
+
+	static const size_t m_file_buf_size = 128 * 1024 * 1024;
+	char* m_file_buf = nullptr;
 };

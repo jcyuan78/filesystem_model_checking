@@ -2,11 +2,11 @@
 #include "pch.h"
 #include <jcapp.h>
 
-#include "../include/full_tester.h"
+#include <dokanfs-lib.h>
+#include <lib-fstester.h>
 #include "../include/multithread-tester.h"
-#include "../include/trace_tester.h"
-
 #include <boost/property_tree/json_parser.hpp>
+#include <boost/property_tree/xml_parser.hpp>
 
 #ifdef _DEBUG
 #include <vld.h>
@@ -82,23 +82,25 @@ void CFsTesterApp::CleanUp(void)
 int CFsTesterApp::Run(void)
 {
 	CTesterBase *tester= nullptr;
+	jcvos::auto_interface<CActualFileSystem> fs(jcvos::CDynamicInstance<CActualFileSystem>::Create());
+	fs->SetFileSystem(m_root);
 
 	// loading config
 	std::string str_config_fn;
 	jcvos::UnicodeToUtf8(str_config_fn, m_config_file);
 	boost::property_tree::wptree pt_config;
-	boost::property_tree::read_json(str_config_fn, pt_config);
+	if (str_config_fn.rfind(".xml") != std::string::npos) { boost::property_tree::read_xml(str_config_fn, pt_config); }
+	else if (str_config_fn.rfind(".json")!=std::string::npos) { boost::property_tree::read_json(str_config_fn, pt_config); }
+
 	const boost::property_tree::wptree& test_config = pt_config.get_child(L"test");
 
-	const std::wstring& test_type = test_config.get<std::wstring>(L"type", L"");
-	if (test_type == L"full") { tester = new CFullTester; }
-	else if (test_type == L"full_multi_thread") { tester = new CMultiThreadTest; }
-	else if (test_type == L"trace_test") { tester = new CTraceTester; }
+	const std::wstring& test_type = test_config.get<std::wstring>(L"mode", L"");
+	if		(test_type == L"full") { tester = new CFullTester(fs, nullptr); }
+	else if (test_type == L"full_multi_thread") { tester = new CMultiThreadTest(fs, nullptr); }
+	else if (test_type == L"trace_test") { tester = new CTraceTester(fs, nullptr); }
+	else if (test_type == L"performance") { tester = new CPerformanceTester(fs, nullptr); }
 
-	if (tester == nullptr)
-	{
-		THROW_ERROR(ERR_MEM, L"memory full or unknown test type=%s", test_type.c_str());
-	}
+	if (tester == nullptr) {THROW_ERROR(ERR_MEM, L"memory full or unknown test type=%s", test_type.c_str());}
 
 	// prepare for test
 	tester->Config(test_config, m_root);
@@ -107,5 +109,7 @@ int CFsTesterApp::Run(void)
 	int err = tester->StartTest();
 
 	delete tester;
+
+//	RELEASE(fs);
 	return err;
 }

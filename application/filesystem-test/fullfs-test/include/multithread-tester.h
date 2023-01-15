@@ -1,6 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma once
-#include "full_tester.h"
+//#include "full_tester.h"
+#include <lib-fstester.h>
 #include <list>
 
 class CMultiThreadTest;
@@ -10,13 +11,15 @@ class OperateRequest
 public:
 	CMultiThreadTest* m_tester;
 	CTestState* m_state;
-	FS_OP* m_op;
+	TRACE_ENTRY* m_op;
 };
 
 
 
 class CMultiThreadTest :public CFullTester
 {
+public:
+	CMultiThreadTest(IFileSystem* fs, IVirtualDisk* disk) : CFullTester(fs, disk) {}
 public: 
 	virtual int PrepareTest(void);
 	virtual int RunTest(void);
