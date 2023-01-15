@@ -698,6 +698,8 @@ void Cf2fsDirInode::f2fs_delete_inline_entry(f2fs_dir_entry* dentry, page* ppage
 }
 
 
+
+
 //bool f2fs_empty_inline_dir(struct inode *dir)
 bool Cf2fsDirInode::f2fs_empty_inline_dir(void) const
 {

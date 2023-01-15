@@ -1,6 +1,6 @@
-#include "pch.h"
-#include "f2fs-inode.h"
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//#include "pch.h"
+//#include "f2fs-inode.h"
 #include "../pch.h"
 // SPDX-License-Identifier: GPL-2.0
 /*
@@ -10,12 +10,6 @@
  *             http://www.samsung.com/
  */
 
- //#include <linux/fs.h>
- //#include <linux/f2fs_fs.h>
- //#include <linux/buffer_head.h>
- //#include <linux/backing-dev.h>
- //#include <linux/writeback.h>
- //
 #include "../../include/f2fs.h"
 #include "node.h"
 #include "segment.h"
@@ -89,7 +83,8 @@ f2fs_inode_info::f2fs_inode_info(f2fs_sb_info* sbi, UINT32 ino, address_space * 
 
 f2fs_inode_info::~f2fs_inode_info(void)
 {
-	delete i_mapping;
+//	delete i_mapping;
+	if (i_ino == m_sbi->F2FS_NODE_INO() || i_ino == m_sbi->F2FS_META_INO()) delete i_mapping;
 	i_mapping = NULL;
 	DeleteCriticalSection(&i_lock);
 	DeleteCriticalSection(&m_alias_lock);
@@ -156,7 +151,9 @@ void f2fs_inode_info::SetFileAttribute(fmode_t mode_add, fmode_t mode_sub)
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 Cf2fsDirInode::Cf2fsDirInode(f2fs_sb_info* sbi, UINT ino) 
-	: f2fs_inode_info(sbi, ino, new Cf2fsDataMapping(this, sbi->GetPageManager()))
+	: f2fs_inode_info(sbi, ino, &m_data_mapping)
+	, m_data_mapping(this, sbi->GetPageManager())
+	//: f2fs_inode_info(sbi, ino, new Cf2fsDataMapping(this, sbi->GetPageManager()))
 {
 	LOG_TRACK(L"inode", L" addr=%p, - construct dir inode", this);
 	JCASSERT(i_mapping);
@@ -167,7 +164,9 @@ Cf2fsDirInode::Cf2fsDirInode(f2fs_sb_info* sbi, UINT ino)
 }
 
 Cf2fsFileNode::Cf2fsFileNode(f2fs_sb_info* sbi, UINT ino) 
-	: f2fs_inode_info(sbi, ino, new Cf2fsDataMapping(this, sbi->GetPageManager()))
+	//: f2fs_inode_info(sbi, ino, new Cf2fsDataMapping(this, sbi->GetPageManager()))
+	:f2fs_inode_info(sbi, ino, &m_data_mapping)
+	,m_data_mapping(this, sbi->GetPageManager())
 {
 //	i_mapping = static_cast<address_space*>(new Cf2fsDataMapping(this));
 	LOG_TRACK(L"inode", L" addr=%p, - construct file inode", this);
@@ -176,7 +175,9 @@ Cf2fsFileNode::Cf2fsFileNode(f2fs_sb_info* sbi, UINT ino)
 }
 
 Cf2fsSymbLink::Cf2fsSymbLink(f2fs_sb_info* sbi, UINT ino) 
-	: f2fs_inode_info(sbi, ino, new Cf2fsDataMapping(this, sbi->GetPageManager()))
+	//: f2fs_inode_info(sbi, ino, new Cf2fsDataMapping(this, sbi->GetPageManager()))
+	:f2fs_inode_info(sbi, ino, &m_data_mapping)
+	,m_data_mapping(this, sbi->GetPageManager())
 {
 	LOG_TRACK(L"inode", L" addr=%p, - construct symblink inode", this);
 	JCASSERT(i_mapping);

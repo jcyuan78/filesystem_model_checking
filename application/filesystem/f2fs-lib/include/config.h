@@ -26,6 +26,8 @@ template <typename T, size_t n> inline size_t ARRAY_SIZE(const T(&t)[n]) { retur
 #define READ 0
 #define WRITE 1
 
+// 一次读写的最大block数量
+#define MAX_IO_BLOCKS	64
 
 
 

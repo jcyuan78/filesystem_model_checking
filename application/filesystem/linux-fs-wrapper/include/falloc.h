@@ -33,7 +33,7 @@
  *
  * Different filesystems may implement different limitations on the granularity of the operation. Most will limit operations to filesystem block size boundaries, but this boundary may be larger or smaller depending on the filesystem and/or the configuration of the filesystem or file.
  *
- * This flag can only be used with allocate-mode fallocate, which is to say that it cannot be used with the punch, zero, collapse, or insert range modes. */
+ * This flag can only be used with alloc_obj-mode fallocate, which is to say that it cannot be used with the punch, zero, collapse, or insert range modes. */
 #define FALLOC_FL_UNSHARE_RANGE		0x40
 
 #endif /* _UAPI_FALLOC_H_ */

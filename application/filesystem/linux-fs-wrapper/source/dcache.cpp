@@ -9,41 +9,18 @@
  * with heavy changes by Linus Torvalds
  */
 
-/*
- * Notes on the allocation strategy:
+/* Notes on the allocation strategy:
  *
- * The dcache is a master of the icache - whenever a dcache entry
- * exists, the inode will always exist. "iput()" is done either when
- * the dcache entry is deleted or garbage collected.
- */
+ * The dcache is a master of the icache - whenever a dcache entry exists, the inode will always exist. "iput()" is done either when the dcache entry is deleted or garbage collected. */
 
 #include <list>
 #include "../include/linux_comm.h"
 #include "../include/fs.h"
 #include "../include/dcache.h"
-
-//#include <linux/ratelimit.h>
-//#include <linux/string.h>
-//#include <linux/mm.h>
-//#include <linux/fs.h>
-//#include <linux/fscrypt.h>
-//#include <linux/fsnotify.h>
-//#include <linux/slab.h>
-//#include <linux/init.h>
-//#include <linux/hash.h>
-//#include <linux/cache.h>
-//#include <linux/export.h>
-//#include <linux/security.h>
-//#include <linux/seqlock.h>
-//#include <linux/memblock.h>
-//#include <linux/bit_spinlock.h>
-//#include <linux/rculist_bl.h>
-//#include <linux/list_lru.h>
 #include "../include/list.h"
 #include "../include/list_bl.h"
-//#include "internal.h"
-//#include "mount.h"
-LOCAL_LOGGER_ENABLE(L"f2fs.dcache", LOGGER_LEVEL_DEBUGINFO);
+
+LOCAL_LOGGER_ENABLE(L"f2fs.dcache", LOGGER_LEVEL_NOTICE);
 
 /*
  * Usage:
@@ -1695,7 +1672,7 @@ void d_invalidate(dentry *ddentry)
 }
 //EXPORT_SYMBOL(d_invalidate);
 
-/* __d_alloc	-	allocate a dcache entry
+/* __d_alloc	-	alloc_obj a dcache entry
  * @sb: filesystem it will belong to
  * @name: qstr of the name
  *
@@ -1787,15 +1764,14 @@ void d_invalidate(dentry *ddentry)
 
 
 /**
- * d_alloc	-	allocate a dcache entry
- * @parent: parent of entry to allocate
+ * d_alloc	-	alloc_obj a dcache entry
+ * @parent: parent of entry to alloc_obj
  * @name: qstr of the name
  *
  * Allocates a dentry. It returns %NULL if there is insufficient memory available. On a success the dentry is returned. The name passed in is copied and the copy passed in may be reused after this call. */
 dentry *d_alloc(dentry * parent, const qstr &name)
 {
 	dentry *entry = parent->m_manager->__d_alloc(parent->d_sb, &name);
-//	dentry *entry = __d_alloc(parent->d_sb, &name);
 	if (!entry) return NULL;
 	spin_lock(&parent->d_lock);
 	/* don't need child lock because it is not subject to concurrency here */
@@ -1807,11 +1783,6 @@ dentry *d_alloc(dentry * parent, const qstr &name)
 	return entry;
 }
 //EXPORT_SYMBOL(d_alloc);
-
-//struct dentry *d_alloc_anon(struct super_block *sb)
-//{
-//	return __d_alloc(sb, NULL);
-//}
 
 #if 0
 
@@ -1827,7 +1798,7 @@ struct dentry *d_alloc_cursor(struct dentry * parent)
 }
 
 /**
- * d_alloc_pseudo - allocate a dentry (for lookup-less filesystems)
+ * d_alloc_pseudo - alloc_obj a dentry (for lookup-less filesystems)
  * @sb: the superblock
  * @name: qstr of the name
  *
@@ -2104,8 +2075,8 @@ out_iput:
 }
 
 /**
- * d_obtain_alias - find or allocate a DISCONNECTED dentry for a given inode
- * @inode: inode to allocate the dentry for
+ * d_obtain_alias - find or alloc_obj a DISCONNECTED dentry for a given inode
+ * @inode: inode to alloc_obj the dentry for
  *
  * Obtain a dentry for an inode resulting from NFS filehandle conversion or
  * similar open by handle operations.  The returned dentry may be anonymous,
@@ -2128,8 +2099,8 @@ struct dentry *d_obtain_alias(struct inode *inode)
 EXPORT_SYMBOL(d_obtain_alias);
 
 /**
- * d_obtain_root - find or allocate a dentry for a given inode
- * @inode: inode to allocate the dentry for
+ * d_obtain_root - find or alloc_obj a dentry for a given inode
+ * @inode: inode to alloc_obj the dentry for
  *
  * Obtain an IS_ROOT dentry for the root of a filesystem.
  *
@@ -2149,7 +2120,7 @@ struct dentry *d_obtain_root(struct inode *inode)
 EXPORT_SYMBOL(d_obtain_root);
 
 /**
- * d_add_ci - lookup or allocate new dentry with case-exact name
+ * d_add_ci - lookup or alloc_obj new dentry with case-exact name
  * @inode:  the inode case-insensitive lookup has found
  * @dentry: the negative dentry that was passed to the parent's lookup func
  * @name:   the case-exact name to be associated with the returned dentry
@@ -2161,7 +2132,7 @@ EXPORT_SYMBOL(d_obtain_root);
  * For a case-insensitive lookup match and if the case-exact dentry
  * already exists in the dcache, use it and return it.
  *
- * If no entry exists with the exact case name, allocate new dentry with
+ * If no entry exists with the exact case name, alloc_obj new dentry with
  * the exact case, and return the spliced entry.
  */
 struct dentry *d_add_ci(struct dentry *dentry, struct inode *inode,
@@ -3269,10 +3240,11 @@ void __init vfs_caches_init(void)
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // ==== Dentry Manager ====
-CDentryManager::CDentryManager(size_t init_size) : m_buf(nullptr)
+CDentryManager::CDentryManager(size_t init_size) : Allocator(init_size), m_buf(nullptr)
 {
-	LOG_DEBUG(L"dentry buf size=%lld", init_size);
-	InitializeCriticalSection(&m_list_lock);
+	LOG_DEBUG_(1,L"dentry buf size=%lld", init_size);
+	//InitializeCriticalSection(&m_list_lock);
+/*
 #if DENTRY_BUF_TYPE == 1
 	m_buf_size = init_size;
 	m_buf = new dentry[m_buf_size];
@@ -3297,13 +3269,15 @@ CDentryManager::CDentryManager(size_t init_size) : m_buf(nullptr)
 #else
 	m_buf_size = 0;
 #endif
+*/
 }
 
 CDentryManager::~CDentryManager(void)
 {
 	LOG_STACK_TRACE();
+/*
 #if DENTRY_BUF_TYPE == 1
-	LOG_DEBUG(L"release dentry buffer, free size=%d, allocated size=%d", m_free_list.size(), m_buf_size);
+	LOG_DEBUG_(1,L"release dentry buffer, free size=%d, allocated size=%d", m_free_list.size(), m_buf_size);
 	if (m_free_list.size() < m_buf_size)
 	{
 		LOG_ERROR(L"[err] dentry memory leak happened, allocated=%d, reclaimed=%d", m_buf_size, m_free_list.size());
@@ -3318,11 +3292,11 @@ CDentryManager::~CDentryManager(void)
 		{
 			if (m_buf[ii].m_manager != nullptr)
 			{
-				LOG_DEBUG(L"dentry: index=%d, name=%S, inode=%d, ref=%d", ii, m_buf[ii].d_name.name.c_str(),
+				LOG_DEBUG_(1,L"dentry: index=%d, name=%S, inode=%d, ref=%d", ii, m_buf[ii].d_name.name.c_str(),
 					m_buf[ii].d_inode ? m_buf[ii].d_inode->i_ino : (-1), m_buf[ii].d_lockref.count);
 			}
 		}
-		LOG_DEBUG(L"dump dentry leak completed");
+		LOG_DEBUG_(1,L"dump dentry leak completed");
 #endif
 	}
 	delete[] m_buf;
@@ -3333,16 +3307,17 @@ CDentryManager::~CDentryManager(void)
 #else
 
 #endif
-	DeleteCriticalSection(&m_list_lock);
+*/
+	//DeleteCriticalSection(&m_list_lock);
 }
 
 dentry* CDentryManager::__d_alloc(super_block* sb, const qstr* name)
 {
-	dentry* ptr_dentry;
+	//dentry* ptr_dentry;
 	char* dname;
 	int err;
 
-	//ptr_dentry = kmem_cache_alloc(dentry_cache, GFP_KERNEL);
+/*
 #if DENTRY_BUF_TYPE==1
 	// 从free队列中查找
 	if (m_free_list.empty()) THROW_ERROR(ERR_MEM, L"no enough buffer for dentry");
@@ -3364,20 +3339,17 @@ dentry* CDentryManager::__d_alloc(super_block* sb, const qstr* name)
 	m_head++;
 	if (m_head >= m_buf_size) m_head = 0;
 	m_used++;
-//	LOG_DEBUG(L"dentry buf, used=%lld, empty=%lld", m_used, m_buf_size - m_used);
 	LOG_TRACK(L"dentry", L"alloc: dentry=%p, index=%lld, head=%lld, tail=%lld ", ptr_dentry, ptr_dentry - m_buf, m_head, m_tail);
 	unlock();
 	JCASSERT(ptr_dentry);
 #else
 
 #endif
+*/
+	dentry * ptr_dentry = alloc_obj();
 	JCASSERT(ptr_dentry);
 
 	ptr_dentry->m_manager = this;
-
-	//ptr_dentry = new dentry;
-	//if (!ptr_dentry)	return NULL;
-
 	/* We guarantee that the inline name is always NUL-terminated. This way the memcpy() done by the name switching in rename will still always have a NUL at the end, even if we might be overwriting an internal NUL character */
 	ptr_dentry->d_iname[DNAME_INLINE_LEN - 1] = 0;
 	if (unlikely(!name))
@@ -3429,6 +3401,8 @@ dentry* CDentryManager::__d_alloc(super_block* sb, const qstr* name)
 		if (err)
 		{	// 回收dentry
 			JCASSERT((UINT64)(ptr_dentry - m_buf) < m_buf_size);
+			free_obj(ptr_dentry);
+/*
 #if DENTRY_BUF_TYPE == 1
 			lock();
 			m_free_list.push_back(ptr_dentry);
@@ -3451,6 +3425,7 @@ dentry* CDentryManager::__d_alloc(super_block* sb, const qstr* name)
 #else
 
 #endif
+*/
 			return NULL;
 		}
 	}
@@ -3483,6 +3458,7 @@ dentry* CDentryManager::d_make_root(inode* root_inode)
 void CDentryManager::free(dentry* ddentry)
 {
 	JCASSERT((UINT64)(ddentry - m_buf) < m_buf_size);
+/*
 #if DENTRY_BUF_TYPE == 1
 	lock();
 	m_free_list.push_back(ddentry);
@@ -3505,6 +3481,8 @@ void CDentryManager::free(dentry* ddentry)
 #else
 
 #endif
+*/
+	free_obj(ddentry);
 }
 
 #ifdef DEBUG_DENTRY

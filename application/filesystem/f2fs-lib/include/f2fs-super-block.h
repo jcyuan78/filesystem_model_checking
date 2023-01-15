@@ -36,8 +36,9 @@ struct MOUNT_OPTION
 {
 	size_t m_page_cache_num;		// page cache大小，以page数单位，必须是16的倍数
 	size_t m_dentry_cache_num;		// dentry cache的数量
-
 };
+
+class CIoCompleteCtrl;
 
 
 
@@ -78,7 +79,6 @@ public:
 
 public:
 	virtual inode*  alloc_inode(super_block* sb) { return NULL; }
-//	virtual void	destroy_inode(inode*) {}
 	virtual void	free_inode(inode*);
 
 	virtual void	dirty_inode(inode *, int flags);
@@ -92,13 +92,11 @@ public:
 	virtual void	evict_inode(inode*);
 	virtual void	put_super(void);
 	virtual int		sync_fs(int wait);
-//	virtual int		freeze_super(struct super_block*) { return 0; };
 	virtual int		freeze_fs(struct super_block*) { return 0; };
 	virtual int		thaw_super(struct super_block*) { return 0; };
 	virtual int		unfreeze_fs(struct super_block*) { return 0; };
 	virtual int		statfs(struct dentry*, struct kstatfs*) { return 0; };
 	virtual int		remount_fs(struct super_block*, int*, char*) { return 0; };
-//	virtual void	umount_begin(struct super_block*) {};
 
 	virtual int		show_options(struct seq_file*, struct dentry*) { return 0; };
 //	virtual int		show_devname(struct seq_file*, struct dentry*) { return 0; };
@@ -225,6 +223,7 @@ public:
 	/* valid inode count */
 	percpu_counter total_valid_inode_count;
 	f2fs_mount_info mount_opt;	/* mount options */
+	inline bool test_opt_(UINT option) { return mount_opt.opt & option; }
 
 	/* for cleaning operations */
 	rw_semaphore gc_lock;			/* semaphore for GC, avoid race between GC and GC or CP */
@@ -370,6 +369,9 @@ protected:
 	CDentryManager m_dentry_buf;
 	std::list<dentry*> m_dentry_lru;
 
+//// ==== io ==========================================================================================================
+	CIoCompleteCtrl* m_io_control = nullptr;
+
 // inline fucntions
 public:
 	/* 0, 1(node nid), 2(meta nid) are reserved node id */
@@ -389,7 +391,7 @@ public:
 
 	void SetDevice(IVirtualDisk* dev);
 	// 用于mount
-	int f2fs_fill_super(const std::wstring& str_option, int silent);
+	int f2fs_fill_super(const boost::property_tree::wptree& option, int silent);
 	// 用于unmount
 	void kill_f2fs_super(void);
 	int inc_valid_node_count(f2fs_inode_info* inode, bool is_inode);
@@ -404,6 +406,10 @@ protected:
 	int read_raw_super_block(f2fs_super_block*& raw_super, int* valid_super_block, int* recovery);
 	int sanity_check_raw_super(CBufferHead* bh);
 	bool sanity_check_area_boundary(CBufferHead* bh);
+
+	void default_options(void);
+
+	int parse_mount_options(const boost::property_tree::wptree& options, bool is_remount);
 
 
 // ==== gc.cpp ====
@@ -429,6 +435,8 @@ protected:
 	int f2fs_recover_orphan_inodes(void);
 	int recover_orphan_inode(nid_t ino);
 	void write_orphan_inodes(block_t start_blk);
+	int block_operations(void);
+	void unblock_operations(void);
 
 	page* validate_checkpoint(block_t cp_addr, unsigned long long* version);
 	int get_checkpoint_version(block_t cp_addr, f2fs_checkpoint** cp_block, page** cp_page, unsigned long long* version);
@@ -478,8 +486,11 @@ protected:
 	friend void set_prefree_as_free_segments(f2fs_sb_info* sbi);
 
 	inline int __f2fs_get_curseg(unsigned int segno);
+	void __refresh_next_blkoff(curseg_info* seg);
+
 
 public:
+	void f2fs_balance_fs_bg(bool from_bg);
 	inline free_segmap_info* FREE_I(void) {	return (sm_info->free_info); }
 
 	int f2fs_build_segment_manager(void);
@@ -541,6 +552,11 @@ public:
 	void f2fs_do_replace_block(struct f2fs_summary* sum, block_t old_blkaddr, block_t new_blkaddr,
 		bool recover_curseg, bool recover_newaddr, bool from_gc);
 
+	void f2fs_allocate_data_block(page* page, block_t old_blkaddr, block_t* new_blkaddr, f2fs_summary* sum, int type, f2fs_io_info* fio);
+	unsigned int f2fs_usable_blks_in_seg(unsigned int segno);
+
+	bool __has_curseg_space(curseg_info* curseg);
+	void new_curseg(int type, bool new_sec);
 
 // ==== data.cpp ====
 public:
@@ -561,6 +577,8 @@ public:
 	inline void f2fs_submit_bio(bio* bio, enum page_type type) {	__submit_bio(bio, type); }
 	inline void __submit_bio(bio* bio, enum page_type type);
 //	void submit_bio(bio* bb);
+	int f2fs_submit_page_read(f2fs_inode_info* inode, page* page, block_t blkaddr, int op_flags, bool for_write);
+	int __blkdev_issue_discard(block_device*, sector_t lba, sector_t len, gfp_t gfp_mask, int flag, bio**);
 
 protected:
 	bool io_is_mergeable(bio* bio, f2fs_bio_info* io, f2fs_io_info* fio, block_t last_blkaddr, block_t cur_blkaddr);
@@ -570,9 +588,8 @@ protected:
 	void __f2fs_submit_merged_write(enum page_type type, enum temp_type temp);
 
 	void submit_sync_io(bio* bb);
-	void submit_async_io(bio* bb);
-	static void WriteCompletionRoutine(DWORD err_code, DWORD written, LPOVERLAPPED overlapped);
-	static void ReadCompletionRoutine(DWORD err_code, DWORD written, LPOVERLAPPED overlapped);
+	//void submit_async_io(bio* bb);
+	bio* f2fs_grab_read_bio(f2fs_inode_info* inode, block_t blkaddr, unsigned nr_pages, unsigned op_flag, pgoff_t first_idx, bool for_write);
 
 	friend int discard_cmd_control::__submit_discard_cmd(discard_policy* dpolicy, discard_cmd* dc, unsigned int* issued);
 	friend void __submit_merged_write_cond(f2fs_sb_info* sbi, struct inode* inode, struct page* page, nid_t ino, enum page_type type, bool force);
@@ -589,6 +606,7 @@ public:
 	bool f2fs_in_warm_node_list(page*);
 	int read_node_page(page* page, int op_flags);
 	void set_node_addr(node_info* ni, block_t new_blkaddr, bool fsync_done);
+	page* f2fs_get_node_page_ra(page* parent, int start);
 
 
 protected:
@@ -745,7 +763,7 @@ public:
 	inline int __get_cp_reason(void)
 	{
 		int reason = CP_SYNC;
-		if (test_opt(this, FASTBOOT))				reason = CP_FASTBOOT;
+		if (test_opt_(F2FS_MOUNT_FASTBOOT))				reason = CP_FASTBOOT;
 		if (is_sbi_flag_set(SBI_IS_CLOSE))	reason = CP_UMOUNT;
 		return reason;
 	}
@@ -779,6 +797,11 @@ public:
 		return segs / segs_per_sec;
 	}
 	inline void f2fs_update_iostat(enum iostat_type type, unsigned long long io_bytes);
+	void f2fs_record_iostat(void);
+
+#ifdef _DEBUG
+	void DumpSegInfo(void);
+#endif
 
 };
 

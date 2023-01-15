@@ -49,81 +49,49 @@
 LOCAL_LOGGER_ENABLE(L"linux.writeback", LOGGER_LEVEL_DEBUGINFO);
 
 
-/*
- * Sleep at most 200ms at a time in balance_dirty_pages().
- */
+/* Sleep at most 200ms at a time in balance_dirty_pages(). */
 #define MAX_PAUSE		max(HZ/5, 1)
 
-/*
- * Try to keep balance_dirty_pages() call intervals higher than this many pages
- * by raising pause time to max_pause when falls below it.
- */
+/* Try to keep balance_dirty_pages() call intervals higher than this many pages by raising pause time to max_pause when falls below it. */
 #define DIRTY_POLL_THRESH	(128 >> (PAGE_SHIFT - 10))
 
-/*
- * Estimate write bandwidth at 200ms intervals.
- */
+/* Estimate write bandwidth at 200ms intervals. */
 #define BANDWIDTH_INTERVAL	max(HZ/5, 1)
 
 #define RATELIMIT_CALC_SHIFT	10
 
-/*
- * After a CPU has dirtied this many pages, balance_dirty_pages_ratelimited
- * will look to see if it needs to force writeback or throttling.
- */
+/* After a CPU has dirtied this many pages, balance_dirty_pages_ratelimited will look to see if it needs to force writeback or throttling. */
 static long ratelimit_pages = 32;
 
 /* The following parameters are exported via /proc/sys/vm */
 
-/*
- * Start background writeback (via writeback threads) at this percentage
- */
+/* Start background writeback (via writeback threads) at this percentage */
 int dirty_background_ratio = 10;
 
-/*
- * dirty_background_bytes starts at 0 (disabled) so that it is a function of
- * dirty_background_ratio * the amount of dirtyable memory
- */
+/* dirty_background_bytes starts at 0 (disabled) so that it is a function of dirty_background_ratio * the amount of dirtyable memory */
 unsigned long dirty_background_bytes;
 
-/*
- * free highmem will not be subtracted from the total free memory
- * for calculating free ratios if vm_highmem_is_dirtyable is true
- */
+/* free highmem will not be subtracted from the total free memory for calculating free ratios if vm_highmem_is_dirtyable is true */
 int vm_highmem_is_dirtyable;
 
-/*
- * The generator of dirty data starts writeback at this percentage
- */
+/* The generator of dirty data starts writeback at this percentage */
 int vm_dirty_ratio = 20;
 
-/*
- * vm_dirty_bytes starts at 0 (disabled) so that it is a function of
- * vm_dirty_ratio * the amount of dirtyable memory
- */
+/* vm_dirty_bytes starts at 0 (disabled) so that it is a function of vm_dirty_ratio * the amount of dirtyable memory */
 unsigned long vm_dirty_bytes;
 
-/*
- * The interval between `kupdate'-style writebacks
- */
+/* The interval between `kupdate'-style writebacks */
 unsigned int dirty_writeback_interval = 5 * 100; /* centiseconds */
 
 //EXPORT_SYMBOL_GPL(dirty_writeback_interval);
 
-/*
- * The longest time for which data is allowed to remain dirty
- */
+/* The longest time for which data is allowed to remain dirty */
 unsigned int dirty_expire_interval = 30 * 100; /* centiseconds */
 
-/*
- * Flag that makes the machine dump writes/reads and block dirtyings.
- */
+/* Flag that makes the machine dump writes/reads and block dirtyings. */
 int block_dump;
 
-/*
- * Flag that puts the machine in "laptop mode". Doubles as a timeout in jiffies:
- * a full sync is triggered after this time elapses without any disk activity.
- */
+/* Flag that puts the machine in "laptop mode". Doubles as a timeout in jiffies: a full sync is triggered after this time elapses without any disk activity. */
 int laptop_mode;
 
 //EXPORT_SYMBOL(laptop_mode);
@@ -154,11 +122,7 @@ struct dirty_throttle_control
 	unsigned long		pos_ratio;
 };
 
-/*
- * Length of period for aging writeout fractions of bdis. This is an
- * arbitrarily chosen number. The longer the period, the slower fractions will
- * reflect changes in current writeout rate.
- */
+/* Length of period for aging writeout fractions of bdis. This is an arbitrarily chosen number. The longer the period, the slower fractions will reflect changes in current writeout rate. */
 #define VM_COMPLETIONS_PERIOD_LEN (3*HZ)
 
 #ifdef CONFIG_CGROUP_WRITEBACK
@@ -223,8 +187,7 @@ static void wb_min_max_ratio(struct bdi_writeback *wb,
 
 #else	/* CONFIG_CGROUP_WRITEBACK */
 
-#define GDTC_INIT(__wb)		.wb = (__wb),                           \
-				.wb_completions = &(__wb)->completions
+#define GDTC_INIT(__wb)		.wb = (__wb), .wb_completions = &(__wb)->completions
 #define GDTC_INIT_NO_WB
 #define MDTC_INIT(__wb, __gdtc)
 
@@ -248,8 +211,7 @@ static struct fprop_local_percpu *wb_memcg_completions(struct bdi_writeback *wb)
 	return NULL;
 }
 
-static void wb_min_max_ratio(struct bdi_writeback *wb,
-			     unsigned long *minp, unsigned long *maxp)
+static void wb_min_max_ratio(struct bdi_writeback *wb, unsigned long *minp, unsigned long *maxp)
 {
 	*minp = wb->bdi->min_ratio;
 	*maxp = wb->bdi->max_ratio;
@@ -367,9 +329,7 @@ static unsigned long highmem_dirtyable_memory(unsigned long total)
 
 #endif
 
-/**
- * global_dirtyable_memory - number of globally dirtyable pages
- *
+/* global_dirtyable_memory - number of globally dirtyable pages
  * Return: the global number of pages potentially available for dirty page cache.  This is the base value for the global dirty limits. */
 static unsigned long global_dirtyable_memory(void)
 {
@@ -2064,6 +2024,7 @@ void tag_pages_for_writeback(address_space *mapping, pgoff_t start, pgoff_t end)
 	//	if (it->second->is_marked(PAGECACHE_TAG_DIRTY)) it->second->set_mark(PAGECACHE_TAG_TOWRITE);
 	//}
 	xas_unlock_irq(&xas);
+	LOG_DEBUG(L"tagged %d pages for writeback", tagged);
 }
 //EXPORT_SYMBOL(tag_pages_for_writeback);
 
@@ -2286,8 +2247,6 @@ int address_space::do_writepages(writeback_control *wbc)
 	if (wbc->nr_to_write <= 0) return 0;
 	while (1)
 	{
-		//if (mapping->a_ops->writepages)			ret = mapping->a_ops->writepages(mapping, wbc);
-		//else			ret = generic_writepages(mapping, wbc);
 		ret = write_pages(wbc);
 		if ((ret != -ENOMEM) || (wbc->sync_mode != WB_SYNC_ALL)) break;
 //		cond_resched();
@@ -2780,7 +2739,7 @@ EXPORT_SYMBOL(__test_set_page_writeback);
 
 int page::WaitOnPageUptodate(void)
 {
-	SleepEx(20, TRUE);
+//	SleepEx(20, TRUE);
 	while (!PageUptodate(this))
 	{
 		SleepEx(0, TRUE);
@@ -2795,9 +2754,9 @@ void wait_on_page_writeback(struct page *page)
 //	SleepEx(20, TRUE);
 	while (PageWriteback(page)) {
 		//trace_wait_on_page_writeback(page, page_mapping(page));
-//		wait_on_page_bit(page, PG_writeback);
-		SleepEx(0, TRUE);
-		wait_on_page_bit_killable(page, PG_writeback);		// 需要让IO调用complate函数
+		wait_on_page_bit(page, PG_writeback);
+//		SleepEx(0, TRUE);
+//		wait_on_page_bit_killable(page, PG_writeback);		// 需要让IO调用complate函数
 	}
 }
 //EXPORT_SYMBOL_GPL(wait_on_page_writeback);

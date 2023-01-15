@@ -13,24 +13,10 @@
 
 #include "../include/linux_comm.h"
 #include "../include/fs.h"
-
-//#include "../include/kernel.h"
-//#include "../include/backing-dev.h"
-//#include "../include/dax.h"
-//#include "../include/gfp.h"
-//#include "../include/mm.h"
-//#include "../include/swap.h"
-//#include "../include/export.h"
 #include "../include/pagemap.h"
-//#include "../include/highmem.h"
-//#include "../include/pagevec.h"
-//#include "../include/task_io_accounting_ops.h"
-//#include "../include/buffer_head.h"	/* grr. try_to_release_page, do_invalidatepage */
-//#include "../include/shmem_fs.h"
 #include "../include/cleancache.h"
-//#include "../include/rmap.h"
-//#include "internal.h"
-LOCAL_LOGGER_ENABLE(L"vfs.truncate", LOGGER_LEVEL_DEBUGINFO);
+
+LOCAL_LOGGER_ENABLE(L"vfs.truncate", LOGGER_LEVEL_NOTICE);
 
 /* Regular page slots are stabilized by the page lock even without the tree itself locked.  These unlocked entries need verification under the tree lock. */
 static inline void __clear_shadow_entry(address_space *mapping,	pgoff_t index, void *entry)

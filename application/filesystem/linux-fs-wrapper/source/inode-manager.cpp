@@ -149,7 +149,7 @@ int CInodeManager::insert_inode_locked(inode* iinode)
 //	struct hlist_head* head = inode_hashtable + hash(ino);
 	UINT32 hash_val = hash(ino);
 	inode_hash_list& hash_head = m_inode_hash[hash_val];
-	LOG_DEBUG(L"try to insert inode addr=%p, ino=%d, hash=%d", iinode, ino, hash_val);
+	LOG_DEBUG_(1,L"try to insert inode addr=%p, ino=%d, hash=%d", iinode, ino, hash_val);
 
 	while (1)
 	{
@@ -173,7 +173,7 @@ int CInodeManager::insert_inode_locked(inode* iinode)
 				}
 				// 找到对应的inode
 				old = *it;
-				LOG_DEBUG(L"found the same inode addr=%p, ino=%d", old, old->i_ino);
+				LOG_DEBUG_(1,L"found the same inode addr=%p, ino=%d", old, old->i_ino);
 				break;		
 			}
 			if (likely(!old))
@@ -237,7 +237,7 @@ repeat:
 		{
 			// 由于调用过程中 iinode 会被删除，
 			__wait_on_freeing_inode(iinode);
-			LOG_DEBUG(L"waiting for inode free completed, total inode=%d, state=%X", head.size(), iinode->i_state);
+			LOG_DEBUG_(1,L"waiting for inode free completed, total inode=%d, state=%X", head.size(), iinode->i_state);
 			goto repeat;
 		}
 		if (unlikely(iinode->i_state & I_CREATING))
@@ -295,7 +295,7 @@ int CInodeManager::inode_init_always(bool thp_support, inode* ptr_node)
 	ptr_node->i_wb_frn_history = 0;
 #endif
 
-//	if (security_inode_alloc(ptr_node))		THROW_ERROR(ERR_MEM, L"failed on allocate security inode");
+//	if (security_inode_alloc(ptr_node))		THROW_ERROR(ERR_MEM, L"failed on alloc_obj security inode");
 	spin_lock_init(&ptr_node->i_lock);
 	//lockdep_set_class(&ptr_node->i_lock, &m_sb->s_type->i_lock_key);
 
@@ -374,7 +374,7 @@ retry:
  *
  * Search for the inode specified by @ino in the inode cache and if present return it with an increased reference count. This is for file systems where the inode number is sufficient for unique identification of an inode.
  *
- * If the inode is not in cache, allocate a new inode and return it locked, hashed, and with the I_NEW flag set.  The file system gets to fill it in before unlocking it via unlock_new_inode(). */
+ * If the inode is not in cache, alloc_obj a new inode and return it locked, hashed, and with the I_NEW flag set.  The file system gets to fill it in before unlocking it via unlock_new_inode(). */
 //struct inode* iget_locked(struct super_block* sb, unsigned long ino)
 inode* CInodeManager::_iget_locked(bool thp_support, UINT ino)
 {
@@ -386,6 +386,7 @@ again:
 	spin_unlock(&m_inode_hash_lock);
 	if (iinode) 
 	{
+		TRACK_INODE(iinode, L"found from hash");
 		if (IS_ERR(iinode))		return NULL;
 		wait_on_inode(iinode);
 //		if (unlikely(inode_unhashed(iinode))) 

@@ -104,25 +104,22 @@ static inline void *bio_data(struct bio *bio)
 
 	return NULL;
 }
+#endif
 
 /**
  * bio_full - check if the bio is full
  * @bio:	bio to check
  * @len:	length of one segment to be added
  *
- * Return true if @bio is full and one segment with @len bytes can't be
- * added to the bio, otherwise return false
- */
+ * Return true if @bio is full and one segment with @len bytes can't be  added to the bio, otherwise return false */
 static inline bool bio_full(struct bio *bio, unsigned len)
 {
-	if (bio->bi_vcnt >= bio->bi_max_vecs)
-		return true;
-
-	if (bio->bi_iter.bi_size > UINT_MAX - len)
-		return true;
-
+	if (bio->bi_vcnt >= bio->bi_max_vecs)		return true;
+	if (bio->bi_iter.bi_size > UINT_MAX - len)		return true;
 	return false;
 }
+
+#if 0
 
 static inline bool bio_next_segment(const struct bio *bio,
 				    struct bvec_iter_all *iter)
@@ -246,21 +243,22 @@ static inline void bio_get(struct bio *bio)
 	atomic_inc(&bio->__bi_cnt);
 }
 
-#if 0 //TODO
 
 static inline void bio_cnt_set(struct bio *bio, unsigned int count)
 {
-	if (count != 1) {
+	if (count != 1) 
+	{
 		bio->bi_flags |= (1 << BIO_REFFED);
-		smp_mb();
+//		smp_mb();
 	}
 	atomic_set(&bio->__bi_cnt, count);
 }
 
-static inline bool bio_flagged(struct bio *bio, unsigned int bit)
+static inline bool bio_flagged(bio *bio, unsigned int bit)
 {
 	return (bio->bi_flags & (1U << bit)) != 0;
 }
+#if 0 //TODO
 
 static inline void bio_set_flag(struct bio *bio, unsigned int bit)
 {
@@ -390,7 +388,7 @@ extern struct bio *bio_split(struct bio *bio, int sectors,
  * @bio:	bio to split
  * @sectors:	number of sectors to split from the front of @bio
  * @gfp:	gfp mask
- * @bs:		bio set to allocate from
+ * @bs:		bio set to alloc_obj from
  *
  * Returns a bio representing the next @sectors of @bio - if the bio is smaller
  * than @sectors, returns the original bio unchanged.
@@ -469,16 +467,20 @@ extern void bio_init(struct bio *bio, struct bio_vec *table,
 extern void bio_uninit(struct bio *);
 extern void bio_reset(struct bio *);
 void bio_chain(struct bio *, struct bio *);
-
+#endif
 extern int bio_add_page(struct bio *, struct page *, unsigned int,unsigned int);
+#if 0
 extern int bio_add_pc_page(struct request_queue *, struct bio *, struct page *,
 			   unsigned int, unsigned int);
 int bio_add_zone_append_page(struct bio *bio, struct page *page,
 			     unsigned int len, unsigned int offset);
 bool __bio_try_merge_page(struct bio *bio, struct page *page,
 		unsigned int len, unsigned int off, bool *same_page);
-void __bio_add_page(struct bio *bio, struct page *page,
-		unsigned int len, unsigned int off);
+#endif
+
+//void __bio_add_page(bio *bio, page *page, unsigned int len, unsigned int off);
+
+#if 0
 int bio_iov_iter_get_pages(struct bio *bio, struct iov_iter *iter);
 void bio_release_pages(struct bio *bio, bool mark_dirty);
 extern void bio_set_pages_dirty(struct bio *bio);
@@ -697,8 +699,8 @@ static inline void bio_inc_remaining(struct bio *bio)
 
 /*
  * bio_set is used to allow other portions of the IO system to
- * allocate their own private memory pools for bio and iovec structures.
- * These memory pools in turn all allocate from the bio_slab
+ * alloc_obj their own private memory pools for bio and iovec structures.
+ * These memory pools in turn all alloc_obj from the bio_slab
  * and the bvec_slabs[].
  */
 #define BIO_POOL_SIZE 2
@@ -814,7 +816,7 @@ static inline int bio_integrity_add_page(struct bio *bio, struct page *page,
 
 /*
  * Mark a bio as polled. Note that for async polled IO, the caller must
- * expect -EWOULDBLOCK if we cannot allocate a request (or other resources).
+ * expect -EWOULDBLOCK if we cannot alloc_obj a request (or other resources).
  * We cannot block waiting for requests on polled IO, as those completions
  * must be found by the caller. This is different than IRQ driven IO, where
  * it's safe to wait for IO to complete.

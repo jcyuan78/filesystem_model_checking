@@ -126,8 +126,9 @@ static inline block_t free_segs_blk_count_zoned(struct f2fs_sb_info *sbi)
 
 	spin_lock(&free_i->segmap_lock);
 	for (UINT j = 0; j < sbi->MAIN_SEGS(); j++)
-		if (!__test_bit(j, free_i->free_segmap))
-			free_seg_blks += f2fs_usable_blks_in_seg(sbi, j);
+	{
+		if (!__test_bit(j, free_i->free_segmap))	free_seg_blks += sbi->f2fs_usable_blks_in_seg(j);
+	}
 	spin_unlock(&free_i->segmap_lock);
 
 	return free_seg_blks;

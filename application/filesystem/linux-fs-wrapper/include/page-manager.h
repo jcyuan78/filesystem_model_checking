@@ -35,6 +35,8 @@ protected:
 	inline void unlock(void) { LeaveCriticalSection(&m_free_list_lock); };
 	size_t reclaim_pages(void);
 
+	void AllocatePageBuffer(size_t size);
+
 protected:
 	CRITICAL_SECTION m_page_wait_lock;
 	CRITICAL_SECTION m_free_list_lock;
@@ -43,11 +45,16 @@ protected:
 
 	// page cache
 	size_t m_cache_nr;
-	page* m_cache;
-	void* m_buffer;		// 缓存地址
+//	page* m_cache;
+//	void* m_buffer;		// 缓存地址
 	// inactive list
 	std::list<page*> m_inactive;
 	std::list<page*> m_active;
 	std::list<page*> m_free_list;
+
+	// 每次申请一批page，放入Page buffer.
+	std::list<page*> m_page_buffer;
+	std::list<void*> m_buffer_list;
+	size_t m_buffer_size;	// 每次申请的page数量
 
 };

@@ -1015,7 +1015,7 @@ static DEFINE_IDA(unnamed_dev_ida);
  * @p: Pointer to a dev_t.
  *
  * Filesystems which don't use real block devices can call this function
- * to allocate a virtual block device.
+ * to alloc_obj a virtual block device.
  *
  * Context: Any context.  Frequently called while holding sb_lock.
  * Return: 0 on success, -EMFILE if there are no anonymous bdevs left
@@ -1397,14 +1397,11 @@ void kill_block_super(super_block *sb)
 	block_device *bdev = sb->s_bdev;
 	fmode_t mode = sb->s_mode;
 
-//	bdev->bd_super = NULL;
 	generic_shutdown_super(sb);
 #if 0	//<TODO> 如何刷新系统？
 //	sync_blockdev(bdev);
 	filemap_write_and_wait();
 #endif 
-//	WARN_ON_ONCE(!(mode & FMODE_EXCL));
-//	blkdev_put(bdev, mode | FMODE_EXCL);
 }
 
 #if 0 //<TODO>
@@ -1437,11 +1434,7 @@ static int reconfigure_single(struct super_block *s,
 	struct fs_context *fc;
 	int ret;
 
-	/* The caller really need to be passing fc down into mount_single(),
-	 * then a chunk of this can be removed.  [Bollocks -- AV]
-	 * Better yet, reconfiguration shouldn't happen, but rather the second
-	 * mount should be rejected if the parameters are not compatible.
-	 */
+	/* The caller really need to be passing fc down into mount_single(), then a chunk of this can be removed.  [Bollocks -- AV] Better yet, reconfiguration shouldn't happen, but rather the second mount should be rejected if the parameters are not compatible. */
 	fc = fs_context_for_reconfigure(s->s_root, flags, MS_RMT_MASK);
 	if (IS_ERR(fc))
 		return PTR_ERR(fc);

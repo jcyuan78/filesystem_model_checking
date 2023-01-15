@@ -2,6 +2,7 @@
 #pragma once
 
 #include "config.h"
+#include "../source/mapping.h"
 
 class CF2fsFileSystem;
 struct dnode_of_data;
@@ -39,7 +40,6 @@ public:
 	// 返回dir是否为空，非dir，返回true；
 	virtual bool f2fs_empty_dir(void) const { return true; }
 
-
 public:
 //	struct inode vfs_inode;		/* serve a vfs inode */
 	unsigned long i_flags;		/* keep an inode flags for ioctl */
@@ -61,8 +61,7 @@ public:
 	atomic_t dirty_pages;		/* # of dirty pages */
 	f2fs_hash_t chash;		/* hash value of given file name */
 	unsigned int clevel;		/* maximum level of given file name */
-	struct task_struct* task;	/* lookup and create consistency */
-//	struct task_struct* cp_task;	/* separate cp/wb IO stats*/
+//	struct task_struct* task;	/* lookup and create consistency */
 	nid_t i_xattr_nid;		/* node id that contains xattrs */
 	loff_t	last_disk_size;		/* lastly written file size */
 	CRITICAL_SECTION i_size_lock;		/* protect last_disk_size */
@@ -77,7 +76,7 @@ public:
 	//struct list_head gdirty_list;	/* linked in global dirty list */
 	struct list_head inmem_ilist;	/* list for inmem inodes */
 	struct list_head inmem_pages;	/* inmemory pages managed by f2fs */
-	struct task_struct* inmem_task;	/* store inmemory task */
+//	struct task_struct* inmem_task;	/* store inmemory task */
 	//用bool标记inode是否给加入相应的list
 	bool m_in_list[NR_INODE_TYPE];
 	HANDLE /*mutex*/ inmem_lock;	/* lock for inmemory pages */
@@ -103,7 +102,6 @@ public:
 	unsigned short i_compress_flag;		/* compress flag */
 	unsigned int i_cluster_size;		/* cluster size */
 
-
 protected:
 	CRITICAL_SECTION m_alias_lock;
 	std::list<dentry*> m_alias;
@@ -114,7 +112,6 @@ public:
 	dentry* splice_alias(dentry* entry);
 	virtual void remove_alias(dentry* ddentry);
 
-//	inline void SetMapping(address_space* mapping) { JCASSERT(mapping && !i_mapping); i_mapping = mapping; }
 	inline void get_inline_info(f2fs_inode* ri)
 	{
 		if (ri->i_inline & F2FS_INLINE_XATTR)		set_bit(FI_INLINE_XATTR,  flags);
@@ -221,6 +218,8 @@ public:
 	//-- tobe protected;
 	page* f2fs_get_read_data_page(pgoff_t index, int op_flags, bool for_write);
 	page* f2fs_get_lock_data_page(pgoff_t index, bool for_write);
+	int f2fs_map_blocks(struct f2fs_map_blocks* map, int create, int flag);
+
 protected:
 	int f2fs_preallocate_blocks(kiocb* iocb, iov_iter* from);		// 可以移动到CF2fsFileNode
 public:
@@ -289,11 +288,15 @@ public:
 public:
 	// 调试信息，
 	std::wstring  m_description;
-
 #endif
 
 
+#ifdef _DEBUG
+public:
+	void DumpInodeMapping(void);
+#endif
 };
+
 
 class lock_inode
 {
@@ -313,23 +316,18 @@ protected:
 #define INLINE_DENTRY_BITMAP_SIZE(inode) DIV_ROUND_UP<size_t>(NR_INLINE_DENTRY(inode), BITS_PER_BYTE)
 
 #define INLINE_RESERVED_SIZE(inode)	(MAX_INLINE_DATA(inode) - \
-				((SIZE_OF_DIR_ENTRY + F2FS_SLOT_LEN) * \
-				NR_INLINE_DENTRY(inode) + \
-				INLINE_DENTRY_BITMAP_SIZE(inode)))
+				((SIZE_OF_DIR_ENTRY + F2FS_SLOT_LEN) * NR_INLINE_DENTRY(inode) + INLINE_DENTRY_BITMAP_SIZE(inode)))
 
 class Cf2fsDirInode : public f2fs_inode_info
 {
 public:
-	//Cf2fsDirInode(const f2fs_inode_info& src) : f2fs_inode_info(src) {}
 	Cf2fsDirInode(f2fs_sb_info * sbi, UINT ino);
 	virtual ~Cf2fsDirInode(void) {}
 
 public:
-	//struct inode_operations	*i_op;
 	virtual dentry* lookup(dentry*, unsigned int);
 	virtual const char* get_link(dentry*, /*struct inode*,*/ delayed_call*)UNSUPPORT_1(const char*);
 	virtual int permission(user_namespace*, /*struct inode*,*/ int)UNSUPPORT_1(int);
-	//	virtual posix_acl* get_acl(/*struct inode*,*/ int, bool);
 	virtual int readlink(dentry*, char __user*, int)UNSUPPORT_1(int);
 	virtual int create(user_namespace*, dentry*, umode_t, bool);
 	virtual int link(dentry*, /*struct inode*,*/ dentry*)UNSUPPORT_1(int);
@@ -346,12 +344,10 @@ public:
 	virtual int update_time(/*struct inode*, */timespec64*, int)UNSUPPORT_1(int);
 	virtual int atomic_open(/*struct inode*, */dentry*, file*, unsigned open_flag, umode_t create_mode)UNSUPPORT_1(int);
 	virtual int tmpfile(user_namespace*, /*struct inode*,*/ dentry*, umode_t)UNSUPPORT_1(int);
-	//	virtual int set_acl(user_namespace*, /*struct inode*,*/ posix_acl*, int)UNSUPPORT_1(int);
 	virtual int fileattr_set(user_namespace* mnt_userns, dentry* dentry, fileattr* fa)UNSUPPORT_1(int);
 	virtual int fileattr_get(dentry* dentry, fileattr* fa)UNSUPPORT_1(int);
 
 public:
-	//unsigned char i_dir_level;	/* use for dentry level for large dir */
 	// 枚举所有子项目，用于Dokan的FindFiles
 	int enum_childs(dentry * parent, std::list<dentry*> & result);
 protected:
@@ -421,7 +417,6 @@ public:
 #endif
 		return f2fs_do_add_link( &entry->d_name, inode, inode->i_ino, inode->i_mode);
 	}
-	//friend int f2fs_sb_info::f2fs_rename(f2fs_inode_info* old_dir, dentry* old_dentry, f2fs_inode_info* new_dir, dentry* new_dentry, unsigned int flags);
 protected:
 	inline void make_dentry_ptr_block(f2fs_dentry_ptr* d, f2fs_dentry_block* t)
 	{
@@ -443,11 +438,12 @@ protected:
 		d->nr_bitmap = bitmap_size;
 		d->bitmap = t;
 		d->dentry = reinterpret_cast<f2fs_dir_entry*>((BYTE*)t + bitmap_size + reserved_size);
-		//	memcpy_s(d->filename, 8, (BYTE*)t + bitmap_size + reserved_size + SIZE_OF_DIR_ENTRY * entry_cnt, 8);
-		//	d->filename = reinterpret_cast<__u8**>(t) + bitmap_size + reserved_size + SIZE_OF_DIR_ENTRY * entry_cnt;
 		d->_f = reinterpret_cast<BYTE*>(t) + bitmap_size + reserved_size + SIZE_OF_DIR_ENTRY * entry_cnt;
 	}
 	friend void f2fs_delete_inline_entry(f2fs_dir_entry* dentry, page* ppage, f2fs_inode_info* dir, f2fs_inode_info* iinode);
+	Cf2fsDataMapping m_data_mapping;
+
+
 #ifdef INODE_DEBUG
 public:
 	void DebugListItems(void);
@@ -539,6 +535,9 @@ protected:
 //	int f2fs_truncate_hole(pgoff_t pg_start, pgoff_t pg_end);
 	int f2fs_insert_range(loff_t offset, loff_t len);
 	int f2fs_zero_range(loff_t offset, loff_t len, int mode);
+
+protected:
+	Cf2fsDataMapping m_data_mapping;
 };
 
 class Cf2fsSpecialInode : public f2fs_inode_info
@@ -608,6 +607,9 @@ public:
 	//	virtual int set_acl(user_namespace*, /*struct inode*,*/ posix_acl*, int)UNSUPPORT_1(int);
 	virtual int fileattr_set(user_namespace* mnt_userns, dentry* dentry, fileattr* fa)UNSUPPORT_1(int);
 	virtual int fileattr_get(dentry* dentry, fileattr* fa)UNSUPPORT_1(int);
+
+protected:
+	Cf2fsDataMapping m_data_mapping;
 };
 
 

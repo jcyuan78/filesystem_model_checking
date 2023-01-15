@@ -66,7 +66,8 @@ dentry* f2fs_inode_info::splice_alias(dentry* entry)
 	entry->d_inode = this;
 	__iget(this);
 	new_entry = dget(entry);
-	LOG_TRACK(L"inode_lock", L" inode=%p, ref=%d", this, i_count);
+	TRACK_INODE(this, L"add dentry=%p", entry);
+	//LOG_TRACK(L"inode_lock", L" inode=%p, ref=%d", this, i_count);
 	LOG_TRACK(L"dentry", L" dentry=%p, inode=%p, ref=%d, add to alias, old entry=%p", new_entry, this, new_entry->d_lockref.count, entry);
 #endif
 	return new_entry;
@@ -581,17 +582,14 @@ int f2fs_sb_info::do_create_read_inode(f2fs_inode_info*& out_inode, unsigned lon
 	if (S_ISREG(mode))
 	{
 		fi = static_cast <f2fs_inode_info*>(GetInodeLocked<Cf2fsFileNode>(thp_support, ino));
-		LOG_DEBUG_(0, L"[inode_track] add=%p, ino=%d, - create file, size lock=%d", fi, ino, fi->i_size_lock.LockCount);
-		// mapping在Cf2fsDirInode中处理
-		//inode->i_op = &f2fs_file_inode_operations;
-		//inode->i_fop = &f2fs_file_operations;
-		//inode->i_mapping->a_ops = &f2fs_dblock_aops;
+		TRACK_INODE(fi, L"new file inode");
+//		LOG_DEBUG_(0, L"[inode_track] add=%p, ino=%d, - create file, size lock=%d", fi, ino, fi->i_size_lock.LockCount);
 	}
 	else if (S_ISDIR(mode))
 	{
 		fi = static_cast<f2fs_inode_info*>(GetInodeLocked<Cf2fsDirInode>(thp_support, ino));
-		LOG_DEBUG_(0, L"[inode_track] add=%p, ino=%d, - mkdir, size lock=%d", fi, ino, fi->i_size_lock.LockCount);
-
+		TRACK_INODE(fi, L"new dir inode");
+//		LOG_DEBUG_(0, L"[inode_track] add=%p, ino=%d, - mkdir, size lock=%d", fi, ino, fi->i_size_lock.LockCount);
 		// mapping在Cf2fsDirInode中处理
 	}
 	else if (S_ISLNK(mode))
@@ -627,7 +625,8 @@ int f2fs_sb_info::do_create_read_inode(f2fs_inode_info*& out_inode, unsigned lon
 	ptr_inode->set_nlink(le32_to_cpu(ri->i_links));
 	ptr_inode->i_size = le64_to_cpu(ri->i_size);
 	ptr_inode->i_blocks = SECTOR_FROM_BLOCK(le64_to_cpu(ri->i_blocks) - 1);
-	LOG_TRACK(L"inode", L" addr=%p, ino=%d, link=%d - read from disk", ptr_inode, ptr_inode->i_ino, ptr_inode->i_nlink);
+	//LOG_TRACK(L"inode", L" addr=%p, ino=%d, link=%d - read from disk", ptr_inode, ptr_inode->i_ino, ptr_inode->i_nlink);
+	TRACK_INODE(ptr_inode, L"read from disk");
 #ifdef DOTIME
 	ptr_inode->i_atime = le64_to_cpu(ri->i_atime);
 	ptr_inode->i_ctime = le64_to_cpu(ri->i_ctime);
@@ -661,8 +660,7 @@ int f2fs_sb_info::do_create_read_inode(f2fs_inode_info*& out_inode, unsigned lon
 		fi->i_inline_xattr_size = DEFAULT_INLINE_XATTR_ADDRS;
 	}
 	else
-	{	/* Previous inline data or directory always reserved 200 bytes in inode layout, even if inline_xattr is disabled.
-		In order to keep inline_dentry's structure for backward compatibility, we get the space back only from nline_data.	 */
+	{	/* Previous inline data or directory always reserved 200 bytes in inode layout, even if inline_xattr is disabled. In order to keep inline_dentry's structure for backward compatibility, we get the space back only from nline_data.	 */
 		fi->i_inline_xattr_size = 0;
 	}
 
@@ -862,13 +860,13 @@ f2fs_inode_info* f2fs_sb_info::f2fs_iget(nid_t ino)
 	new_node = m_inodes.iget_locked<f2fs_inode_info>(true, ino);
 	if (new_node && !new_node->TestState(I_NEW))
 	{	// 找到已经存在的ino，直接返回
-		LOG_TRACK(L"inode", L" addr=%p, ino=%d, - got inode from cache", new_node, new_node->i_ino);
+		//LOG_TRACK(L"inode", L" addr=%p, ino=%d, - got inode from cache", new_node, new_node->i_ino);
+		TRACK_INODE(new_node, L"got from cache");
 		return new_node;
 	}
 
 	// 用于虚函数实现，针对不同的类型，创建不同的inode对象
 	
-//	inode* typed_inode = NULL;
 	int ret = 0;
 
 	if (ino == F2FS_NODE_INO() || ino == F2FS_META_INO())
@@ -885,13 +883,17 @@ f2fs_inode_info* f2fs_sb_info::f2fs_iget(nid_t ino)
 //			return new_node;
 //		}
 		// （2）如果不存在，创建并且读取
-//		LOG_DEBUG(L"read inode by ino=%d", ino);
 		ret = do_create_read_inode(new_node, ino);
-		LOG_TRACK(L"inode", L" add=%p, ino=%d, mode=%X, - read inode from disk", new_node, ino, new_node->i_mode);
+//		LOG_TRACK(L"inode", L" add=%p, ino=%d, mode=%X, - read inode from disk", new_node, ino, new_node->i_mode);
+		TRACK_INODE(new_node, L",mode=%X,read from disk", new_node->i_mode);
 		if (ret)
 		{
 			LOG_ERROR(L"[err] failed on reading inode, ino=%d, err=%d", ino, ret);
-			goto bad_inode;
+			new_node->f2fs_inode_synced();
+			m_inodes.iget_failed(new_node);
+			//trace_f2fs_iget_exit(inode, ret);
+			return ERR_PTR<f2fs_inode_info>(ret);
+//			goto bad_inode;
 		}
 	}
 	// <YUAN> 从磁盘读取到的inode添加到hash_table中
@@ -912,28 +914,29 @@ f2fs_inode_info* f2fs_sb_info::f2fs_iget(nid_t ino)
 	}
 	else if (S_ISCHR(new_node->i_mode) || S_ISBLK(new_node->i_mode) || S_ISFIFO(new_node->i_mode) || S_ISSOCK(new_node->i_mode))
 	{
-		//JCASSERT(0);
-		//inode->i_op = &f2fs_special_inode_operations;
 		init_special_inode(new_node, new_node->i_mode, new_node->i_rdev);
 	}
 	else
 	{
 		ret = -EIO;
-		goto bad_inode;
+//		goto bad_inode;
+		new_node->f2fs_inode_synced();
+		m_inodes.iget_failed(new_node);
+		//trace_f2fs_iget_exit(inode, ret);
+		return ERR_PTR<f2fs_inode_info>(ret);
 	}
 
 	//<YUAN>
-//	m_inodes.init_inode_mapping(new_node, mapping, (this->s_type->fs_flags & FS_THP_SUPPORT));
 	f2fs_set_inode_flags(new_node);
 	unlock_new_inode(new_node);
 	//trace_f2fs_iget(inode);
 	return new_node;
 
-bad_inode:
-	new_node->f2fs_inode_synced();
-	m_inodes.iget_failed(new_node);
-	//trace_f2fs_iget_exit(inode, ret);
-	return ERR_PTR<f2fs_inode_info>(ret);
+//bad_inode:
+//	new_node->f2fs_inode_synced();
+//	m_inodes.iget_failed(new_node);
+//	//trace_f2fs_iget_exit(inode, ret);
+//	return ERR_PTR<f2fs_inode_info>(ret);
 }
 
 #endif
@@ -971,12 +974,11 @@ void f2fs_inode_info::f2fs_update_inode(page* node_page)
 
 	ri->i_mode = cpu_to_le16(i_mode);
 	ri->i_advise = i_advise;
-	//ri->i_uid = cpu_to_le32(i_uid_read(this));
-	//ri->i_gid = cpu_to_le32(i_gid_read(this));
 	ri->i_links = cpu_to_le32(i_nlink);
 	ri->i_size = cpu_to_le64(i_size_read(this));
 	ri->i_blocks = cpu_to_le64(SECTOR_TO_BLOCK(i_blocks) + 1);
-	LOG_TRACK(L"inode", L" addr=%p, ino=%d, mode =%X, link=%d - store inode", this, i_ino, ri->i_mode, i_nlink);
+	//LOG_TRACK(L"inode", L" addr=%p, ino=%d, mode =%X, link=%d - store inode", this, i_ino, ri->i_mode, i_nlink);
+	TRACK_INODE(this, L"mode=%X, link=%d", ri->i_mode, i_nlink);
 
 	if (et) 
 	{
@@ -993,9 +995,6 @@ void f2fs_inode_info::f2fs_update_inode(page* node_page)
 	ri->i_atime = cpu_to_le64(i_atime);
 	ri->i_ctime = cpu_to_le64(i_ctime);
 	ri->i_mtime = cpu_to_le64(i_mtime);
-	//ri->i_atime_nsec = cpu_to_le32(i_atime.tv_nsec);
-	//ri->i_ctime_nsec = cpu_to_le32(i_ctime.tv_nsec);
-	//ri->i_mtime_nsec = cpu_to_le32(i_mtime.tv_nsec);
 	if (S_ISDIR(i_mode))		ri->i_current_depth = cpu_to_le32(i_current_depth);
 	else if (S_ISREG(i_mode))	ri->i_gc_failures =	cpu_to_le16(i_gc_failures[GC_FAILURE_PIN]);
 
@@ -1027,7 +1026,6 @@ void f2fs_inode_info::f2fs_update_inode(page* node_page)
 		if (f2fs_sb_has_inode_crtime(F2FS_I_SB(this)) && F2FS_FITS_IN_INODE(ri, i_extra_isize, _u._s.i_crtime)) 
 		{
 			ri->_u._s.i_crtime = cpu_to_le64(i_crtime);
-			//ri->_u._s.i_crtime_nsec = cpu_to_le32(i_crtime.tv_nsec);
 		}
 
 		if (f2fs_sb_has_compression(F2FS_I_SB(this)) &&	F2FS_FITS_IN_INODE(ri, i_extra_isize, _u._s.i_log_cluster_size)) 
@@ -1074,6 +1072,7 @@ retry:
 		} 
 		else if (err != -ENOENT)
 		{
+			LOG_ERROR(L"[err] failed on getting node page, stop checkpoint, ino=%d, err=%d", i_ino, err);
 			f2fs_stop_checkpoint(sbi, false);
 		}
 		return;

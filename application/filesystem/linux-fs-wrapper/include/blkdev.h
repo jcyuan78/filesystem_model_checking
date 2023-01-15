@@ -168,7 +168,7 @@ struct request {
 
 	/*
 	 * Three pointers are available for the IO schedulers, if they need
-	 * more they have to dynamically allocate it.  Flush requests are
+	 * more they have to dynamically alloc_obj it.  Flush requests are
 	 * never put on the IO scheduler. So let the flush fields share
 	 * space with the elevator data.
 	 */
@@ -301,8 +301,8 @@ enum blk_queue_state {
 	Queue_up,
 };
 
-#define BLK_TAG_ALLOC_FIFO 0 /* allocate starting from 0 */
-#define BLK_TAG_ALLOC_RR 1 /* allocate starting from last allocated tag */
+#define BLK_TAG_ALLOC_FIFO 0 /* alloc_obj starting from 0 */
+#define BLK_TAG_ALLOC_RR 1 /* alloc_obj starting from last allocated tag */
 
 #define BLK_SCSI_MAX_CMDS	(256)
 #define BLK_SCSI_CMD_PER_LONG	(BLK_SCSI_MAX_CMDS / (sizeof(long) * 8))
@@ -1908,8 +1908,7 @@ extern int blkdev_compat_ptr_ioctl(block_device *, fmode_t,
 #endif
 
 extern int bdev_read_page(block_device *, sector_t, struct page *);
-extern int bdev_write_page(block_device *, sector_t, struct page *,
-						struct writeback_control *);
+extern int bdev_write_page(block_device *, sector_t, struct page *, struct writeback_control *);
 
 #ifdef CONFIG_BLK_DEV_ZONED
 bool blk_req_needs_zone_write_lock(struct request *rq);

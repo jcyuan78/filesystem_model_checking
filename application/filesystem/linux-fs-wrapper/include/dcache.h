@@ -4,35 +4,22 @@
 #define __LINUX_DCACHE_H
 
 #include "linux_comm.h"
-//#include <linux/atomic.h>
 #include "list.h"
 #include "list_bl.h"
-//#include <linux/math.h>
-//#include <linux/rculist.h>
-//#include <linux/rculist_bl.h>
-//#include <linux/spinlock.h>
-//#include <linux/seqlock.h>
-//#include <linux/cache.h>
-//#include <linux/rcupdate.h>
-//#include <linux/lockref.h>
-//#include <linux/stringhash.h>
-//#include <linux/wait.h>
 #include <string>
 #include <list>
+#include "allocator.h"
 
 //#define DEBUG_DENTRY
 
 struct path;
 struct vfsmount;
 
-/*
- * linux/include/linux/dcache.h
+/* linux/include/linux/dcache.h
  *
  * Dirent cache data structures
  *
- * (C) Copyright 1997 Thomas Schoebel-Theuer,
- * with heavy changes by Linus Torvalds
- */
+ * (C) Copyright 1997 Thomas Schoebel-Theuer, with heavy changes by Linus Torvalds */
 
 #define IS_ROOT(x) ((x) == (x)->d_parent)
 
@@ -45,8 +32,7 @@ struct vfsmount;
  #define bytemask_from_count(cnt)	(~(~0ul >> (cnt)*8))
 #endif
 
-/* "quick string" -- eases parameter passing, but more importantly saves "metadata" about the string 
-   (ie length and the hash). hash comes first so it snuggles against d_parent in the dentry. */
+/* "quick string" -- eases parameter passing, but more importantly saves "metadata" about the string (ie length and the hash). hash comes first so it snuggles against d_parent in the dentry. */
 struct qstr 
 {
 	//qstr(const char* n, u32 l) { name = const_cast<char*>(n); _u._s.len = l; }
@@ -91,11 +77,7 @@ struct dentry_stat_t {
 };
 extern struct dentry_stat_t dentry_stat;
 
-/*
- * Try to keep struct dentry aligned on 64 byte cachelines (this will
- * give reasonable cacheline footprint with larger lines without the
- * large memory footprint increase).
- */
+/* Try to keep struct dentry aligned on 64 byte cachelines (this will give reasonable cacheline footprint with larger lines without the large memory footprint increase). */
 #ifdef CONFIG_64BIT
 # define DNAME_INLINE_LEN 32 /* 192 bytes */
 #else
@@ -150,6 +132,7 @@ public:
 public:
 //	friend class CDentryManager;
 //protected:
+//	void init(Allocator<dentry>* manager) { m_manager = dynamic_cast<CDentryManager*>(manager); }
 	CDentryManager* m_manager;
 
 #ifdef DEBUG_DENTRY
@@ -165,7 +148,7 @@ public:
 
 // 用于dentry的内存分配，管理和缓存
 //	基本思想：启动时预分配一定适量的dentry，避免频繁使用new/delete。需要的时候从free list中分配
-class CDentryManager
+class CDentryManager : public Allocator<dentry>
 {
 public:
 	CDentryManager(size_t init_size);
@@ -174,9 +157,10 @@ public:
 protected:
 	dentry* __d_alloc(super_block* sb, const qstr* name);
 	void free(dentry* ddentry);
-	CRITICAL_SECTION m_list_lock;
-	inline void lock() { EnterCriticalSection(&m_list_lock); };
-	inline void unlock() { LeaveCriticalSection(&m_list_lock); };
+//	CRITICAL_SECTION m_list_lock;
+//	inline void lock() { EnterCriticalSection(&m_list_lock); };
+//	inline void unlock() { LeaveCriticalSection(&m_list_lock); };
+
 public:
 	friend dentry* d_alloc(dentry* parent, const qstr& name);
 	friend void dentry_free(dentry* ddentry);
@@ -319,7 +303,7 @@ extern void d_drop(struct dentry *dentry);
 #endif
 
 inline void d_set_d_op(struct dentry *dentry, const struct dentry_operations *op){}
-/* allocate/de-allocate */
+/* alloc_obj/de-alloc_obj */
 extern dentry * d_alloc(dentry *, const qstr &);
 
 #if 0

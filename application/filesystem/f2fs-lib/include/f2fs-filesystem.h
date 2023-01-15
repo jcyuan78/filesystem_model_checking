@@ -11,12 +11,18 @@
 
 class CF2fsFileSystem;
 
+class CFileInfoManager;
+
 class CF2fsFile : public IFileInfo
 {
 public:
 	CF2fsFile(void):m_dentry(NULL), m_inode(NULL), m_fs(NULL) {};
 	~CF2fsFile(void);
 	void Init(dentry* de, inode* node, CF2fsFileSystem * fs, UINT32 mode);
+	//virtual void Release();
+	void operator delete (void* ptr);
+	
+	
 public:
 	virtual void Cleanup(void) { }
 	virtual void CloseFile(void);
@@ -74,7 +80,38 @@ protected:
 	bool m_delete_on_close = false;
 	// 为防止多线程是 m_dentry和m_inode被删除的同时，进行其他操作。
 	long m_valid = 0;
+
+	friend class CFileInfoManager;
+	CFileInfoManager* m_manager;
 };
+
+class CFileInfoManager :public Allocator<jcvos::CDynamicInstance<CF2fsFile> >
+{
+public:
+	typedef  Allocator<jcvos::CDynamicInstance<CF2fsFile> > __base_allocator;
+public:
+	CFileInfoManager(size_t increment) : __base_allocator(increment) {};
+	CF2fsFile* file_get(void)
+	{
+		void * ptr = __base_allocator::alloc_obj();
+		jcvos::CDynamicInstance<CF2fsFile>* ff = new(ptr) jcvos::CDynamicInstance<CF2fsFile>;
+		
+		CF2fsFile* file = static_cast<CF2fsFile*>(ff );
+		
+		file->m_manager = this;
+//		file->AddRef();
+		return file;
+	}
+	void file_put(CF2fsFile* file)
+	{
+		file->AddRef();
+//		jcvos::CDynamicInstance< CF2fsFile>* pp = dynamic_cast<jcvos::CDynamicInstance< CF2fsFile>*>(file);
+		OBJ_PTR pp = (OBJ_PTR)((UINT_PTR)file);
+//		pp->AddRef();
+		free_obj(pp);
+	}
+};
+
 
 class CF2fsSpecialFile : public IFileInfo
 {
@@ -182,7 +219,7 @@ public:
 	virtual ULONG GetFileSystemOption(void) const;
 	virtual bool Mount(IVirtualDisk* dev);
 	virtual void Unmount(void);
-	virtual bool MakeFileSystem(IVirtualDisk* dev, UINT32 volume_size, const std::wstring& volume_name, const std::wstring & options);
+	virtual bool MakeFileSystem(IVirtualDisk* dev, size_t volume_size, const std::wstring& volume_name, const std::wstring & options);
 	// fsck，检查文件系统，返回检查结果
 	virtual FsCheckResult FileSystemCheck(IVirtualDisk* dev, bool repair) { JCASSERT(0); return CheckNoError; }
 
@@ -192,7 +229,7 @@ public:
 	// file attribute (attr) and create disposition (disp) is in user mode 
 	virtual NTSTATUS DokanCreateFile(IFileInfo*& file, const std::wstring& fn, ACCESS_MASK access_mask,
 		DWORD attr, FsCreateDisposition disp, ULONG share, ULONG opt, bool isdir);
-	virtual bool MakeDir(const std::wstring& dir) { JCASSERT(0); return 0; }
+	virtual bool MakeDir(const std::wstring& dir);
 
 	virtual NTSTATUS DokanDeleteFile(const std::wstring& fn, IFileInfo* file, bool isdir);
 	//virtual void FindFiles(void) = 0;
@@ -232,7 +269,9 @@ public:
 protected:
 	// 文件系统参数, mount 参数
 	MOUNT_OPTION m_mount_opt;
+	boost::property_tree::wptree m_mount_options;
 	int m_debug_mode=0;
+	//void FillMountOption(f2fs_mount_info& opt);
 	// other functions
 public:
 	inline int get_inline_xattr_addrs(f2fs_inode* inode)
@@ -399,11 +438,11 @@ public:
 	//void submit_bio(bio* bb);
 	//inline void __submit_bio(bio* bio, enum page_type type);
 //	bio* __bio_alloc(f2fs_io_info* fio, int npages);
-	int __blkdev_issue_discard(block_device * , sector_t lba, sector_t len, gfp_t gfp_mask, int flag, bio **);
+//	int __blkdev_issue_discard(block_device * , sector_t lba, sector_t len, gfp_t gfp_mask, int flag, bio **);
 // == data.cpp
 public:
 //	int f2fs_submit_page_bio(f2fs_io_info* fio);
-	bio* f2fs_grab_read_bio(f2fs_inode_info* inode, block_t blkaddr, unsigned nr_pages, unsigned op_flag, pgoff_t first_idx, bool for_write);
+//	bio* f2fs_grab_read_bio(f2fs_inode_info* inode, block_t blkaddr, unsigned nr_pages, unsigned op_flag, pgoff_t first_idx, bool for_write);
 
 	//int sync_filesystem(void) { JCASSERT(0); return 0; }
 	unsigned int sb_set_blocksize(unsigned int size)
@@ -451,7 +490,7 @@ protected:
 
 // == super.cpp
 protected:
-	int parse_mount_options(super_block* sb, const boost::property_tree::wptree& options, bool is_mount);
+	//int parse_mount_options(super_block* sb, /*const boost::property_tree::wptree& options,*/ bool is_remount);
 	// 从 buffer.c __bread_gfp()移植
 	//	block为block地址，sector = block * size / sector_size. 参考"buffer.c" submit_bh_wbc()
 	CBufferHead* bread(sector_t block, size_t size);
@@ -517,7 +556,6 @@ protected:
 	}
 #endif
 public:
-	CBioSet m_bio_set;
 
 // ==== 全局变量局部化
 public:
@@ -525,16 +563,14 @@ public:
 
 protected:
 	CBufferManager	m_buffers;
-
 	f2fs_sb_info	* m_sb_info=nullptr;
-	//super_block		m_super_block;
-
 	f2fs_super_block m_raw_sb;
-//	f2fs_super_block* sb = &m_raw_sb;
-
 	f2fs_checkpoint* cp = nullptr;
 	f2fs_configuration m_config;
 	std::wstring m_vol_name;
+
+	CFileInfoManager* m_file_manager;
+
 };
 
 

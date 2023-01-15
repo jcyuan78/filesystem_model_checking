@@ -33,24 +33,6 @@ int CBufferHead::read_slow(void)
 	return 0;
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 CBufferManager::CBufferManager(void) : m_disk(NULL)
 {
 }

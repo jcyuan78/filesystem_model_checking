@@ -1533,7 +1533,7 @@ static int writeback_single_inode(inode *iinode, writeback_control *wbc)
 //	spin_lock(&iinode->i_lock);
 //	iinode->lock();
 	LOCK_INODE(iinode);
-	LOG_DEBUG(L"inode[%d], count=%d, state = %X,", iinode->i_ino, iinode->i_count, iinode->TestState(0xFFFFFFFF));
+	LOG_DEBUG_(1,L"inode[%d], count=%d, state = %X,", iinode->i_ino, iinode->i_count, iinode->TestState(0xFFFFFFFF));
 	if (!atomic_read(&iinode->i_count)) 
 	{
 		WARN_ON(!iinode->TestState(I_WILL_FREE | I_FREEING)); 
@@ -2262,7 +2262,7 @@ void __mark_inode_dirty(inode *iinode, int flags)
 		if (iinode->TestState(I_FREEING))		return; // goto out_unlock_inode;
 
 		/* If the inode was already on b_dirty/b_io/b_more_io, don't reposition it (that would break b_dirty time-ordering).		 */
-		LOG_DEBUG(L"was_dirty = %d", was_dirty);
+		LOG_DEBUG_(1,L"was_dirty = %d", was_dirty);
 		if (!was_dirty)
 		{
 			bdi_writeback* wb;
@@ -2516,6 +2516,7 @@ EXPORT_SYMBOL(sync_inodes_sb);
 int write_inode_now(inode *iinode, int sync)
 {
 	writeback_control wbc;
+	memset(&wbc, 0, sizeof(writeback_control));
 	wbc.nr_to_write = LONG_MAX;
 	wbc.sync_mode = sync ? WB_SYNC_ALL : WB_SYNC_NONE;
 	wbc.range_start = 0;
@@ -2533,9 +2534,8 @@ int write_inode_now(inode *iinode, int sync)
  * @inode: the inode to sync
  * @wbc: controls the writeback mode
  *
- * sync_inode() will write an inode and its pages to disk.  It will also correctly update the inode on its superblock's dirty inode lists and will update inode->i_state.
- * The caller must have a ref on the inode. */
-int sync_inode(inode *iinode, struct writeback_control *wbc)
+ * sync_inode() will write an inode and its pages to disk.  It will also correctly update the inode on its superblock's dirty inode lists and will update inode->i_state. The caller must have a ref on the inode. */
+int sync_inode(inode *iinode, writeback_control *wbc)
 {
 	return writeback_single_inode(iinode, wbc);
 }
@@ -2546,11 +2546,11 @@ int sync_inode(inode *iinode, struct writeback_control *wbc)
  * @inode: the inode to sync
  * @wait: wait for I/O to complete.
  *
- * Write an inode to disk and adjust its dirty state after completion.
- * Note: only writes the actual inode, no associated data or other metadata. */
+ * Write an inode to disk and adjust its dirty state after completion. Note: only writes the actual inode, no associated data or other metadata. */
 int sync_inode_metadata(inode *iinode, int wait)
 {
-	struct writeback_control wbc;
+	writeback_control wbc;
+	memset(&wbc, 0, sizeof(writeback_control));
 	wbc.sync_mode = wait ? WB_SYNC_ALL : WB_SYNC_NONE;
 	wbc.nr_to_write = 0; /* metadata-only */
 
@@ -2558,3 +2558,4 @@ int sync_inode_metadata(inode *iinode, int wait)
 }
 //EXPORT_SYMBOL(sync_inode_metadata);
 
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

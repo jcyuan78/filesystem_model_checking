@@ -6,11 +6,9 @@
  * Copyright (c) 2012 Samsung Electronics Co., Ltd.
  *             http://www.samsung.com/
  */
-//#include <linux/blkdev.h>
-//#include <linux/backing-dev.h>
 
 #include "../../include/f2fs.h"
-#include "..\..\include\f2fs-super-block.h"
+#include "../../include/f2fs-super-block.h"
 
 /* constant macro */
 #define NULL_SEGNO			((unsigned int)(~0))
@@ -128,13 +126,10 @@ enum
 	ALLOC_LEFT
 };
 
-/*
- * In the victim_sel_policy->alloc_mode, there are two block allocation modes.
+/* In the victim_sel_policy->alloc_mode, there are two block allocation modes.
  * LFS writes data sequentially with cleaning operations.
  * SSR (Slack Space Recycle) reuses obsolete space without cleaning operations.
- * AT_SSR (Age Threshold based Slack Space Recycle) merges fragments into
- * fragmented segment which has similar aging degree.
- */
+ * AT_SSR (Age Threshold based Slack Space Recycle) merges fragments into fragmented segment which has similar aging degree. */
 enum {
 	LFS = 0,
 	SSR,
@@ -167,13 +162,10 @@ enum {
 
 /* for a function parameter to select a victim segment */
 struct victim_sel_policy {
-	int alloc_mode;			/* LFS or SSR */
-	int gc_mode;			/* GC_CB or GC_GREEDY */
+	int alloc_mode;					/* LFS or SSR */
+	int gc_mode;					/* GC_CB or GC_GREEDY */
 	unsigned long *dirty_bitmap;	/* dirty segment/section bitmap */
-	unsigned int max_search;	/*
-					 * maximum # of segments/sections
-					 * to search
-					 */
+	unsigned int max_search;		/* maximum # of segments/sections to search	 */
 	unsigned int offset;		/* last scanned bitmap offset */
 	unsigned int ofs_unit;		/* bitmap search unit */
 	unsigned int min_cost;		/* minimum cost */
@@ -184,18 +176,18 @@ struct victim_sel_policy {
 };
 
 struct seg_entry {
-	unsigned int type:6;		/* segment type like CURSEG_XXX_TYPE */
-	unsigned int valid_blocks:10;	/* # of valid blocks */
-	unsigned int ckpt_valid_blocks:10;	/* # of valid blocks last cp */
-	unsigned int padding:6;		/* padding */
-	unsigned char *cur_valid_map;	/* validity bitmap of blocks */
+	unsigned int type:6;					/* segment type like CURSEG_XXX_TYPE */
+	unsigned int valid_blocks:10;			/* # of valid blocks */
+	unsigned int ckpt_valid_blocks:10;		/* # of valid blocks last cp */
+	unsigned int padding:6;					/* padding */
+	unsigned char *cur_valid_map;			/* validity bitmap of blocks */
 #ifdef CONFIG_F2FS_CHECK_FS
-	unsigned char *cur_valid_map_mir;	/* mirror of current valid bitmap */
+	unsigned char *cur_valid_map_mir;		/* mirror of current valid bitmap */
 #endif
 	/* # of valid blocks and the validity bitmap stored in the last checkpoint pack. This information is used by the SSR mode. */
-	unsigned char *ckpt_valid_map;	/* validity bitmap of blocks last cp */
+	unsigned char *ckpt_valid_map;			/* validity bitmap of blocks last cp */
 	unsigned char *discard_map;
-	unsigned long long mtime;	/* modification time of the segment */
+	unsigned long long mtime;				/* modification time of the segment */
 };
 
 struct sec_entry {
@@ -219,25 +211,25 @@ struct sit_info
 	sit_info(void);
 	~sit_info(void);
 //	segment_allocation s_ops;
-	block_t sit_base_addr;			/* start block address of SIT area */
-	block_t sit_blocks;				/* # of blocks used by SIT area */
-	block_t written_valid_blocks;	/* # of valid blocks in main area */
-	BYTE *bitmap;					/* all bitmaps pointer */
-	BYTE *sit_bitmap;				/* SIT bitmap pointer */ // 指示相应的sit保存在那个副本中。
+	block_t sit_base_addr;				/* start block address of SIT area */
+	block_t sit_blocks;					/* # of blocks used by SIT area */
+	block_t written_valid_blocks;		/* # of valid blocks in main area */
+	BYTE *bitmap;						/* all bitmaps pointer */
+	BYTE *sit_bitmap;					/* SIT bitmap pointer */ // 指示相应的sit保存在那个副本中。
 #ifdef CONFIG_F2FS_CHECK_FS
-	char *sit_bitmap_mir;		/* SIT bitmap mirror */
+	char *sit_bitmap_mir;				/* SIT bitmap mirror */
 	/* bitmap of segments to be ignored by GC in case of errors */
 	unsigned long *invalid_segmap;
 #endif
-	unsigned int bitmap_size;	/* SIT bitmap size */
+	unsigned int bitmap_size;			/* SIT bitmap size */
 
-	unsigned long *tmp_map;			/* bitmap for temporal use */
+	unsigned long *tmp_map;				/* bitmap for temporal use */
 	unsigned long *dirty_sentries_bitmap;	/* bitmap for dirty sentries */
 	unsigned int dirty_sentries;		/* # of dirty sentries */
 	unsigned int sents_per_block;		/* # of SIT entries per block */
-	SRWLOCK /*rw_semaphore*/ sentry_lock;	/* to protect SIT cache */
-	seg_entry *sentries;		/* SIT segment-level cache */
-	sec_entry *sec_entries = nullptr;		/* SIT section-level cache */
+	rw_semaphore sentry_lock;			/* to protect SIT cache */
+	seg_entry *sentries;				/* SIT segment-level cache */
+	sec_entry *sec_entries = nullptr;	/* SIT section-level cache */
 
 	/* for cost-benefit algorithm in cleaning procedure */
 	unsigned long long elapsed_time;	/* elapsed time after mount */
@@ -312,21 +304,23 @@ struct victim_selection
 	int (*get_victim)(f2fs_sb_info *, unsigned int *, int, int, char, unsigned long long);
 };
 
+#define TRACK_JOURNAL_SEM(seg, l, ev) LOG_TRACK(L"journal", L"seg=%lldd, lock=" l L", " ev, seg);
+
 /* for active log information */
 struct curseg_info 
 {
 	curseg_info(void) {	}
-	HANDLE /*mutex*/ curseg_mutex  = nullptr;		/* lock for consistency */
+	mutex curseg_mutex  = nullptr;		/* lock for consistency */
 	f2fs_summary_block sum_blk;	/* cached summary block */
-	SRWLOCK /*rw_semaphore*/ journal_rwsem;	/* protect journal area */
-	f2fs_journal journal;		/* cached journal info */
+	rw_semaphore journal_rwsem;	/* protect journal area */
+	f2fs_journal journal;				/* cached journal info */
 	unsigned char alloc_type = 0;		/* current allocation type */
 	unsigned short seg_type = 0;		/* segment type like CURSEG_XXX_TYPE */
-	unsigned int segno = 0;			/* current segment number */
+	unsigned int segno = 0;				/* current segment number */
 	unsigned short next_blkoff = 0;		/* next block offset to write */
-	unsigned int zone = 0;			/* current zone number */
+	unsigned int zone = 0;				/* current zone number */
 	unsigned int next_segno = 0;		/* preallocated segment */
-	bool inited= false;				/* indicate inmem log is inited */
+	bool inited= false;					/* indicate inmem log is inited */
 };
 
 struct sit_entry_set {
@@ -555,7 +549,7 @@ inline bool f2fs_sb_info::has_curseg_enough_space(void)
 	for (i = CURSEG_HOT_NODE; i <= CURSEG_COLD_NODE; i++) 
 	{
 		segno = CURSEG_I(i)->segno;
-		left_blocks = f2fs_usable_blks_in_seg(this, segno) - get_seg_entry( segno)->ckpt_valid_blocks;
+		left_blocks = f2fs_usable_blks_in_seg(segno) - get_seg_entry( segno)->ckpt_valid_blocks;
 
 		if (node_blocks > left_blocks)
 			return false;
@@ -563,7 +557,7 @@ inline bool f2fs_sb_info::has_curseg_enough_space(void)
 
 	/* check current data segment */
 	segno = CURSEG_I(CURSEG_HOT_DATA)->segno;
-	left_blocks = f2fs_usable_blks_in_seg(this, segno) - get_seg_entry( segno)->ckpt_valid_blocks;
+	left_blocks = f2fs_usable_blks_in_seg(segno) - get_seg_entry( segno)->ckpt_valid_blocks;
 	if (dent_blocks > left_blocks)
 		return false;
 	return true;
@@ -669,7 +663,7 @@ static inline void verify_fio_blkaddr(struct f2fs_io_info *fio)
 //	bool is_valid  = test_bit_le(0, raw_sit->valid_map) ? true : false;
 //	int valid_blocks = 0;
 //	int cur_pos = 0, next_pos;
-//	unsigned int usable_blks_per_seg = f2fs_usable_blks_in_seg(sbi, segno);
+//	unsigned int usable_blks_per_seg = sbi->f2fs_usable_blks_in_seg(segno);
 //
 //	/* check bitmap with valid block count */
 //	do {

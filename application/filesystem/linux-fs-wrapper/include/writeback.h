@@ -84,7 +84,7 @@ struct writeback_control
 
 //int wbc_to_write_flags(struct writeback_control* wbc);
 
-static inline int wbc_to_write_flags(struct writeback_control *wbc)
+static inline int wbc_to_write_flags(writeback_control *wbc)
 {
 	int flags = 0;
 	if (wbc->punt_to_cgroup)	flags = REQ_CGROUP_PUNT;
@@ -204,14 +204,10 @@ static inline void wait_on_inode(inode *iinode)
 #include <linux/bio.h>
 
 void __inode_attach_wb(struct inode *inode, struct page *page);
-void wbc_attach_and_unlock_inode(struct writeback_control *wbc,
-				 struct inode *inode)
-	__releases(&inode->i_lock);
+void wbc_attach_and_unlock_inode(struct writeback_control *wbc, struct inode *inode) __releases(&inode->i_lock);
 void wbc_detach_inode(struct writeback_control *wbc);
-void wbc_account_cgroup_owner(struct writeback_control *wbc, struct page *page,
-			      size_t bytes);
-int cgroup_writeback_by_id(u64 bdi_id, int memcg_id, unsigned long nr_pages,
-			   enum wb_reason reason, struct wb_completion *done);
+void wbc_account_cgroup_owner(struct writeback_control *wbc, struct page *page, size_t bytes);
+int cgroup_writeback_by_id(u64 bdi_id, int memcg_id, unsigned long nr_pages, enum wb_reason reason, struct wb_completion *done);
 void cgroup_writeback_umount(void);
 
 /**
@@ -301,19 +297,19 @@ static inline void wbc_attach_and_unlock_inode(writeback_control *wbc, inode *ii
 	iinode->unlock();
 }
 
-static inline void wbc_attach_fdatawrite_inode(struct writeback_control *wbc, struct inode *inode)
+static inline void wbc_attach_fdatawrite_inode(writeback_control *wbc, struct inode *inode)
 {
 }
 
-static inline void wbc_detach_inode(struct writeback_control *wbc)
+static inline void wbc_detach_inode(writeback_control *wbc)
 {
 }
 
-static inline void wbc_init_bio(struct writeback_control *wbc, struct bio *bio)
+static inline void wbc_init_bio(writeback_control *wbc, struct bio *bio)
 {
 }
 
-static inline void wbc_account_cgroup_owner(struct writeback_control *wbc,  struct page *page, size_t bytes)
+static inline void wbc_account_cgroup_owner(writeback_control *wbc,  struct page *page, size_t bytes)
 {
 }
 
@@ -375,16 +371,11 @@ unsigned long wb_calc_thresh(struct bdi_writeback *wb, unsigned long thresh);
 void wb_update_bandwidth(struct bdi_writeback *wb, unsigned long start_time);
 bool wb_over_bg_thresh(struct bdi_writeback *wb);
 
-typedef int (*writepage_t)(struct page *page, struct writeback_control *wbc,
-				void *data);
+typedef int (*writepage_t)(struct page *page, struct writeback_control *wbc, void *data);
 
-int generic_writepages(struct address_space *mapping,
-		       struct writeback_control *wbc);
-void tag_pages_for_writeback(struct address_space *mapping,
-			     pgoff_t start, pgoff_t end);
-int write_cache_pages(struct address_space *mapping,
-		      struct writeback_control *wbc, writepage_t writepage,
-		      void *data);
+int generic_writepages(struct address_space *mapping, struct writeback_control *wbc);
+void tag_pages_for_writeback(struct address_space *mapping, pgoff_t start, pgoff_t end);
+int write_cache_pages(struct address_space *mapping, struct writeback_control *wbc, writepage_t writepage, void *data);
 void writeback_set_ratelimit(void);
 
 void account_page_redirty(struct page *page);

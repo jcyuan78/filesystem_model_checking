@@ -1036,7 +1036,8 @@ size_t copy_page_to_iter(page *ppage, size_t offset, size_t bytes, iov_iter *i)
 	//}
 	//BYTE* buf = (BYTE*)i->iov->iov_base + i->iov_offset;
 	BYTE* buf = (BYTE*)i->iov->iov_base + i->iov_offset;
-	LOG_DEBUG(L"copy page to %p", buf);
+//	LOG_DEBUG_(1,L"copy page to %p", buf);
+	//LOG_TRACK(L"file", L"copy page to buffer, index=%d", ppage->index);
 	while (1)
 	{	// 每个循环复制最多一个page到iov，支持多个page
 		//size_t n = __copy_page_to_iter(page, offset, min(bytes, (size_t)PAGE_SIZE - offset), i);

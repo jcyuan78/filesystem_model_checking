@@ -5,7 +5,7 @@
 #include "../include/f2fs_fs.h"
 #include "../include/f2fs.h"
 
-LOCAL_LOGGER_ENABLE(L"f2fs.checkpoint_ctrl", LOGGER_LEVEL_DEBUGINFO);
+LOCAL_LOGGER_ENABLE(L"f2fs.checkpoint_ctrl", LOGGER_LEVEL_NOTICE);
 
 #define DEFAULT_CHECKPOINT_IOPRIO (IOPRIO_PRIO_VALUE(IOPRIO_CLASS_BE, 3))
 
@@ -53,6 +53,7 @@ DWORD ckpt_req_control::issue_checkpoint_thread(void)
 	// 	   用event代替wait queue来唤醒线程。
 //	struct ckpt_req_control* cprc = &sbi->cprc_info;
 //	wait_queue_head_t* q = ckpt_wait_queue;
+	InterlockedExchange(&m_started, 1);
 	while (m_running)
 	{
 	//需要处理如何让线程结束
@@ -75,6 +76,7 @@ DWORD ckpt_req_control::issue_checkpoint_thread(void)
 void ckpt_req_control::__checkpoint_and_complete_reqs(void)
 {
 	//	struct ckpt_req_control *cprc = &sbi->cprc_info;
+	LOG_TRACK(L"ckpt", L"start checkpoint request");
 	ckpt_req* req, * next;
 	llist_node* dispatch_list;
 	u64 sum_diff = 0, diff, count = 0;

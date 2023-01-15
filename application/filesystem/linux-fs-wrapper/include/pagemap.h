@@ -843,16 +843,11 @@ static inline void page_cache_sync_readahead(address_space *mapping, file_ra_sta
  * @index: Index of first page to be read.
  * @req_count: Total number of pages being read by the caller.
  *
- * page_cache_async_readahead() should be called when a page is used which
- * is marked as PageReadahead; this is a marker to suggest that the application
- * has used up enough of the readahead window that we should start pulling in
- * more pages.
- */
-static inline void page_cache_async_readahead(address_space *mapping, file_ra_state *ra, struct file *file,
-		struct page *page, pgoff_t index, unsigned long req_count)
+ * page_cache_async_readahead() should be called when a page is used which is marked as PageReadahead; this is a marker to suggest that the application has used up enough of the readahead window that we should start pulling in more pages. */
+static inline void page_cache_async_readahead(address_space *mapping, file_ra_state *ra, file *ffile, page *ppage, pgoff_t index, unsigned long req_count)
 {
-	DEFINE_READAHEAD(ractl, file, ra, mapping, index);
-	page_cache_async_ra(&ractl, page, req_count);
+	DEFINE_READAHEAD(ractl, ffile, ra, mapping, index);
+	page_cache_async_ra(&ractl, ppage, req_count);
 }
 
 /**

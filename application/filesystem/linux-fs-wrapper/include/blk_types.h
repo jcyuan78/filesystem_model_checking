@@ -1,15 +1,8 @@
 ﻿///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma once
 /* SPDX-License-Identifier: GPL-2.0 */
-/*
- * Block data types and constants.  Directly include this file only to
- * break include dependency loop.
- */
+/* Block data types and constants.  Directly include this file only to break include dependency loop. */
 #include "linux_comm.h"
-//#include <linux/types.h>
-//#include <linux/bvec.h>
-//#include <linux/device.h>
-//#include <linux/ktime.h>
 #include <dokanfs-lib.h>
 #include "mm_types.h"
 
@@ -22,63 +15,15 @@ typedef void (bio_end_io_t) (struct bio *);
 struct bio_crypt_ctx;
 
 typedef IVirtualDisk block_device;
-//#define block_device IVirtualDisk
-
 class CBioSet;
 
+#define bdev_whole(_bdev)			((_bdev)->bd_disk->part0)
 
-//struct block_device {
-//	sector_t		bd_start_sect;
-//	struct disk_stats __percpu *bd_stats;
-//	unsigned long		bd_stamp;
-//	bool			bd_read_only;	/* read-only policy */
-//	dev_t			bd_dev;
-//	int			bd_openers;
-//	struct inode *		bd_inode;	/* will die */
-//	struct super_block *	bd_super;
-//	struct mutex		bd_mutex;	/* open/close mutex */
-//	void *			bd_claiming;
-//	struct device		bd_device;
-//	void *			bd_holder;
-//	int			bd_holders;
-//	bool			bd_write_holder;
-//#ifdef CONFIG_SYSFS
-//	struct list_head	bd_holder_disks;
-//#endif
-//	struct kobject		*bd_holder_dir;
-//	u8			bd_partno;
-//	/* number of times partitions within this device have been opened. */
-//	unsigned		bd_part_count;
-//
-//	spinlock_t		bd_size_lock; /* for bd_inode->i_size updates */
-//	struct gendisk *	bd_disk;
-//	struct backing_dev_info *bd_bdi;
-//
-//	/* The counter of freeze processes */
-//	int			bd_fsfreeze_count;
-//	/* Mutex for freeze */
-//	struct mutex		bd_fsfreeze_mutex;
-//	struct super_block	*bd_fsfreeze_sb;
-//
-//	struct partition_meta_info *bd_meta_info;
-//#ifdef CONFIG_FAIL_MAKE_REQUEST
-//	bool			bd_make_it_fail;
-//#endif
-//} __randomize_layout;
+#define dev_to_bdev(device)			container_of((device), block_device, bd_device)
 
-#define bdev_whole(_bdev) \
-	((_bdev)->bd_disk->part0)
+#define bdev_kobj(_bdev) 			(&((_bdev)->bd_device.kobj))
 
-#define dev_to_bdev(device) \
-	container_of((device), block_device, bd_device)
-
-#define bdev_kobj(_bdev) \
-	(&((_bdev)->bd_device.kobj))
-
-/*
- * Block error status values.  See block/blk-core:blk_errors for the details.
- * Alpha cannot write a byte atomically, so we need to use 32-bit value.
- */
+/* Block error status values.  See block/blk-core:blk_errors for the details. Alpha cannot write a byte atomically, so we need to use 32-bit value. */
 #if defined(CONFIG_ALPHA) && !defined(__alpha_bwx__)
 typedef u32 __bitwise blk_status_t;
 #else
@@ -251,12 +196,13 @@ struct bvec_iter_all
 	unsigned	done;
 };
 
+class CIoCompleteCtrl;
 
 //<YUAN> end of bvec.h
 
-#define BIO_INLINE_VECS 4
+//#define BIO_INLINE_VECS 4
+#define BIO_INLINE_VECS		64
 
-#define TRACK_BIO_IO(bbio, ev)		LOG_TRACK(L"bio.io", L"bio=%p, op=%X, blk=0x%X, blks=%lld, " ev, bbio, bbio->bi_opf & 0xFF, bbio->bi_iter.bi_sector >> 3, bbio->bi_iter.bi_size >> 12)
 
 /* main unit of I/O for the block layer and lower layers (ie drivers and stacking drivers) */
 struct bio 
@@ -300,18 +246,18 @@ struct bio
 	atomic_t			__bi_cnt;	/* pin count */
 	struct bio_vec		*bi_io_vec;	/* the actual vec list */
 //	struct bio_set		*bi_pool;
-	CBioSet* bi_pool;
+//	CBioSet* bi_pool;
+	CIoCompleteCtrl* bi_pool;
 	/* We can inline a number of vecs at the end of the bio, to avoid  double allocations for a small number of bio_vecs. This member MUST obviously be kept at the very end of the bio. */
 	bio_vec		bi_inline_vecs[BIO_INLINE_VECS];
-	OVERLAPPED  m_overlapped;	// 用于异步调用	
-	BYTE* m_buf;	// 异步调用必须要保持buffer
+//	OVERLAPPED  m_overlapped;	// 用于异步调用	
+	OVERLAPPED* m_ol;
+	BYTE* m_buf;		// 异步调用必须要保持buffer
 };
 
 #define BIO_RESET_BYTES		offsetof(struct bio, bi_max_vecs)
 
-/*
- * bio flags
- */
+/* bio flags */
 enum {
 	BIO_NO_PAGE_REF,	/* don't put release vec pages */
 	BIO_CLONED,		/* doesn't own data */
@@ -334,19 +280,13 @@ enum {
 typedef __u32 blk_mq_req_flags_t;
 
 
-/*
- * Operations and flags common to the bio and request structures.
- * We use 8 bits for encoding the operation, and the remaining 24 for flags.
- *
- * The least significant bit of the operation number indicates the data
- * transfer direction:
+/*Operations and flags common to the bio and request structures. We use 8 bits for encoding the operation, and the remaining 24 for flags.
+ * The least significant bit of the operation number indicates the data transfer direction:
  *
  *   - if the least significant bit is set transfers are TO the device
  *   - if the least significant bit is not set transfers are FROM the device
  *
- * If a operation does not transfer data the least significant bit has no
- * meaning.
- */
+ * If a operation does not transfer data the least significant bit has no meaning. */
 #define REQ_OP_BITS	8
 #define REQ_OP_MASK	((1 << REQ_OP_BITS) - 1)
 #define REQ_FLAG_BITS	24
@@ -391,23 +331,31 @@ enum req_opf {
 
 #ifdef _DEBUG
 static const wchar_t* str_req_opf[] = {
-	L"REQ_OP_READ",			L"REQ_OP_WRITE", 			L"REQ_OP_FLUSH",		L"REQ_OP_DISCARD",		// 0
-	L"UNKOWN",				L"REQ_OP_SECURE_ERASE",		L"UNKOWN",				L"REQ_OP_WRITE_SAME",	// 4
-	L"UNKOWN",				L"REQ_OP_WRITE_ZEROES",		L"REQ_OP_ZONE_OPEN",	L"REQ_OP_ZONE_CLOSE",	// 8
-	L"REQ_OP_ZONE_FINISH",	L"REQ_OP_ZONE_APPEND",		L"UNKOWN",				L"REQ_OP_ZONE_RESET",	// 12
-	L"UNKOWN",				L"REQ_OP_ZONE_RESET_ALL",	L"UNKOWN",				L"UNKOWN",					// 16
-	L"UNKOWN",				L"UNKOWN",					L"UNKOWN",				L"UNKOWN",					// 20
-	L"UNKOWN",				L"UNKOWN",					L"UNKOWN",				L"UNKOWN",					// 24
-	L"UNKOWN",				L"UNKOWN",					L"UNKOWN",				L"UNKOWN",					// 28
-	L"REQ_OP_SCSI_IN",		L"REQ_OP_SCSI_OUT",			L"REQ_OP_DRV_IN",		L"REQ_OP_DRV_OUT",		// 32
-	L"REQ_OP_LAST",
+	L"OP_READ_",			L"OP_WRITE", 			L"OP_FLUSH",		L"OP_DISCARD",		// 0
+	L"UNKOWN",				L"OP_SECURE_ERASE",		L"UNKOWN",			L"OP_WRITE_SAME",	// 4
+	L"UNKOWN",				L"OP_WRITE_ZEROES",		L"OP_ZONE_OPEN",	L"OP_ZONE_CLOSE",	// 8
+	L"OP_ZONE_FINISH",		L"OP_ZONE_APPEND",		L"UNKOWN",			L"OP_ZONE_RESET",	// 12
+	L"UNKOWN",				L"OP_ZONE_RESET_ALL",	L"UNKOWN",			L"UNKOWN",					// 16
+	L"UNKOWN",				L"UNKOWN",				L"UNKOWN",			L"UNKOWN",					// 20
+	L"UNKOWN",				L"UNKOWN",				L"UNKOWN",			L"UNKOWN",					// 24
+	L"UNKOWN",				L"UNKOWN",				L"UNKOWN",			L"UNKOWN",					// 28
+	L"OP_SCSI_IN",			L"OP_SCSI_OUT",			L"OP_DRV_IN",		L"OP_DRV_OUT",		// 32
+	L"OP_LAST",
 };
+
+
 
 inline const wchar_t* DebugOutReq(int op)
 {
 	if (op >= REQ_OP_LAST) return L"OUT OF SCOPE";
 	return str_req_opf[op];
 }
+#define TRACK_BIO_IO(bbio, ev, ...)		LOG_TRACK(L"bio.io", L",bio=%p,op=%s,blk=0x%X,blks=%lld," ev, bbio, \
+	str_req_opf[bbio->bi_opf & 0xFF], bbio->bi_iter.bi_sector >> 3, bbio->bi_iter.bi_size >> 12, __VA_ARGS__)
+#else
+#define TRACK_BIO_IO(bbio, ev, ...)		LOG_TRACK(L"bio.io", L",bio=%p,op=%d,blk=0x%X,blks=%lld," ev, bbio, \
+	bbio->bi_opf & 0xFF, bbio->bi_iter.bi_sector >> 3, bbio->bi_iter.bi_size >> 12, __VA_ARGS__)
+
 
 #endif
 
@@ -478,10 +426,8 @@ enum stat_group {
 	NR_STAT_GROUPS
 };
 
-#define bio_op(bio) \
-	((bio)->bi_opf & REQ_OP_MASK)
-#define req_op(req) \
-	((req)->cmd_flags & REQ_OP_MASK)
+#define bio_op(bio) 	((bio)->bi_opf & REQ_OP_MASK)
+#define req_op(req) 	((req)->cmd_flags & REQ_OP_MASK)
 
 /* obsolete, don't use in new code */
 static inline void bio_set_op_attrs(struct bio *bio, unsigned op, unsigned op_flags)
@@ -581,55 +527,58 @@ struct blk_rq_stat {
 
 #endif //TODO
 
+void __bio_add_page(bio* bio, page* page, unsigned int len, unsigned int off);
 
-//<YUAN> from block/bio.c
-/**
- * __bio_add_page - add page(s) to a bio in a new segment
- * @bio: destination bio
- * @page: start page to add
- * @len: length of the data to add, may cross pages
- * @off: offset of the data relative to @page, may cross pages
- *
- * Add the data at @page + @off to @bio as a new bvec.  The caller must ensure
- * that @bio has space for another bvec.
- */
-inline void __bio_add_page(bio* bio, page* page, unsigned int len, unsigned int off)
-{
-	bio_vec* bv = &bio->bi_io_vec[bio->bi_vcnt];
+////<YUAN> from block/bio.c
+///* __bio_add_page - add page(s) to a bio in a new segment
+// * @bio: destination bio
+// * @page: start page to add
+// * @len: length of the data to add, may cross pages
+// * @off: offset of the data relative to @page, may cross pages
+// *
+// * Add the data at @page + @off to @bio as a new bvec.  The caller must ensure that @bio has space for another bvec.*/
+//inline void __bio_add_page(bio* bio, page* page, unsigned int len, unsigned int off)
+//{
+//	bio_vec* bv = &bio->bi_io_vec[bio->bi_vcnt];
+//
+//	//WARN_ON_ONCE(bio_flagged(bio, BIO_CLONED));
+//	//WARN_ON_ONCE(bio_full(bio, len));
+//
+//	bv->bv_page = page;
+//	bv->bv_offset = off;
+//	bv->bv_len = len;
+//
+//	bio->bi_iter.bi_size += len;
+//	bio->bi_vcnt++;
+//
+//	if (!bio_flagged(bio, BIO_WORKINGSET) && unlikely(PageWorkingset(page)))
+//		bio_set_flag(bio, BIO_WORKINGSET);
+//}
 
-	//WARN_ON_ONCE(bio_flagged(bio, BIO_CLONED));
-	//WARN_ON_ONCE(bio_full(bio, len));
-
-	bv->bv_page = page;
-	bv->bv_offset = off;
-	bv->bv_len = len;
-
-	bio->bi_iter.bi_size += len;
-	bio->bi_vcnt++;
-
-	//if (!bio_flagged(bio, BIO_WORKINGSET) && unlikely(PageWorkingset(page)))
-	//	bio_set_flag(bio, BIO_WORKINGSET);
-}
-
-
-/*	bio_add_page	-	attempt to add page(s) to bio
- *	@bio: destination bio
- *	@page: start page to add
- *	@len: vec entry length, may cross pages
- *	@offset: vec entry offset relative to @page, may cross pages
- *
- *	Attempt to add page(s) to the bio_vec maplist. This will only fail	if either bio->bi_vcnt == bio->bi_max_vecs or it's a cloned bio. */
-// offset表示在page bio_vec在page中的偏移量
-inline int bio_add_page(bio* bio, page* page, unsigned int len, unsigned int offset)
-{
-	bool same_page = false;
-	//if (!__bio_try_merge_page(bio, page, len, offset, &same_page))
-	//{
-	//	if (bio_full(bio, len)) return 0;
-		__bio_add_page(bio, page, len, offset);
-	//}
-	return len;
-}
+//
+///*	bio_add_page	-	attempt to add page(s) to bio
+// *	@bio: destination bio
+// *	@page: start page to add
+// *	@len: vec entry length, may cross pages
+// *	@offset: vec entry offset relative to @page, may cross pages
+// *
+// *	Attempt to add page(s) to the bio_vec maplist. This will only fail	if either bio->bi_vcnt == bio->bi_max_vecs or it's a cloned bio. */
+//// offset表示在page bio_vec在page中的偏移量
+//inline int bio_add_page(bio* bio, page* page, unsigned int len, unsigned int offset)
+//{
+//	//bool same_page = false;
+//	//__bio_add_page(bio, page, len, offset);
+//	//return len;
+//
+//	bool same_page = false;
+//
+//	if (!__bio_try_merge_page(bio, page, len, offset, &same_page)) {
+//		if (bio_full(bio, len))
+//			return 0;
+//		__bio_add_page(bio, page, len, offset);
+//	}
+//	return len;
+//}
 
 //<YUAN> from include/linux/bio.h
 static inline void bio_set_flag(struct bio* bio, unsigned int bit)
@@ -656,21 +605,22 @@ inline void bio_set_dev(bio * bio, block_device * bdev)
 // == bio set
 void bio_init(bio* bio, bio_vec* table, unsigned short max_vecs);
 
+#if 0
 class CBioSet
 {
 public:
 	//<YUAN> from block/bio.c, 简化设计，new，并且初始化bio
-	/** bio_alloc_bioset - allocate a bio for I/O
+	/** bio_alloc_bioset - alloc_obj a bio for I/O
 	 * @gfp_mask:   the GFP_* mask given to the slab allocator
-	 * @nr_iovecs:	number of iovecs to pre-allocate
-	 * @bs:		the bio_set to allocate from.
+	 * @nr_iovecs:	number of iovecs to pre-alloc_obj
+	 * @bs:		the bio_set to alloc_obj from.
 	 *
 	 * Allocate a bio from the mempools in @bs.
 	 *
-	 * If %__GFP_DIRECT_RECLAIM is set then bio_alloc will always be able to allocate a bio.  This is due to the mempool
-	 guarantees.  To make this work, callers must never allocate more than 1 bio at a time from the general pool. 
-	 Callers that need to allocate more than 1 bio must always submit the previously allocated bio for IO before
-	 attempting to allocate a new one. Failure to do so can cause deadlocks under memory pressure.
+	 * If %__GFP_DIRECT_RECLAIM is set then bio_alloc will always be able to alloc_obj a bio.  This is due to the mempool
+	 guarantees.  To make this work, callers must never alloc_obj more than 1 bio at a time from the general pool. 
+	 Callers that need to alloc_obj more than 1 bio must always submit the previously allocated bio for IO before
+	 attempting to alloc_obj a new one. Failure to do so can cause deadlocks under memory pressure.
 	 *
 	 * Note that when running under submit_bio_noacct() (i.e. any block driver), bios are not submitted until after you
 	 return - see the code in submit_bio_noacct() that converts recursion into iteration, to prevent stack overflows.
@@ -692,12 +642,15 @@ inline void bio_put(bio* bio)
 	if (bio && bio->bi_pool) bio->bi_pool->bio_put(bio);
 }
 
+#endif
 static inline bio_vec* bvec_init_iter_all(bvec_iter_all* iter_all)
 {
 	iter_all->done = 0;
 	iter_all->idx = 0;
 	return &iter_all->bv;
 }
+
+void bio_put(bio* bio);
 
 static inline void bvec_advance(const struct bio_vec* bvec, struct bvec_iter_all* iter_all)
 {

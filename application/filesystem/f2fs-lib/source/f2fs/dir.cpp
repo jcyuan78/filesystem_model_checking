@@ -8,16 +8,11 @@
  * Copyright (c) 2012 Samsung Electronics Co., Ltd.
  *             http://www.samsung.com/
  */
-//#include <asm/unaligned.h>
-//#include <linux/fs.h>
-//#include <linux/f2fs_fs.h>
-//#include <linux/sched/signal.h>
-//#include <linux/unicode.h>
+
 #include "../../include/f2fs.h"
 #include "node.h"
 #include "acl.h"
 #include "xattr.h"
-//#include <trace/events/f2fs.h>
 #include "../../include/f2fs-filesystem.h"
 #include "../../include/f2fs-inode.h"
 
@@ -359,7 +354,7 @@ f2fs_dir_entry* Cf2fsDirInode::find_in_level(unsigned int level,	const f2fs_file
 	end_block = bidx + nblock;
 
 	for (; bidx < end_block; bidx++) 
-	{	/* no need to allocate new dentry pages to all the indices */
+	{	/* no need to alloc_obj new dentry pages to all the indices */
 		dentry_page = f2fs_find_data_page(bidx);
 		if (IS_ERR(dentry_page)) 
 		{
@@ -858,7 +853,7 @@ int Cf2fsDirInode::f2fs_do_add_link(const qstr *name, f2fs_inode_info *inode, ni
 	if (true)
 	{
 		de = __f2fs_find_entry(&fname, &page);
-		task = NULL;
+		//task = NULL;
 	}
 #endif
 	//	这里有个问题，当create调用此函数时，应该没有找到相应的文件名，de返回false，调用f2fs_add_dentry()。
@@ -1190,13 +1185,13 @@ void Cf2fsDirInode::DebugListItems(void)
 	{// travel in level
 		UINT nbucket = dir_buckets(level, i_dir_level);
 		UINT nblock = bucket_blocks(level);
-		LOG_DEBUG(L"travel in level %d, bucket=%d, block=%d", level, nbucket, nblock);
+		LOG_DEBUG_(1,L"travel in level %d, bucket=%d, block=%d", level, nbucket, nblock);
 		for (UINT bidx = 0; bidx < nblock; bidx++)
 		{
 			page* dentry_page = f2fs_find_data_page(bidx);
 			if (!dentry_page)
 			{
-				LOG_DEBUG(L"dentry page bidx=%d is empty", bidx);
+				LOG_DEBUG_(1,L"dentry page bidx=%d is empty", bidx);
 				continue;
 			}
 			// travel in block
@@ -1215,12 +1210,194 @@ void Cf2fsDirInode::DebugListItems(void)
 				wchar_t fn[256];
 				size_t len = jcvos::Utf8ToUnicode(fn, 256, (char*)d.filename[bit_pos], le16_to_cpu(de.name_len));
 				fn[len] = 0;
-				LOG_DEBUG(L"item: ino=%d, type=%02X, name=%s", de.ino, de.file_type, fn);
+				LOG_DEBUG_(1,L"item: ino=%d, type=%02X, name=%s", de.ino, de.file_type, fn);
 				max_len = 0;
 				//bit_pos += GET_DENTRY_SLOTS(le16_to_cpu(de.name_len));
 			}
 		}
 	}
+}
+
+#endif
+
+#ifdef _DEBUG
+
+//int get_node_path(f2fs_inode_info* inode, long block, int offset[4], unsigned int noffset[4]);
+
+class MERGED_BLOCKS
+{
+public:
+	UINT64 start_blk = 0;
+	UINT64 blk_num = 0;
+	UINT pre_phy_blk = 0;
+};
+
+void MergeLogicalBlock(MERGED_BLOCKS& mb, UINT64 lblk, UINT phy_blk)
+{
+//	cur_phy_blk = phy_blk;
+	// phy_blk==0时，表示强制输出
+	if ((mb.pre_phy_blk == 0xFFFFFFFF) && (phy_blk == 0xFFFFFFFF)) { mb.blk_num++; }		// 合并 0xFF
+	//			else if (mb.pre_phy_blk == 0 && phy_blk == 0) { mb.blk_num++; }
+	else if (phy_blk != 0 && (phy_blk == mb.pre_phy_blk + 1)) { mb.blk_num++; mb.pre_phy_blk = phy_blk; }	// 合并连续
+	else
+	{	// 输出
+		if (mb.blk_num == 0) {}	// 之前没有block，不输出
+		else if (mb.blk_num == 1) { LOG_DEBUG(L"data, logic blk=%d, phy blk=0x%08X", mb.start_blk, mb.pre_phy_blk); }
+		else
+		{
+			if (mb.pre_phy_blk == 0xFFFFFFFF)
+			{
+				LOG_DEBUG(L"data, logic blk=%d ~ %d, phy blk=0x%08X (not assigned)", mb.start_blk, lblk - 1, mb.pre_phy_blk);
+			}
+			else
+			{
+				LOG_DEBUG(L"data, logic blk=%d ~ %d, phy blk=0x%08X ~ 0x%08X", mb.start_blk, lblk - 1, mb.pre_phy_blk - mb.blk_num + 1, mb.pre_phy_blk);
+			}
+		}
+		// 更新
+		mb.start_blk += mb.blk_num; 
+		if (phy_blk != 0)
+		{
+			mb.blk_num = lblk - mb.start_blk + 1;
+			mb.pre_phy_blk = phy_blk;
+		}
+		else mb.blk_num = 0;
+	}
+}
+
+void f2fs_inode_info::DumpInodeMapping(void)
+{
+	UINT64 blk_num = ROUND_UP_DIV(i_size, PAGE_SIZE);
+	LOG_DEBUG(L"begin dump inode, ino=%d, file size=%lld, blk_num=%d", i_ino, i_size, i_size / PAGE_SIZE);
+	int err = 0;
+	UINT64 lblk = 0;
+
+	/* if inline_data is set, should not report any block indices */
+	if (f2fs_has_inline_data(this))
+	{
+		LOG_DEBUG(L"inline inode");
+		return;
+	}
+
+	int max_level = 1, cur_level = 0;
+
+	MERGED_BLOCKS mb;
+
+	class CHECK_STATE
+	{
+	public:
+		UINT offset;		// 兄弟节点的位置
+		UINT node_num;		// 兄弟节点个数
+		page* node_page=nullptr;
+		__le32* tab;
+	};
+
+	CHECK_STATE states[5];
+	states[0].offset = 0;
+	states[0].node_num = 6;		// 1个inode，2个direct node，2个indirect node, 1个double indirect.
+	page * node_page = m_sbi->f2fs_get_node_page(i_ino);
+	f2fs_node* rn = F2FS_NODE(node_page);
+
+	__le32 tab_level0[6];
+	tab_level0[0] = i_ino;
+	for (int ii = 0; ii < 5; ++ii) tab_level0[ii + 1] = rn->i.i_nid[ii];
+	f2fs_put_page(node_page, 1);
+	states[0].tab = tab_level0;
+
+	while (lblk < blk_num)
+	{
+		CHECK_STATE& cur_state = states[cur_level];
+		if (states[cur_level].offset >= states[cur_level].node_num)
+		{	// 回滚
+			if (cur_level == 0) break;		// 遍历结束
+			cur_level--;
+			states[cur_level].offset++;
+			if (states[cur_level].node_page)
+			{
+				f2fs_put_page(states[cur_level].node_page, 1);
+				states[cur_level].node_page = nullptr;
+			}
+			continue;
+		}		
+			
+		// visit node
+		if (cur_level == max_level)
+		{	// 叶节点：data block
+//			__le32* tab = node_table[cur_level];
+			UINT nid = le32_to_cpu(cur_state.tab[cur_state.offset]);
+			MergeLogicalBlock(mb, lblk, nid);
+			lblk++;
+			// 移动到下一节点：兄弟节点
+			cur_state.offset++;
+		}
+		else
+		{	// node block
+			MergeLogicalBlock(mb, lblk, 0);
+			UINT nid = le32_to_cpu(cur_state.tab[cur_state.offset]);
+			node_info ni;
+			m_sbi->nm_info->f2fs_get_node_info(nid, &ni);
+			LOG_DEBUG(L"node, level=%d, offset=%d, nid=%d, phy blk=0x%08X", cur_level, cur_state.offset, nid, ni.blk_addr);
+			cur_state.node_page = m_sbi->f2fs_get_node_page(nid);
+			if (IS_ERR(cur_state.node_page))
+			{
+				cur_state.node_page = nullptr;
+				LOG_ERROR(L"failed on reading node, nid=%d", nid);
+//				cur_level--;
+				break;
+			}
+
+			// 移动到下一节点：下层节点
+			CHECK_STATE& next_state = states[cur_level + 1];
+			next_state.offset = 0;
+
+			f2fs_node* rn = F2FS_NODE(cur_state.node_page);
+
+			if (cur_level == 0)
+			{	// 选择不同的节点读取
+				if (cur_state.offset == 0)
+				{	// inode
+					next_state.node_num = ADDRS_PER_INODE(this);
+					next_state.tab = rn->i._u.i_addr;
+					max_level = 1;
+				}
+				else
+				{
+					if (cur_state.offset <= 2)
+					{	// direct node
+						next_state.node_num = DEF_ADDRS_PER_BLOCK;
+						next_state.tab = rn->dn.addr;
+						max_level = 1;
+					}
+					else if (cur_state.offset <= 4)
+					{	// indirect node
+						next_state.node_num = NIDS_PER_BLOCK;
+						next_state.tab = rn->in.nid;
+						max_level = 2;
+					}
+					else
+					{	// double indirect node
+						next_state.node_num = NIDS_PER_BLOCK;
+						next_state.tab = rn->in.nid;
+						max_level = 3;
+					}
+				}
+			}
+			else
+			{	// 读取direct node
+				next_state.node_num = DEF_ADDRS_PER_BLOCK;
+				next_state.tab = rn->dn.addr;
+			}
+			cur_level++;
+		}
+	}
+	MergeLogicalBlock(mb, lblk, 0);
+
+	for (int level = 0; level < 5; ++level)
+	{
+		if (states[level].node_page) f2fs_put_page(states[level].node_page, 1);
+	}
+
+	LOG_DEBUG(L"end dump inode");
 }
 
 #endif

@@ -1137,7 +1137,7 @@ EXPORT_SYMBOL(inode_insert5);
  * a generalized version of iget_locked() for file systems where the inode
  * number is not sufficient for unique identification of an inode.
  *
- * If the inode is not in cache, allocate a new inode and return it locked,
+ * If the inode is not in cache, alloc_obj a new inode and return it locked,
  * hashed, and with the I_NEW flag set. The file system gets to fill it in
  * before unlocking it via unlock_new_inode().
  *
@@ -1174,7 +1174,7 @@ EXPORT_SYMBOL(iget5_locked);
  * return it with an increased reference count. This is for file systems
  * where the inode number is sufficient for unique identification of an inode.
  *
- * If the inode is not in cache, allocate a new inode and return it locked,
+ * If the inode is not in cache, alloc_obj a new inode and return it locked,
  * hashed, and with the I_NEW flag set.  The file system gets to fill it in
  * before unlocking it via unlock_new_inode().
  */
@@ -1243,7 +1243,7 @@ again:
 /*
  * search the inode cache for a matching inode number.
  * If we find one, then the inode number we are trying to
- * allocate is not unique and so we should not use it.
+ * alloc_obj is not unique and so we should not use it.
  *
  * Returns 1 if the inode number is unique, 0 if it is not.
  */
@@ -1782,7 +1782,7 @@ void touch_atime(const struct path *path)
 		goto skip_update;
 	/*
 	 * File systems can error out when updating inodes if they need to
-	 * allocate new space to modify an inode (such is the case for
+	 * alloc_obj new space to modify an inode (such is the case for
 	 * Btrfs), but since we touch atime while walking down the path we
 	 * really don't care if we failed to update the atime of the file,
 	 * so just ignore the return value.
@@ -1894,7 +1894,7 @@ int file_remove_privs(struct file *file)
  *	Update the mtime and ctime members of an inode and mark the inode for writeback.  Note that this function is 
  meant exclusively for usage in the file write path of filesystems, and filesystems may choose to explicitly ignore
  update via this function with the S_NOCMTIME inode flag, e.g. for network filesystem where these timestamps are
- handled by the server.  This can return an error for file systems who need to allocate space in order to update an
+ handled by the server.  This can return an error for file systems who need to alloc_obj space in order to update an
  inode. */
 
 int file_update_time(struct file *file)
@@ -2295,7 +2295,7 @@ void inode::WaitForStateClear(int state_id, DWORD timeout)
 //	while (i_state & state_bmp)
 	while (1)
 	{
-		LOG_DEBUG(L"waiting for inode state clear 0x%X, current state=0x%X", state_bmp, i_state);
+		LOG_DEBUG_(1,L"waiting for inode state clear 0x%X, current state=0x%X", state_bmp, i_state);
 		if ( (i_state & state_bmp)==0) break;
 //		spin_unlock(&i_lock);
 		DWORD ir = WaitForSingleObject(m_event_state, timeout);
@@ -2312,7 +2312,7 @@ void inode::WaitForStateSet(int state_id, DWORD timeout)
 	//	while (i_state & state_bmp)
 	while (1)
 	{
-		LOG_DEBUG(L"waiting for inode state set 0x%X, current state=0x%X", state_bmp, i_state);
+		LOG_DEBUG_(1,L"waiting for inode state set 0x%X, current state=0x%X", state_bmp, i_state);
 		if (i_state & state_bmp) break;
 		//		spin_unlock(&i_lock);
 		DWORD ir = WaitForSingleObject(m_event_state, timeout);

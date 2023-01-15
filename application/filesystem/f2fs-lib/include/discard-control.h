@@ -141,9 +141,6 @@ public:
 #ifdef _DEBUG
 	long n_pend_list[MAX_PLIST_NUM];		// 统计列表的大小
 #endif
-#if 0
-	wait_queue_head_t discard_wait_queue;	/* waiting queue for wake-up */
-#endif
 	unsigned int discard_wake;		/* to wake up discard thread */
 	HANDLE /*mutex*/ cmd_lock;
 	unsigned int nr_discards;		/* # of discards in the list */

@@ -227,10 +227,8 @@ extern int buffer_heads_over_limit;
  */
 void block_invalidatepage(struct page *page, unsigned int offset,
 			  unsigned int length);
-int block_write_full_page(struct page *page, get_block_t *get_block,
-				struct writeback_control *wbc);
-int __block_write_full_page(struct inode *inode, struct page *page,
-			get_block_t *get_block, struct writeback_control *wbc,
+int block_write_full_page(struct page *page, get_block_t *get_block, writeback_control *wbc);
+int __block_write_full_page(struct inode *inode, struct page *page, get_block_t *get_block, writeback_control *wbc,
 			bh_end_io_t *handler);
 int block_read_full_page(struct page*, get_block_t*);
 int block_is_partially_uptodate(struct page *page, unsigned long from,
@@ -274,8 +272,7 @@ int nobh_write_end(struct file *, address_space *,
 				loff_t, unsigned, unsigned,
 				struct page *, void *);
 int nobh_truncate_page(address_space *, loff_t, get_block_t *);
-int nobh_writepage(struct page *page, get_block_t *get_block,
-                        struct writeback_control *wbc);
+int nobh_writepage(struct page *page, get_block_t *get_block, writeback_control *wbc);
 
 void buffer_init(void);
 

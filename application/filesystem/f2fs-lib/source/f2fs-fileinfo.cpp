@@ -1,6 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #include "pch.h"
 #include <linux-fs-wrapper.h>
+#include "../include/config.h"
 #include "../include/f2fs-filesystem.h"
 #include <boost/property_tree/json_parser.hpp>
 
@@ -12,8 +13,6 @@ CF2fsFile::~CF2fsFile(void)
 	if (m_dentry)
 	{
 		dput(m_dentry);			// dput可以接受null参数，被忽略
-		//LOG_DEBUG(L"[dentry_track] addr=%p, fn=%S, ref=%d, inode=%p - destory Cf2fsFile", m_dentry, m_dentry->d_name.name.c_str(), m_dentry->d_lockref.count, m_dentry->d_inode);
-//		m_dentry->dentry_trace(__FUNCTIONW__, __LINE__);
 		m_dentry = nullptr;
 	}
 }
@@ -33,9 +32,18 @@ void CF2fsFile::Init(dentry* de, inode* node, CF2fsFileSystem* fs, UINT32 mode)
 	if (m_inode == NULL) THROW_ERROR(ERR_APP, L"[err] inode is null or wrong type");
 	m_file.init(m_inode);
 	m_file.f_mode |= mode;
-	m_file.f_ra.ra_pages = 32;	// 一次最多读取256 sectors, 32 pages
+	m_file.f_ra.ra_pages = MAX_IO_BLOCKS;	// 一次最多读取256 sectors, 32 pages
 	m_fs = m_inode->m_sbi->m_fs;
+	LOG_TRACK(L"dentry", L"entry=%p,ref=%d", m_dentry, m_dentry->d_lockref.count);
+	TRACK_INODE(m_inode, L"");
 	InterlockedExchange(&m_valid, 1);
+}
+
+void CF2fsFile::operator delete(void* ptr)
+{
+	CF2fsFile *pp = (CF2fsFile*)ptr;
+	//JCASSERT(pp == this);
+	pp->m_manager->free_obj(ptr);
 }
 
 int CF2fsFile::DeleteThis(void)
@@ -67,45 +75,32 @@ int CF2fsFile::DeleteThis(void)
 
 void CF2fsFile::CloseFile(void)
 {
-	size_t page_cache_size, page_cache_free, page_cache_inactive, page_cache_active;
+//	size_t page_cache_size, page_cache_free, page_cache_inactive, page_cache_active;
 	CPageManager * pm = m_fs->m_sb_info->GetPageManager();
-	//pm->GetStatus(page_cache_size, page_cache_free, page_cache_inactive, page_cache_active);
-	//LOG_DEBUG(L"page_nr=%lld, free=%lld, inactive=%lld, active=%lld, used=%lld",
-	//	page_cache_size, page_cache_free, page_cache_inactive, page_cache_active, (page_cache_size - page_cache_free - page_cache_inactive - page_cache_active));
 
 	LOG_STACK_TRACE();
-//	{	// 有可能文件已经被删除
 	if (m_delete_on_close)
 	{
-		LOG_DEBUG(L"delete on close");
+		LOG_DEBUG_(1,L"delete on close");
 		DeleteThis();
 		return;
 	}
 	if (InterlockedExchange(&m_valid, 0))
 	{
+#ifdef _DEBUG
+		// dump inode, direct nodes and indirect nodes
+		m_inode->DumpInodeMapping();
+		// dump data blocks
+#endif
 		JCASSERT(m_dentry && m_inode);
-		//		LOG_DEBUG(L"[fs_op] close, %S", m_dentry->d_name.name.c_str());
-		//m_dentry->dentry_trace(__FUNCTIONW__, __LINE__);
-
-//		m_inode->fsync(&m_file, 0, m_inode->i_size, true);
-		//pm->GetStatus(page_cache_size, page_cache_free, page_cache_inactive, page_cache_active);
-		//LOG_DEBUG(L"page_nr=%lld, free=%lld, inactive=%lld, active=%lld, used=%lld",
-		//	page_cache_size, page_cache_free, page_cache_inactive, page_cache_active, (page_cache_size - page_cache_free - page_cache_inactive - page_cache_active));
-
+		TRACK_INODE(m_inode, L"closing file");
 		m_inode->release_file(&m_file);
-		//pm->GetStatus(page_cache_size, page_cache_free, page_cache_inactive, page_cache_active);
-		//LOG_DEBUG(L"page_nr=%lld, free=%lld, inactive=%lld, active=%lld, used=%lld",
-		//	page_cache_size, page_cache_free, page_cache_inactive, page_cache_active, (page_cache_size - page_cache_free - page_cache_inactive - page_cache_active));
-
 		dput(m_dentry);
-		//pm->GetStatus(page_cache_size, page_cache_free, page_cache_inactive, page_cache_active);
-		//LOG_DEBUG(L"page_nr=%lld, free=%lld, inactive=%lld, active=%lld, used=%lld",
-		//	page_cache_size, page_cache_free, page_cache_inactive, page_cache_active, (page_cache_size - page_cache_free - page_cache_inactive - page_cache_active));
-
+		LOG_TRACK(L"dentry", L"entry=%p, inode=%p, ref=%d", m_dentry, m_dentry->d_inode, m_dentry->d_lockref.count);
 		m_dentry = nullptr;
 		m_inode = nullptr;
 	}
-//	}
+	m_fs->m_sb_info->DumpSegInfo();
 }
 
 bool CF2fsFile::DokanReadFile(LPVOID buf, DWORD len, DWORD& read, LONGLONG offset)
@@ -113,7 +108,7 @@ bool CF2fsFile::DokanReadFile(LPVOID buf, DWORD len, DWORD& read, LONGLONG offse
 	LOG_STACK_TRACE();
 	read = 0;
 	if (InterlockedAdd(&m_valid, 0) == 0) return true;
-//	LOG_DEBUG(L"[fs_op] read, %S, offset=%lld, len=%lld", m_dentry->d_name.name.c_str(), offset, len);
+	LOG_TRACK(L"fs", L",read,file=%S,offset=%lld,len=%d", m_dentry->d_name.name.c_str(), offset, len);
 	Cf2fsFileNode* file_node = dynamic_cast<Cf2fsFileNode*>(m_inode);
 	if (!file_node) THROW_ERROR(ERR_APP, L"the inode is not a file (%X) or is null", m_inode);
 
@@ -139,6 +134,8 @@ bool CF2fsFile::DokanWriteFile(const void* buf, DWORD len, DWORD& written, LONGL
 	LOG_STACK_TRACE();
 	written = 0;
 	if (InterlockedAdd(&m_valid, 0) == 0) return true;
+
+	LOG_TRACK(L"fs", L",write,file=%S,offset=%lld,len=%d", m_dentry->d_name.name.c_str(), offset, len);
 
 	Cf2fsFileNode* file_node = dynamic_cast<Cf2fsFileNode*>(m_inode);
 	if (!file_node) THROW_ERROR(ERR_APP, L"the inode is not a file (%X) or is null", m_inode);
@@ -220,9 +217,8 @@ bool CF2fsFile::EnumerateFiles(EnumFileListener* listener) const
 
 bool CF2fsFile::GetFileInformation(LPBY_HANDLE_FILE_INFORMATION fileinfo) const
 {
-
-	LOG_STACK_TRACE();
-//	LOG_DEBUG(L"[fs_op] file_info, %S", m_dentry->d_name.name.c_str());
+//	LOG_STACK_TRACE();
+	LOG_TRACK(L"fs", L"file_info, %S", m_dentry->d_name.name.c_str());
 	if (m_valid == 0) return true;
 
 	if (fileinfo)
@@ -343,7 +339,7 @@ void CF2fsFile::DokanSetFileAttributes(DWORD attr)
 	else								mode_sub |= FMODE_ARCHIVE;
 
 	m_inode->SetFileAttribute(mode_add, mode_sub);
-	LOG_DEBUG(L"new mode=0x%X", m_inode->i_mode);
+	LOG_DEBUG_(1,L"new mode=0x%X", m_inode->i_mode);
 }
 
 void CF2fsFile::SetFileTime(const FILETIME* ct, const FILETIME* at, const FILETIME* mt)
@@ -357,24 +353,24 @@ void CF2fsFile::SetFileTime(const FILETIME* ct, const FILETIME* at, const FILETI
 	{
 		ft = *ct;
 		FileTimeToSystemTime(&ft, &t);
-		LOG_DEBUG(L"create time, hi=%d, lo=%d, t=%d-%d-%d:%d:%d:%d", ft.dwLowDateTime, ft.dwHighDateTime, t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+		LOG_DEBUG_(1,L"create time, hi=%d, lo=%d, t=%d-%d-%d:%d:%d:%d", ft.dwLowDateTime, ft.dwHighDateTime, t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
 	}
-	else { LOG_DEBUG(L"create time is not set"); }
+	else { LOG_DEBUG_(1,L"create time is not set"); }
 
 	if (at)
 	{
 		ft = *at;
 		FileTimeToSystemTime(&ft, &t);
-		LOG_DEBUG(L"access time, hi=%d, lo=%d, t=%d-%d-%d:%d:%d:%d", ft.dwLowDateTime, ft.dwHighDateTime, t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+		LOG_DEBUG_(1,L"access time, hi=%d, lo=%d, t=%d-%d-%d:%d:%d:%d", ft.dwLowDateTime, ft.dwHighDateTime, t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
 	}
-	else { LOG_DEBUG(L"access time is not set"); }
+	else { LOG_DEBUG_(1,L"access time is not set"); }
 	if (mt)
 	{
 		ft = *mt;
 		FileTimeToSystemTime(&ft, &t);
-		LOG_DEBUG(L"modify time, hi=%d, lo=%d, t=%d-%d-%d:%d:%d:%d", ft.dwLowDateTime, ft.dwHighDateTime, t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+		LOG_DEBUG_(1,L"modify time, hi=%d, lo=%d, t=%d-%d-%d:%d:%d:%d", ft.dwLowDateTime, ft.dwHighDateTime, t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
 	}
-	else { LOG_DEBUG(L"modify time is not set"); }
+	else { LOG_DEBUG_(1,L"modify time is not set"); }
 
 
 #endif
@@ -398,7 +394,8 @@ void CF2fsFile::GetParent(IFileInfo*& parent)
 {
 	dentry* dparent = m_dentry->d_parent;
 
-	CF2fsFile* _file = jcvos::CDynamicInstance<CF2fsFile>::Create();
+//	CF2fsFile* _file = jcvos::CDynamicInstance<CF2fsFile>::Create();
+	CF2fsFile* _file = m_manager->file_get();
 	_file->Init(dparent, NULL, m_fs, 0);
 	parent = static_cast<IFileInfo*>(_file);
 }
@@ -430,7 +427,11 @@ bool CF2fsFile::_OpenChild(CF2fsFile*& file, const wchar_t* fn, UINT32 mode) con
 		return false;
 	}
 	// unlock_kernel
-	file = jcvos::CDynamicInstance<CF2fsFile>::Create();
+	//file = jcvos::CDynamicInstance<CF2fsFile>::Create();
+	LOG_TRACK(L"dentry", "entry=%p, inode=%p, ref=%d", entry, entry->d_inode, entry->d_lockref.count);
+	if (entry->d_inode) { TRACK_INODE(entry->d_inode, L"dentry=%p", entry); }
+
+	file = m_manager->file_get();
 	file->Init(new_entry, NULL, m_fs, mode);
 	dput(new_entry);
 //	new_entry->dentry_trace(__FUNCTIONW__, __LINE__);
@@ -496,7 +497,13 @@ bool CF2fsFile::_OpenChildEx(CF2fsFile*& file, const wchar_t* fn, size_t len)
 		parent_start++;
 	}
 
-	file = jcvos::CDynamicInstance<CF2fsFile>::Create();
+	//file = jcvos::CDynamicInstance<CF2fsFile>::Create();
+	file = m_manager->file_get();
+	LOG_TRACK(L"dentry", "entry=%p, inode=%p, ref=%d", cur_entry, cur_entry->d_inode, cur_entry->d_lockref.count);
+	if (cur_entry->d_inode)
+	{
+		LOG_TRACK(L"inode", "inode=%p, ino=%d, ref=%d, ", cur_entry->d_inode, cur_entry->d_inode->i_ino, cur_entry->d_inode->i_count);
+	}
 	file->Init(cur_entry, NULL, m_fs, (FMODE_READ | FMODE_WRITE | FMODE_EXEC));
 	dput(cur_entry);
 	return true;
@@ -532,7 +539,7 @@ int CF2fsFile::_DeleteChild(const std::wstring & fn)
 			return -ENOTEMPTY;
 		}
 	}
-	LOG_DEBUG(L"fn=%s, dentry=%p, inode=%p, ino=%d", fn.c_str(), new_entry, new_entry->d_inode, new_entry->d_inode->i_ino);
+	LOG_DEBUG_(1,L"fn=%s, dentry=%p, inode=%p, ino=%d", fn.c_str(), new_entry, new_entry->d_inode, new_entry->d_inode->i_ino);
 	int err = m_inode->unlink(new_entry);
 	if (err) THROW_ERROR(ERR_APP, L"failed on delete file %S, error=%d", new_entry->d_name.name.c_str(), err);
 	d_delete(new_entry);
@@ -570,7 +577,14 @@ bool CF2fsFile::CreateChild(IFileInfo*& file, const wchar_t* fn, bool dir, UINT3
 			return false;
 		}
 	}		
-	CF2fsFile* _file = jcvos::CDynamicInstance<CF2fsFile>::Create();
+	//CF2fsFile* _file = jcvos::CDynamicInstance<CF2fsFile>::Create();
+	CF2fsFile* _file = m_manager->file_get();
+	LOG_TRACK(L"dentry", "entry=%p, inode=%p, ref=%d", entry, entry->d_inode, entry->d_lockref.count);
+	if (entry->d_inode)
+	{
+		LOG_TRACK(L"inode", "inode=%p, ino=%d, ref=%d, ", entry->d_inode, entry->d_inode->i_ino, entry->d_inode->i_count);
+	}
+
 	_file->Init(entry, NULL, m_fs, mode);
 	file = static_cast<IFileInfo*>(_file);
 	dput(entry);

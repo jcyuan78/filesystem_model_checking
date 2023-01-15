@@ -37,13 +37,13 @@ struct mem_cgroup;
 
 /* Each physical page in the system has a struct page associated with it to keep track of whatever it is we are using the page for at the moment. Note that we have no way to track which tasks are using a page, though if it is a pagecache page, rmap structures can tell us who is mapping it.
  *
- * If you allocate the page using alloc_pages(), you can use some of the space in struct page for your own purposes. The five words in the main union are available, except for bit 0 of the first word which must be kept clear.  Many users use this word to store a pointer to an object which is guaranteed to be aligned.  If you use the same storage as page->mapping, you must restore it to NULL before freeing the page.
+ * If you alloc_obj the page using alloc_pages(), you can use some of the space in struct page for your own purposes. The five words in the main union are available, except for bit 0 of the first word which must be kept clear.  Many users use this word to store a pointer to an object which is guaranteed to be aligned.  If you use the same storage as page->mapping, you must restore it to NULL before freeing the page.
  *
  * If your page will not be mapped to userspace, you can also use the four bytes in the mapcount union, but you must call page_mapcount_reset() before freeing it.
  *
  * If you want to use the refcount field, it must be used in such a way that other CPUs temporarily incrementing and then decrementing the refcount does not cause problems.  On receiving the page from alloc_pages(), the refcount will be positive.
  *
- * If you allocate pages of order > 0, you can use some of the fields in each subpage, but you may need to restore some of their values afterwards.
+ * If you alloc_obj pages of order > 0, you can use some of the fields in each subpage, but you may need to restore some of their values afterwards.
  *
  * SLUB uses cmpxchg_double() to atomically update its freelist and counters.  That requires that freelist & counters be adjacent and double-word aligned.  We align all struct pages to double-word boundaries, and ensure that 'freelist' is aligned within the struct. */
 #ifdef CONFIG_HAVE_ALIGNED_STRUCT_PAGE
@@ -470,7 +470,7 @@ struct page_frag_cache {
 	__u32 offset;
 #endif
 	/* we maintain a pagecount bias, so that we dont dirty cache line
-	 * containing page->_refcount every time we allocate a fragment.
+	 * containing page->_refcount every time we alloc_obj a fragment.
 	 */
 	unsigned int		pagecnt_bias;
 	bool pfmemalloc;
@@ -1089,10 +1089,12 @@ inline page* find_lock_page(address_space* mapping, pgoff_t index)
 	return pagecache_get_page(mapping, index, FGP_LOCK, 0);
 }
 
-inline void zero_user(page* pp, loff_t start, loff_t end)
+// 从start开始，size大小的区域设置为0
+inline void zero_user(page* pp, loff_t start, loff_t size)
 {
 	BYTE* buf = page_address<BYTE>(pp);
-	memset(buf + start, 0, end - start);
+//	memset(buf + start, 0, end - start);
+	memset(buf + start, 0, size);
 }
 
 

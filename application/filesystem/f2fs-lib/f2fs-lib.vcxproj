@@ -34,41 +34,51 @@
     <ClCompile Include="source\f2fs\data.cpp">
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|Win32'">../pch.h</PrecompiledHeaderFile>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
     </ClCompile>
     <ClCompile Include="source\f2fs\dir.cpp">
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|Win32'">../pch.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
     </ClCompile>
     <ClCompile Include="source\f2fs\extent_cache.cpp">
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|Win32'">../pch.h</PrecompiledHeaderFile>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
     </ClCompile>
     <ClCompile Include="source\f2fs\f2fs-inode.cpp">
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
     </ClCompile>
     <ClCompile Include="source\f2fs\file.cpp">
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|Win32'">../pch.h</PrecompiledHeaderFile>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
     </ClCompile>
     <ClCompile Include="source\f2fs\gc.cpp">
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|Win32'">../pch.h</PrecompiledHeaderFile>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
     </ClCompile>
     <ClCompile Include="source\f2fs\hash.cpp">
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|Win32'">../pch.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
     </ClCompile>
     <ClCompile Include="source\f2fs\inline.cpp">
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|Win32'">../pch.h</PrecompiledHeaderFile>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
     </ClCompile>
     <ClCompile Include="source\f2fs\inode.cpp">
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|Win32'">../pch.h</PrecompiledHeaderFile>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
     </ClCompile>
     <ClCompile Include="source\f2fs\namei.cpp">
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|Win32'">../pch.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
     </ClCompile>
     <ClCompile Include="source\f2fs\node.cpp">
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|Win32'">..\pch.h</PrecompiledHeaderFile>
@@ -79,14 +89,17 @@
     <ClCompile Include="source\f2fs\recovery.cpp">
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|Win32'">../pch.h</PrecompiledHeaderFile>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
     </ClCompile>
     <ClCompile Include="source\f2fs\segment.cpp">
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|Win32'">../pch.h</PrecompiledHeaderFile>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
     </ClCompile>
     <ClCompile Include="source\f2fs\shrinker.cpp">
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|Win32'">../pch.h</PrecompiledHeaderFile>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
     </ClCompile>
     <ClCompile Include="source\f2fs\super.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|Win32'">NotUsing</PrecompiledHeader>
@@ -97,6 +110,7 @@
     <ClCompile Include="source\f2fs\sysfs.cpp">
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|Win32'">..\pch.h</PrecompiledHeaderFile>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">..\pch.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
     </ClCompile>
     <ClCompile Include="source\f2fs\xattr.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|Win32'">NotUsing</PrecompiledHeader>
@@ -116,23 +130,30 @@
     <ClCompile Include="source\format\f2fs_format_utils.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|Win32'">../pch.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
     </ClCompile>
     <ClCompile Include="source\healthinfo-file.cpp" />
+    <ClCompile Include="source\io-complete-ctrl.cpp" />
     <ClCompile Include="source\lib\libf2fs.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
     </ClCompile>
     <ClCompile Include="source\lib\libf2fs_io.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
     </ClCompile>
     <ClCompile Include="source\lib\libf2fs_zoned.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
     </ClCompile>
     <ClCompile Include="source\lib\nls_utf8.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'">../pch.h</PrecompiledHeaderFile>
     </ClCompile>
     <ClCompile Include="source\pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|Win32'">Create</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'">Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="source\unit_test.cpp" />
   </ItemGroup>
@@ -147,6 +168,7 @@
     <ClInclude Include="include\f2fs-super-block.h" />
     <ClInclude Include="include\f2fs.h" />
     <ClInclude Include="include\f2fs_fs.h" />
+    <ClInclude Include="include\io-complete-ctrl.h" />
     <ClInclude Include="include\list.h" />
     <ClInclude Include="include\node-manager.h" />
     <ClInclude Include="include\quota.h" />
@@ -174,14 +196,14 @@
     <VcpkgConfiguration>Debug</VcpkgConfiguration>
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|Win32'" Label="Configuration">
     <VcpkgConfiguration>Release</VcpkgConfiguration>
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -189,14 +211,14 @@
     <VcpkgConfiguration>Debug</VcpkgConfiguration>
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'" Label="Configuration">
     <VcpkgConfiguration>Release</VcpkgConfiguration>
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -309,7 +331,7 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;F2FSLIB_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <ConformanceMode>true</ConformanceMode>
+      <ConformanceMode>false</ConformanceMode>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <AdditionalIncludeDirectories>..\linux-fs-wrapper;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>

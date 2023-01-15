@@ -28,5 +28,6 @@
 #include "include/xarray.h"
 #include "include/bio.h"
 #include "include/page-manager.h"
+#include "include/allocator.h"
 
 #pragma comment (lib, "linux-fs-wrapper.lib")

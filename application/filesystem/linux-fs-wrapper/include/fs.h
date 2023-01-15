@@ -282,28 +282,12 @@ struct iattr
 /** 
  * enum positive_aop_returns - aop return codes with specific semantics
  *
- * @AOP_WRITEPAGE_ACTIVATE: Informs the caller that page writeback has
- * 			    completed, that the page is still locked, and
- * 			    should be considered active.  The VM uses this hint
- * 			    to return the page to the active list -- it won't
- * 			    be a candidate for writeback again in the near
- * 			    future.  Other callers must be careful to unlock
- * 			    the page if they get this return.  Returned by
- * 			    writepage(); 
+ * @AOP_WRITEPAGE_ACTIVATE: Informs the caller that page writeback has completed, that the page is still locked, and should be considered active.  The VM uses this hint to return the page to the active list -- it won't be a candidate for writeback again in the near future.  Other callers must be careful to unlock the page if they get this return.  Returned by writepage(); 
  *
- * @AOP_TRUNCATED_PAGE: The AOP method that was handed a locked page has
- *  			unlocked it and the page might have been truncated.
- *  			The caller should back up to acquiring a new page and
- *  			trying again.  The aop will be taking reasonable
- *  			precautions not to livelock.  If the caller held a page
- *  			reference, it should drop it before retrying.  Returned
- *  			by readpage().
+ * @AOP_TRUNCATED_PAGE: The AOP method that was handed a locked page has unlocked it and the page might have been truncated. The caller should back up to acquiring a new page and trying again.  The aop will be taking reasonable precautions not to livelock.  If the caller held a page	reference, it should drop it before retrying.  Returned by readpage().
  *
- * address_space_operation functions return these large constants to indicate
- * special semantics to the caller.  These are much larger than the bytes in a
- * page to allow for functions that return the number of bytes operated on in a
- * given page.
- */
+ * address_space_operation functions return these large constants to indicate special semantics to the caller.  These are much larger than the bytes in a page to allow for functions that return the number of bytes operated on in a
+ * given page. */
 
 enum positive_aop_returns {
 	AOP_WRITEPAGE_ACTIVATE	= 0x80000,
@@ -313,18 +297,13 @@ enum positive_aop_returns {
 #define AOP_FLAG_CONT_EXPAND	0x0001 /* called from cont_expand */
 #define AOP_FLAG_NOFS			0x0002 /* used by filesystem to direct helper code (eg buffer layer) to clear GFP_FS from alloc */
 
-/*
- * oh the beauties of C type declarations.
- */
+/** oh the beauties of C type declarations. */
 struct page;
 class address_space;
 struct writeback_control;
 //struct readahead_control;
 
-/*
- * Write life time hint values.
- * Stored in struct inode as u8.
- */
+/* Write life time hint values. Stored in struct inode as u8. */
 enum rw_hint {
 	WRITE_LIFE_NOT_SET	= 0,
 	WRITE_LIFE_NONE		/*= RWH_WRITE_LIFE_NONE*/,
@@ -1847,12 +1826,8 @@ static inline bool fsuidgid_has_mapping(struct super_block *sb,
 
 timespec64 current_time(struct inode *inode);
 
-/*
- * Snapshotting support.
- */
-/*
- * These are internal functions, please use sb_start_{write,pagefault,intwrite} instead.
- */
+/* Snapshotting support. */
+/* These are internal functions, please use sb_start_{write,pagefault,intwrite} instead. */
 static inline void __sb_end_write(super_block *sb, int level)
 {
 //	percpu_up_read(sb->s_writers.rw_sem + level-1);
@@ -1907,8 +1882,7 @@ static inline void sb_end_pagefault(struct super_block *sb)
 /** sb_end_intwrite - drop write access to a superblock for internal fs purposes
  * @sb: the super we wrote to
  *
- * Decrement fs-internal number of writers to the filesystem.  Wake up possible waiters wanting to freeze the filesystem.
- */
+ * Decrement fs-internal number of writers to the filesystem.  Wake up possible waiters wanting to freeze the filesystem. */
 static inline void sb_end_intwrite(super_block *sb)
 {
 	__sb_end_write(sb, SB_FREEZE_FS);
@@ -2258,7 +2232,7 @@ struct super_operations {
 	void (*free_inode)(struct inode *);
 
    	void (*dirty_inode) (struct inode *, int flags);
-	int (*write_inode) (struct inode *, struct writeback_control *wbc);
+	int (*write_inode) (struct inode *, writeback_control *wbc);
 	int (*drop_inode) (struct inode *);
 	void (*evict_inode) (struct inode *);
 	void (*put_super) (struct super_block *);
@@ -2472,7 +2446,7 @@ static inline void file_accessed(struct file *file)
 
 extern int file_modified(struct file *file);
 
-int sync_inode(struct inode *inode, struct writeback_control *wbc);
+int sync_inode(struct inode *inode, writeback_control *wbc);
 int sync_inode_metadata(struct inode *inode, int wait);
 
 struct file_system_type {
@@ -3850,7 +3824,7 @@ void account_page_dirtied(struct page* page, address_space* mapping);
 
 
 // ==== mm.h ====
-int redirty_page_for_writepage(struct writeback_control* wbc, struct page* page);
+int redirty_page_for_writepage(writeback_control* wbc, struct page* page);
 
 // ==== pagemap.h ====
 void end_page_writeback(struct page* page);
@@ -4200,7 +4174,6 @@ inline void __mod_lruvec_page_state(page* ppage, enum node_stat_item idx, int va
 inline void __inc_lruvec_page_state(page *pp, enum node_stat_item idx)
 {
 //	JCASSERT(0);
-//	LOG_DEBUG(L"<TODO> idx = %d", idx);
 }
 
 inline void dec_lruvec_page_state(page* pp, enum node_stat_item idx)

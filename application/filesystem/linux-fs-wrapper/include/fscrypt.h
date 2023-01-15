@@ -817,7 +817,7 @@ static inline int fscrypt_prepare_setattr(struct dentry *dentry, struct iattr *a
  *
  * If the symlink target needs to be encrypted, then this function encrypts it
  * into @disk_link->name.  fscrypt_prepare_symlink() must have been called
- * previously to compute @disk_link->len.  If the filesystem did not allocate a
+ * previously to compute @disk_link->len.  If the filesystem did not alloc_obj a
  * buffer for @disk_link->name after calling fscrypt_prepare_link(), then one
  * will be kmalloc()'ed and the filesystem will be responsible for freeing it.
  *

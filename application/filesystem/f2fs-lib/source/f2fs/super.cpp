@@ -9,40 +9,18 @@
  */
 
 #include <linux-fs-wrapper.h>
-//#include <linux/module.h>
-//#include <linux/init.h>
-//#include "../../include/fs.h"
-//#include <linux/statfs.h>
-//#include <linux/CBufferHead.h>
-//#include <linux/backing-dev.h>
-//#include <linux/kthread.h>
-//#include <linux/parser.h>
-//#include <linux/mount.h>
-//#include <linux/seq_file.h>
-//#include <linux/proc_fs.h>
-//#include <linux/random.h>
-//#include <linux/exportfs.h>
-//#include <linux/blkdev.h>
-//#include <linux/quotaops.h>
-//#include <linux/f2fs_fs.h>
-//#include <linux/sysfs.h>
-//#include <linux/quota.h>
-//#include <linux/unicode.h>
-//#include <linux/part_stat.h>
-//#include <linux/zstd.h>
-//#include <linux/lz4.h>
 #include "../../include/config.h"
 #include "../../include/f2fs_fs.h"
 #include "../../include/f2fs-filesystem.h"
 
-//#include "2fs.h"
 #include "node.h"
 #include "segment.h"
 #include "xattr.h"
 #include "gc.h"
+#include "../../include/io-complete-ctrl.h"
 #include <boost/property_tree/json_parser.hpp>
 
-LOCAL_LOGGER_ENABLE(L"f2fs.super", LOGGER_LEVEL_DEBUGINFO);
+LOCAL_LOGGER_ENABLE(L"f2fs.super", LOGGER_LEVEL_NOTICE);
 
 
 #define CREATE_TRACE_POINTS
@@ -1169,53 +1147,53 @@ static int parse_options(struct super_block *sb, char *options, bool is_remount)
 }
 #endif
 
-int CF2fsFileSystem::parse_mount_options(super_block* sb, const boost::property_tree::wptree& options, bool is_mount)
+int f2fs_sb_info::parse_mount_options(const boost::property_tree::wptree& options, bool is_remount)
 {
-	struct f2fs_sb_info* sbi = F2FS_SB(sb);
+//	struct f2fs_sb_info* sbi = F2FS_SB(sb);
 	const std::wstring& val = options.get<std::wstring>(L"background_gc");
-	if (val == L"on")			F2FS_OPTION(sbi).bggc_mode = BGGC_MODE_ON;
-	else if (val == L"off")		F2FS_OPTION(sbi).bggc_mode = BGGC_MODE_OFF;
-	else if (val == L"sync")	F2FS_OPTION(sbi).bggc_mode = BGGC_MODE_SYNC;
+	if (val == L"on")			mount_opt.bggc_mode = BGGC_MODE_ON;
+	else if (val == L"off")		mount_opt.bggc_mode = BGGC_MODE_OFF;
+	else if (val == L"sync")	mount_opt.bggc_mode = BGGC_MODE_SYNC;
 	else return -EINVAL;
 
-	if (options.get<int>(L"disable_roll_forward", 0))	set_opt(sbi, DISABLE_ROLL_FORWARD);
+	if (options.get<int>(L"disable_roll_forward", 0))	set_opt(DISABLE_ROLL_FORWARD);
 	if (options.get<int>(L"norecovery", 0))
 	{
-		set_opt(sbi, NORECOVERY);
-		if (!sbi->f2fs_readonly()) return -EINVAL;
+		set_opt(NORECOVERY);
+		if (!f2fs_readonly()) return -EINVAL;
 	}
-	if (options.get<int>(L"discard", 0))				set_opt(sbi, DISCARD);
+	if (options.get<int>(L"discard", 0))				set_opt(DISCARD);
 	if (options.get<int>(L"nodiscard", 0))
 	{
-		if (f2fs_sb_has_blkzoned(sbi))
+		if (f2fs_sb_has_blkzoned(this))
 		{
 			LOG_ERROR(L"[err] discard is required for zoned block devices");
 			return -EINVAL;
 		}
-		clear_opt(sbi, DISCARD);
+		clear_opt(DISCARD);
 	}
 
-	std::wstring str_mode = options.get<std::wstring>(L"mode", L"");
-	if ( str_mode == L"adaptive") 		F2FS_OPTION(sbi).fs_mode = FS_MODE_ADAPTIVE;
-	else if (str_mode == L"lfs") 		F2FS_OPTION(sbi).fs_mode = FS_MODE_LFS;
+	std::wstring str_mode = options.get<std::wstring>(L"fs_mode", L"");
+	if ( str_mode == L"adaptive") 		mount_opt.fs_mode = FS_MODE_ADAPTIVE;
+	else if (str_mode == L"lfs") 		mount_opt.fs_mode = FS_MODE_LFS;
 	else { LOG_ERROR(L"[err] unkonwn mode=%s", str_mode.c_str()); return -EINVAL; }
 
 #if 0 //<TODO>
 		case Opt_noheap:
-			set_opt(sbi, NOHEAP);
+			set_opt(NOHEAP);
 			break;
 		case Opt_heap:
 			clear_opt(sbi, NOHEAP);
 			break;
 #ifdef CONFIG_F2FS_FS_XATTR
 		case Opt_user_xattr:
-			set_opt(sbi, XATTR_USER);
+			set_opt(XATTR_USER);
 			break;
 		case Opt_nouser_xattr:
 			clear_opt(sbi, XATTR_USER);
 			break;
 		case Opt_inline_xattr:
-			set_opt(sbi, INLINE_XATTR);
+			set_opt(INLINE_XATTR);
 			break;
 		case Opt_noinline_xattr:
 			clear_opt(sbi, INLINE_XATTR);
@@ -1223,8 +1201,8 @@ int CF2fsFileSystem::parse_mount_options(super_block* sb, const boost::property_
 		case Opt_inline_xattr_size:
 			if (args->from && match_int(args, &arg))
 				return -EINVAL;
-			set_opt(sbi, INLINE_XATTR_SIZE);
-			F2FS_OPTION(sbi).inline_xattr_size = arg;
+			set_opt(INLINE_XATTR_SIZE);
+			mount_opt.inline_xattr_size = arg;
 			break;
 #else
 		case Opt_user_xattr:
@@ -1242,7 +1220,7 @@ int CF2fsFileSystem::parse_mount_options(super_block* sb, const boost::property_
 #endif
 #ifdef CONFIG_F2FS_FS_POSIX_ACL
 		case Opt_acl:
-			set_opt(sbi, POSIX_ACL);
+			set_opt(POSIX_ACL);
 			break;
 		case Opt_noacl:
 			clear_opt(sbi, POSIX_ACL);
@@ -1261,34 +1239,34 @@ int CF2fsFileSystem::parse_mount_options(super_block* sb, const boost::property_
 			if (arg != 2 && arg != 4 &&
 				arg != NR_CURSEG_PERSIST_TYPE)
 				return -EINVAL;
-			F2FS_OPTION(sbi).active_logs = arg;
+			mount_opt.active_logs = arg;
 			break;
 		case Opt_disable_ext_identify:
-			set_opt(sbi, DISABLE_EXT_IDENTIFY);
+			set_opt(DISABLE_EXT_IDENTIFY);
 			break;
 		case Opt_inline_data:
-			set_opt(sbi, INLINE_DATA);
+			set_opt(INLINE_DATA);
 			break;
 		case Opt_inline_dentry:
-			set_opt(sbi, INLINE_DENTRY);
+			set_opt(INLINE_DENTRY);
 			break;
 		case Opt_noinline_dentry:
 			clear_opt(sbi, INLINE_DENTRY);
 			break;
 		case Opt_flush_merge:
-			set_opt(sbi, FLUSH_MERGE);
+			set_opt(FLUSH_MERGE);
 			break;
 		case Opt_noflush_merge:
 			clear_opt(sbi, FLUSH_MERGE);
 			break;
 		case Opt_nobarrier:
-			set_opt(sbi, NOBARRIER);
+			set_opt(NOBARRIER);
 			break;
 		case Opt_fastboot:
-			set_opt(sbi, FASTBOOT);
+			set_opt(FASTBOOT);
 			break;
 		case Opt_extent_cache:
-			set_opt(sbi, EXTENT_CACHE);
+			set_opt(EXTENT_CACHE);
 			break;
 		case Opt_noextent_cache:
 			clear_opt(sbi, EXTENT_CACHE);
@@ -1297,7 +1275,7 @@ int CF2fsFileSystem::parse_mount_options(super_block* sb, const boost::property_
 			clear_opt(sbi, INLINE_DATA);
 			break;
 		case Opt_data_flush:
-			set_opt(sbi, DATA_FLUSH);
+			set_opt(DATA_FLUSH);
 			break;
 		case Opt_reserve_root:
 			if (args->from && match_int(args, &arg))
@@ -1305,12 +1283,12 @@ int CF2fsFileSystem::parse_mount_options(super_block* sb, const boost::property_
 			if (test_opt(sbi, RESERVE_ROOT))
 			{
 				f2fs_info(sbi, "Preserve previous reserve_root=%u",
-					F2FS_OPTION(sbi).root_reserved_blocks);
+					mount_opt.root_reserved_blocks);
 			}
 			else
 			{
-				F2FS_OPTION(sbi).root_reserved_blocks = arg;
-				set_opt(sbi, RESERVE_ROOT);
+				mount_opt.root_reserved_blocks = arg;
+				set_opt(RESERVE_ROOT);
 			}
 			break;
 		case Opt_resuid:
@@ -1322,7 +1300,7 @@ int CF2fsFileSystem::parse_mount_options(super_block* sb, const boost::property_
 				f2fs_err(sbi, "Invalid uid value %d", arg);
 				return -EINVAL;
 			}
-			F2FS_OPTION(sbi).s_resuid = uid;
+			mount_opt.s_resuid = uid;
 			break;
 		case Opt_resgid:
 			if (args->from && match_int(args, &arg))
@@ -1333,7 +1311,7 @@ int CF2fsFileSystem::parse_mount_options(super_block* sb, const boost::property_
 				f2fs_err(sbi, "Invalid gid value %d", arg);
 				return -EINVAL;
 			}
-			F2FS_OPTION(sbi).s_resgid = gid;
+			mount_opt.s_resgid = gid;
 			break;
 		case Opt_mode:
 			name = match_strdup(&args[0]);
@@ -1348,11 +1326,11 @@ int CF2fsFileSystem::parse_mount_options(super_block* sb, const boost::property_
 					kfree(name);
 					return -EINVAL;
 				}
-				F2FS_OPTION(sbi).fs_mode = FS_MODE_ADAPTIVE;
+				mount_opt.fs_mode = FS_MODE_ADAPTIVE;
 			}
 			else if (!strcmp(name, "lfs"))
 			{
-				F2FS_OPTION(sbi).fs_mode = FS_MODE_LFS;
+				mount_opt.fs_mode = FS_MODE_LFS;
 			}
 			else
 			{
@@ -1370,21 +1348,21 @@ int CF2fsFileSystem::parse_mount_options(super_block* sb, const boost::property_
 					1 << arg, BIO_MAX_VECS);
 				return -EINVAL;
 			}
-			F2FS_OPTION(sbi).write_io_size_bits = arg;
+			mount_opt.write_io_size_bits = arg;
 			break;
 #ifdef CONFIG_F2FS_FAULT_INJECTION
 		case Opt_fault_injection:
 			if (args->from && match_int(args, &arg))
 				return -EINVAL;
 			f2fs_build_fault_attr(sbi, arg, F2FS_ALL_FAULT_TYPE);
-			set_opt(sbi, FAULT_INJECTION);
+			set_opt(FAULT_INJECTION);
 			break;
 
 		case Opt_fault_type:
 			if (args->from && match_int(args, &arg))
 				return -EINVAL;
 			f2fs_build_fault_attr(sbi, 0, arg);
-			set_opt(sbi, FAULT_INJECTION);
+			set_opt(FAULT_INJECTION);
 			break;
 #else
 		case Opt_fault_injection:
@@ -1404,13 +1382,13 @@ int CF2fsFileSystem::parse_mount_options(super_block* sb, const boost::property_
 #ifdef CONFIG_QUOTA
 		case Opt_quota:
 		case Opt_usrquota:
-			set_opt(sbi, USRQUOTA);
+			set_opt(USRQUOTA);
 			break;
 		case Opt_grpquota:
-			set_opt(sbi, GRPQUOTA);
+			set_opt(GRPQUOTA);
 			break;
 		case Opt_prjquota:
-			set_opt(sbi, PRJQUOTA);
+			set_opt(PRJQUOTA);
 			break;
 		case Opt_usrjquota:
 			ret = f2fs_set_qf_name(sb, USRQUOTA, &args[0]);
@@ -1443,13 +1421,13 @@ int CF2fsFileSystem::parse_mount_options(super_block* sb, const boost::property_
 				return ret;
 			break;
 		case Opt_jqfmt_vfsold:
-			F2FS_OPTION(sbi).s_jquota_fmt = QFMT_VFS_OLD;
+			mount_opt.s_jquota_fmt = QFMT_VFS_OLD;
 			break;
 		case Opt_jqfmt_vfsv0:
-			F2FS_OPTION(sbi).s_jquota_fmt = QFMT_VFS_V0;
+			mount_opt.s_jquota_fmt = QFMT_VFS_V0;
 			break;
 		case Opt_jqfmt_vfsv1:
-			F2FS_OPTION(sbi).s_jquota_fmt = QFMT_VFS_V1;
+			mount_opt.s_jquota_fmt = QFMT_VFS_V1;
 			break;
 		case Opt_noquota:
 			clear_opt(sbi, QUOTA);
@@ -1481,15 +1459,15 @@ int CF2fsFileSystem::parse_mount_options(super_block* sb, const boost::property_
 				return -ENOMEM;
 			if (!strcmp(name, "user-based"))
 			{
-				F2FS_OPTION(sbi).whint_mode = WHINT_MODE_USER;
+				mount_opt.whint_mode = WHINT_MODE_USER;
 			}
 			else if (!strcmp(name, "off"))
 			{
-				F2FS_OPTION(sbi).whint_mode = WHINT_MODE_OFF;
+				mount_opt.whint_mode = WHINT_MODE_OFF;
 			}
 			else if (!strcmp(name, "fs-based"))
 			{
-				F2FS_OPTION(sbi).whint_mode = WHINT_MODE_FS;
+				mount_opt.whint_mode = WHINT_MODE_FS;
 			}
 			else
 			{
@@ -1505,11 +1483,11 @@ int CF2fsFileSystem::parse_mount_options(super_block* sb, const boost::property_
 
 			if (!strcmp(name, "default"))
 			{
-				F2FS_OPTION(sbi).alloc_mode = ALLOC_MODE_DEFAULT;
+				mount_opt.alloc_mode = ALLOC_MODE_DEFAULT;
 			}
 			else if (!strcmp(name, "reuse"))
 			{
-				F2FS_OPTION(sbi).alloc_mode = ALLOC_MODE_REUSE;
+				mount_opt.alloc_mode = ALLOC_MODE_REUSE;
 			}
 			else
 			{
@@ -1524,15 +1502,15 @@ int CF2fsFileSystem::parse_mount_options(super_block* sb, const boost::property_
 				return -ENOMEM;
 			if (!strcmp(name, "posix"))
 			{
-				F2FS_OPTION(sbi).fsync_mode = FSYNC_MODE_POSIX;
+				mount_opt.fsync_mode = FSYNC_MODE_POSIX;
 			}
 			else if (!strcmp(name, "strict"))
 			{
-				F2FS_OPTION(sbi).fsync_mode = FSYNC_MODE_STRICT;
+				mount_opt.fsync_mode = FSYNC_MODE_STRICT;
 			}
 			else if (!strcmp(name, "nobarrier"))
 			{
-				F2FS_OPTION(sbi).fsync_mode =
+				mount_opt.fsync_mode =
 					FSYNC_MODE_NOBARRIER;
 			}
 			else
@@ -1560,23 +1538,23 @@ int CF2fsFileSystem::parse_mount_options(super_block* sb, const boost::property_
 				return -EINVAL;
 			if (arg < 0 || arg > 100)
 				return -EINVAL;
-			F2FS_OPTION(sbi).unusable_cap_perc = arg;
-			set_opt(sbi, DISABLE_CHECKPOINT);
+			mount_opt.unusable_cap_perc = arg;
+			set_opt(DISABLE_CHECKPOINT);
 			break;
 		case Opt_checkpoint_disable_cap:
 			if (args->from && match_int(args, &arg))
 				return -EINVAL;
-			F2FS_OPTION(sbi).unusable_cap = arg;
-			set_opt(sbi, DISABLE_CHECKPOINT);
+			mount_opt.unusable_cap = arg;
+			set_opt(DISABLE_CHECKPOINT);
 			break;
 		case Opt_checkpoint_disable:
-			set_opt(sbi, DISABLE_CHECKPOINT);
+			set_opt(DISABLE_CHECKPOINT);
 			break;
 		case Opt_checkpoint_enable:
 			clear_opt(sbi, DISABLE_CHECKPOINT);
 			break;
 		case Opt_checkpoint_merge:
-			set_opt(sbi, MERGE_CHECKPOINT);
+			set_opt(MERGE_CHECKPOINT);
 			break;
 		case Opt_nocheckpoint_merge:
 			clear_opt(sbi, MERGE_CHECKPOINT);
@@ -1594,8 +1572,8 @@ int CF2fsFileSystem::parse_mount_options(super_block* sb, const boost::property_
 			if (!strcmp(name, "lzo"))
 			{
 #ifdef CONFIG_F2FS_FS_LZO
-				F2FS_OPTION(sbi).compress_level = 0;
-				F2FS_OPTION(sbi).compress_algorithm =
+				mount_opt.compress_level = 0;
+				mount_opt.compress_algorithm =
 					COMPRESS_LZO;
 #else
 				f2fs_info(sbi, "kernel doesn't support lzo compression");
@@ -1610,7 +1588,7 @@ int CF2fsFileSystem::parse_mount_options(super_block* sb, const boost::property_
 					kfree(name);
 					return -EINVAL;
 				}
-				F2FS_OPTION(sbi).compress_algorithm =
+				mount_opt.compress_algorithm =
 					COMPRESS_LZ4;
 #else
 				f2fs_info(sbi, "kernel doesn't support lz4 compression");
@@ -1625,7 +1603,7 @@ int CF2fsFileSystem::parse_mount_options(super_block* sb, const boost::property_
 					kfree(name);
 					return -EINVAL;
 				}
-				F2FS_OPTION(sbi).compress_algorithm =
+				mount_opt.compress_algorithm =
 					COMPRESS_ZSTD;
 #else
 				f2fs_info(sbi, "kernel doesn't support zstd compression");
@@ -1634,8 +1612,8 @@ int CF2fsFileSystem::parse_mount_options(super_block* sb, const boost::property_
 			else if (!strcmp(name, "lzo-rle"))
 			{
 #ifdef CONFIG_F2FS_FS_LZORLE
-				F2FS_OPTION(sbi).compress_level = 0;
-				F2FS_OPTION(sbi).compress_algorithm =
+				mount_opt.compress_level = 0;
+				mount_opt.compress_algorithm =
 					COMPRESS_LZORLE;
 #else
 				f2fs_info(sbi, "kernel doesn't support lzorle compression");
@@ -1663,7 +1641,7 @@ int CF2fsFileSystem::parse_mount_options(super_block* sb, const boost::property_
 					"Compress cluster log size is out of range");
 				return -EINVAL;
 			}
-			F2FS_OPTION(sbi).compress_log_size = arg;
+			mount_opt.compress_log_size = arg;
 			break;
 		case Opt_compress_extension:
 			if (!f2fs_sb_has_compression(sbi))
@@ -1675,8 +1653,8 @@ int CF2fsFileSystem::parse_mount_options(super_block* sb, const boost::property_
 			if (!name)
 				return -ENOMEM;
 
-			ext = F2FS_OPTION(sbi).extensions;
-			ext_cnt = F2FS_OPTION(sbi).compress_ext_cnt;
+			ext = mount_opt.extensions;
+			ext_cnt = mount_opt.compress_ext_cnt;
 
 			if (strlen(name) >= F2FS_EXTENSION_LEN ||
 				ext_cnt >= COMPRESS_EXT_NUM)
@@ -1688,11 +1666,11 @@ int CF2fsFileSystem::parse_mount_options(super_block* sb, const boost::property_
 			}
 
 			strcpy(ext[ext_cnt], name);
-			F2FS_OPTION(sbi).compress_ext_cnt++;
+			mount_opt.compress_ext_cnt++;
 			kfree(name);
 			break;
 		case Opt_compress_chksum:
-			F2FS_OPTION(sbi).compress_chksum = true;
+			mount_opt.compress_chksum = true;
 			break;
 		case Opt_compress_mode:
 			name = match_strdup(&args[0]);
@@ -1700,11 +1678,11 @@ int CF2fsFileSystem::parse_mount_options(super_block* sb, const boost::property_
 				return -ENOMEM;
 			if (!strcmp(name, "fs"))
 			{
-				F2FS_OPTION(sbi).compress_mode = COMPR_MODE_FS;
+				mount_opt.compress_mode = COMPR_MODE_FS;
 			}
 			else if (!strcmp(name, "user"))
 			{
-				F2FS_OPTION(sbi).compress_mode = COMPR_MODE_USER;
+				mount_opt.compress_mode = COMPR_MODE_USER;
 			}
 			else
 			{
@@ -1723,10 +1701,10 @@ int CF2fsFileSystem::parse_mount_options(super_block* sb, const boost::property_
 			break;
 #endif
 		case Opt_atgc:
-			set_opt(sbi, ATGC);
+			set_opt(ATGC);
 			break;
 		case Opt_gc_merge:
-			set_opt(sbi, GC_MERGE);
+			set_opt(GC_MERGE);
 			break;
 		case Opt_nogc_merge:
 			clear_opt(sbi, GC_MERGE);
@@ -1799,8 +1777,8 @@ int CF2fsFileSystem::parse_mount_options(super_block* sb, const boost::property_
 		min_size = sizeof(struct f2fs_xattr_header) / sizeof(__le32);
 		max_size = MAX_INLINE_XATTR_SIZE;
 
-		if (F2FS_OPTION(sbi).inline_xattr_size < min_size ||
-			F2FS_OPTION(sbi).inline_xattr_size > max_size)
+		if (mount_opt.inline_xattr_size < min_size ||
+			mount_opt.inline_xattr_size > max_size)
 		{
 			f2fs_err(sbi, "inline xattr size is out of range: %d ~ %d",
 				min_size, max_size);
@@ -1817,8 +1795,8 @@ int CF2fsFileSystem::parse_mount_options(super_block* sb, const boost::property_
 	/* Not pass down write hints if the number of active logs is lesser
 	 * than NR_CURSEG_PERSIST_TYPE.
 	 */
-	if (F2FS_OPTION(sbi).active_logs != NR_CURSEG_TYPE)
-		F2FS_OPTION(sbi).whint_mode = WHINT_MODE_OFF;
+	if (mount_opt.active_logs != NR_CURSEG_TYPE)
+		mount_opt.whint_mode = WHINT_MODE_OFF;
 
 #endif
 
@@ -1926,8 +1904,6 @@ int	f2fs_sb_info::drop_inode(inode* iinode)
 int f2fs_inode_info::f2fs_inode_dirtied(bool sync)
 {
 	LOG_STACK_TRACE()
-//	f2fs_inode_info* finode = F2FS_I(iinode);
-//	f2fs_sb_info *sbi = F2FS_I_SB(iinode);
 	int ret = 0;
 
 	spin_lock(&m_sbi->inode_lock[DIRTY_META]);
@@ -1937,11 +1913,9 @@ int f2fs_inode_info::f2fs_inode_dirtied(bool sync)
 		set_inode_flag(FI_DIRTY_INODE);
 		stat_inc_dirty_inode(m_sbi, DIRTY_META);
 	}
-//	if (list_empty(&F2FS_I(iinode)->gdirty_list))
 	if (sync && !m_in_list[DIRTY_META])
 	{
 		LOG_TRACK(L"inode", L" add=%p, ino=%d, type=%d - add to sb inode list", this, i_ino, DIRTY_META);
-//		list_add_tail(&F2FS_I(iinode)->gdirty_list, &m_sbi->inode_list[DIRTY_META]);
 		m_sbi->sb_list_add_tail(this, DIRTY_META);
 		m_sbi->inc_page_count(F2FS_DIRTY_IMETA);
 	}
@@ -1966,8 +1940,8 @@ void f2fs_inode_info::f2fs_inode_synced(void)
 	if (!m_sbi->list_empty(DIRTY_META) && m_in_list[DIRTY_META])
 	{
 //		list_del_init(&F2FS_I(iinode)->gdirty_list);
-		LOG_TRACK(L"inode", L" add=%p, ino=%d, type=%d - remove from sb inode list", this, i_ino, DIRTY_META);
-
+		//LOG_TRACK(L"inode", L" add=%p, ino=%d, type=%d - remove from sb inode list", this, i_ino, DIRTY_META);
+		TRACK_INODE(this, L"remove from sb, type=%d", DIRTY_META);
 		m_sbi->sb_list_del_init(this, DIRTY_META);
 		m_sbi->dec_page_count(F2FS_DIRTY_IMETA);
 	}
@@ -2461,46 +2435,47 @@ static int f2fs_show_options(struct seq_file *seq, struct dentry *root)
 #endif
 
 
-static void default_options(struct f2fs_sb_info *sbi)
+//static void default_options(struct f2fs_sb_info *sbi)
+void f2fs_sb_info::default_options(void)
 {
 	/* init some FS parameters */
-	F2FS_OPTION(sbi).active_logs = NR_CURSEG_PERSIST_TYPE;
-	F2FS_OPTION(sbi).inline_xattr_size = DEFAULT_INLINE_XATTR_ADDRS;
-	F2FS_OPTION(sbi).whint_mode = WHINT_MODE_OFF;
-	F2FS_OPTION(sbi).alloc_mode = ALLOC_MODE_DEFAULT;
-	F2FS_OPTION(sbi).fsync_mode = FSYNC_MODE_POSIX;
-	//F2FS_OPTION(sbi).s_resuid = make_kuid(&init_user_ns, F2FS_DEF_RESUID);
-	//F2FS_OPTION(sbi).s_resgid = make_kgid(&init_user_ns, F2FS_DEF_RESGID);
-	F2FS_OPTION(sbi).compress_algorithm = COMPRESS_LZ4;
-	F2FS_OPTION(sbi).compress_log_size = MIN_COMPRESS_LOG_SIZE;
-	F2FS_OPTION(sbi).compress_ext_cnt = 0;
-	F2FS_OPTION(sbi).compress_mode = COMPR_MODE_FS;
-	F2FS_OPTION(sbi).bggc_mode = BGGC_MODE_ON;
+	mount_opt.active_logs = NR_CURSEG_PERSIST_TYPE;
+	mount_opt.inline_xattr_size = DEFAULT_INLINE_XATTR_ADDRS;
+	mount_opt.whint_mode = WHINT_MODE_OFF;
+	mount_opt.alloc_mode = ALLOC_MODE_DEFAULT;
+	mount_opt.fsync_mode = FSYNC_MODE_POSIX;
+	//mount_opt.s_resuid = make_kuid(&init_user_ns, F2FS_DEF_RESUID);
+	//mount_opt.s_resgid = make_kgid(&init_user_ns, F2FS_DEF_RESGID);
+	mount_opt.compress_algorithm = COMPRESS_LZ4;
+	mount_opt.compress_log_size = MIN_COMPRESS_LOG_SIZE;
+	mount_opt.compress_ext_cnt = 0;
+	mount_opt.compress_mode = COMPR_MODE_FS;
+	mount_opt.bggc_mode = BGGC_MODE_ON;
 
-	sbi->s_flags &= ~SB_INLINECRYPT;
+	s_flags &= ~SB_INLINECRYPT;
 
-	set_opt(sbi, INLINE_XATTR);
-	set_opt(sbi, INLINE_DATA);
-	set_opt(sbi, INLINE_DENTRY);
-	set_opt(sbi, EXTENT_CACHE);
-	set_opt(sbi, NOHEAP);
-	clear_opt(sbi, DISABLE_CHECKPOINT);
-	set_opt(sbi, MERGE_CHECKPOINT);
-	F2FS_OPTION(sbi).unusable_cap = 0;
-	sbi->s_flags |= SB_LAZYTIME;
-	set_opt(sbi, FLUSH_MERGE);
-	set_opt(sbi, DISCARD);
-	if (f2fs_sb_has_blkzoned(sbi))		F2FS_OPTION(sbi).fs_mode = FS_MODE_LFS;
-	else								F2FS_OPTION(sbi).fs_mode = FS_MODE_ADAPTIVE;
+	set_opt(INLINE_XATTR);
+	set_opt(INLINE_DATA);
+	set_opt(INLINE_DENTRY);
+	set_opt(EXTENT_CACHE);
+	set_opt(NOHEAP);
+	clear_opt(DISABLE_CHECKPOINT);
+	set_opt(MERGE_CHECKPOINT);
+	mount_opt.unusable_cap = 0;
+	s_flags |= SB_LAZYTIME;
+	set_opt(FLUSH_MERGE);
+	set_opt(DISCARD);
+	if (f2fs_sb_has_blkzoned(this))		mount_opt.fs_mode = FS_MODE_LFS;
+	else								mount_opt.fs_mode = FS_MODE_ADAPTIVE;
 
 #ifdef CONFIG_F2FS_FS_XATTR
-	set_opt(sbi, XATTR_USER);
+	set_opt(XATTR_USER);
 #endif
 #ifdef CONFIG_F2FS_FS_POSIX_ACL
-	set_opt(sbi, POSIX_ACL);
+	set_opt(POSIX_ACL);
 #endif
 
-	f2fs_build_fault_attr(sbi, 0, 0);
+	f2fs_build_fault_attr(this, 0, 0);
 }
 
 #ifdef CONFIG_QUOTA
@@ -4290,17 +4265,15 @@ static void f2fs_tuning_parameters(struct f2fs_sb_info *sbi)
 }
 
 
-int f2fs_sb_info::f2fs_fill_super(const std::wstring & str_option, int silent)
+int f2fs_sb_info::f2fs_fill_super(const boost::property_tree::wptree& option, int silent)
 {
 	JCASSERT(m_fs);
 	f2fs_sb_info *sbi = this;
 	super_block* sb = static_cast<super_block*>(sbi);
-//	sbi->m_fs = this;
 
 	f2fs_super_block *raw_super;
 	int err;
 	bool skip_recovery = false, need_fsck = false;
-//	char *options = NULL;
 	int recovery, i, valid_super_block;
 	struct curseg_info *seg_i;
 	int retry_cnt = 1;
@@ -4318,7 +4291,7 @@ int f2fs_sb_info::f2fs_fill_super(const std::wstring & str_option, int silent)
 		state = STATE_SUCCEED;
 		try
 		{
-			/* allocate memory for f2fs-specific super block info */
+			/* alloc_obj memory for f2fs-specific super block info */
 			m_inodes.Init(this);
 #if 0 //<TODO>
 			/* Load the checksum driver */
@@ -4339,36 +4312,37 @@ int f2fs_sb_info::f2fs_fill_super(const std::wstring & str_option, int silent)
 				//		goto free_sbi;
 			}
 
+			// <YUAN> add for async io
+			m_io_control = new CIoCompleteCtrl(this);
+			if (!m_io_control) THROW_ERROR(ERR_MEM, L"failed on creating IO complate ctrl");
+			bool br = m_io_control->Start(THREAD_PRIORITY_NORMAL);
+			if (!br) THROW_ERROR(ERR_APP, L"failed on starting io thread");
+
 			err = read_raw_super_block(raw_super, &valid_super_block, &recovery);
 			//	if (err) goto free_sbi;
 			if (err) THROW_ERROR(ERR_APP, L"failed on reading raw super block");
 
-//			sb->s_fs_info = this;
 			this->raw_super = raw_super;
 
 			/* precompute checksum seed for metadata */
-			if (f2fs_sb_has_inode_chksum(this))
+			if (f2fs_sb_has_inode_chksum(this)) 
 				s_chksum_seed = f2fs_chksum(this, ~0, raw_super->uuid, sizeof(raw_super->uuid));
 
-			default_options(this);
+			default_options();
 			/* parse mount options */
-		//	options = kstrdup((const char *)data, GFP_KERNEL);
-		//	std::string options((char*)data);
-			//if (data && !options) {
-			//	err = -ENOMEM;
-			//	goto free_sb_buf;
-			//}
+			err = parse_mount_options(option, false);
+			if (err)	THROW_ERROR(ERR_APP, L"failed on set options");
 
-			if (!str_option.empty())
-			{
-				boost::property_tree::wptree pt_option;
-				std::wstringstream stream;
-				stream.str(str_option);
-				boost::property_tree::read_json(stream, pt_option);
-				err = m_fs->parse_mount_options(this, pt_option, false);
-				//		if (err)	goto free_options;
-				if (err)	THROW_ERROR(ERR_APP, L"failed on set options");
-			}
+			//if (!str_option.empty())
+			//{
+			//	boost::property_tree::wptree pt_option;
+			//	std::wstringstream stream;
+			//	stream.str(str_option);
+			//	boost::property_tree::read_json(stream, pt_option);
+			//	err = m_fs->parse_mount_options(this, pt_option, false);
+			//	//		if (err)	goto free_options;
+			//	if (err)	THROW_ERROR(ERR_APP, L"failed on set options");
+			//}
 			//else load_default_options(true);
 
 			//err = parse_options(sb, options.c_str(), false);
@@ -4396,7 +4370,6 @@ int f2fs_sb_info::f2fs_fill_super(const std::wstring & str_option, int silent)
 				}
 			}
 #endif
-//			sb->s_op = &f2fs_sops;
 #ifdef CONFIG_FS_ENCRYPTION
 			s_cop = &f2fs_cryptops;
 #endif
@@ -4404,10 +4377,9 @@ int f2fs_sb_info::f2fs_fill_super(const std::wstring & str_option, int silent)
 			s_vop = &f2fs_verityops;
 #endif
 			s_xattr = f2fs_xattr_handlers;
-//			sb->s_export_op = &f2fs_export_ops;
 			s_magic = F2FS_SUPER_MAGIC;
 			s_time_gran = 1;
-			s_flags = (s_flags & ~SB_POSIXACL) | (test_opt(this, POSIX_ACL) ? SB_POSIXACL : 0);
+			s_flags = (s_flags & ~SB_POSIXACL) | (test_opt_(F2FS_MOUNT_POSIX_ACL) ? SB_POSIXACL : 0);
 			memcpy(&s_uuid, raw_super->uuid, sizeof(raw_super->uuid));
 			s_iflags |= SB_I_CGROUPWB;
 
@@ -4432,7 +4404,6 @@ int f2fs_sb_info::f2fs_fill_super(const std::wstring & str_option, int silent)
 			{
 				int n = (i == META) ? 1 : NR_TEMP_TYPE;
 				int j;
-				//		write_io[i] = (f2fs_bio_info*)f2fs_kmalloc(this, array_size(n, sizeof(struct f2fs_bio_info))/*, GFP_KERNEL*/);
 				write_io[i] = f2fs_kmalloc<f2fs_bio_info>(this, n);
 				if (!write_io[i])
 				{
@@ -4484,8 +4455,6 @@ int f2fs_sb_info::f2fs_fill_super(const std::wstring & str_option, int silent)
 			meta_inode = f2fs_iget(F2FS_META_INO());
 			if (IS_ERR(meta_inode))
 			{
-//				f2fs_err(this, L"Failed to read F2FS meta data inode");
-//				err = PTR_ERR(meta_inode);
 				//goto free_page_array_cache;
 				THROW_ERROR(ERR_APP, L"Failed to read F2FS meta data inode");
 			}
@@ -4519,7 +4488,7 @@ int f2fs_sb_info::f2fs_fill_super(const std::wstring & str_option, int silent)
 			}	//goto free_devices;
 
 			total_valid_node_count = le32_to_cpu(ckpt->valid_node_count);
-			LOG_DEBUG(L"read checkpoint, total_valid_node_count=%d", total_valid_block_count);
+			LOG_DEBUG_(1,L"read checkpoint, total_valid_node_count=%d", total_valid_block_count);
 			percpu_counter_set(&total_valid_inode_count, le32_to_cpu(ckpt->valid_inode_count));
 			user_block_count = boost::numeric_cast<block_t>(le64_to_cpu(ckpt->user_block_count));
 			total_valid_block_count = boost::numeric_cast<block_t>(le64_to_cpu(ckpt->valid_block_count));
@@ -4529,11 +4498,7 @@ int f2fs_sb_info::f2fs_fill_super(const std::wstring & str_option, int silent)
 			limit_reserve_root(this);
 			adjust_unusable_cap_perc(this);
 
-			for (i = 0; i < NR_INODE_TYPE; i++)
-			{
-//				INIT_LIST_HEAD(&inode_list[i]);
-				spin_lock_init(&inode_lock[i]);
-			}
+			for (i = 0; i < NR_INODE_TYPE; i++)		{	spin_lock_init(&inode_lock[i]);		}
 			mutex_init(&flush_lock);
 
 			f2fs_init_extent_cache_info(this);
@@ -4543,7 +4508,7 @@ int f2fs_sb_info::f2fs_fill_super(const std::wstring & str_option, int silent)
 			//f2fs_init_ckpt_req_control(this);
 			new(&cprc_info) ckpt_req_control(this);
 //			cprc_info.f2fs_init_ckpt_req_control(this);
-			if (!f2fs_readonly() && !test_opt(this, DISABLE_CHECKPOINT) && test_opt(this, MERGE_CHECKPOINT))
+			if (!f2fs_readonly() && !test_opt_(F2FS_MOUNT_DISABLE_CHECKPOINT) && test_opt_(F2FS_MOUNT_MERGE_CHECKPOINT))
 			{
 				//err = f2fs_start_ckpt_thread();
 #ifndef CONFIG_SYNC_CHECKPT
@@ -4584,20 +4549,14 @@ int f2fs_sb_info::f2fs_fill_super(const std::wstring & str_option, int silent)
 
 			/* get an inode for node space */
 			node_inode = f2fs_iget(F2FS_NODE_INO());
-			if (IS_ERR(node_inode))
-			{
-//				err = PTR_ERR(node_inode);
-				THROW_ERROR(ERR_APP, L"Failed to read node inode");
+			if (IS_ERR(node_inode))		{	THROW_ERROR(ERR_APP, L"Failed to read node inode");
 				//goto free_stats;
 			}
 
 			f2fs_inode_info* root;
 			/* read root inode and dentry */
 			root = f2fs_iget(F2FS_ROOT_INO());
-			if (IS_ERR(root))
-			{
-				//err = PTR_ERR(root);
-				THROW_ERROR(ERR_APP, L"Failed to read root inode");
+			if (IS_ERR(root))			{	THROW_ERROR(ERR_APP, L"Failed to read root inode");
 				//goto free_node_inode;
 			}
 #ifdef INODE_DEBUG
@@ -4611,7 +4570,6 @@ int f2fs_sb_info::f2fs_fill_super(const std::wstring & str_option, int silent)
 				//goto free_node_inode;
 			}
 
-//			sb->s_root = d_make_root(root); /* allocate root dentry */
 			s_root = m_dentry_buf.d_make_root(root);
 			if (!s_root)
 			{
@@ -4643,9 +4601,8 @@ int f2fs_sb_info::f2fs_fill_super(const std::wstring & str_option, int silent)
 				goto reset_checkpoint;
 
 			/* recover fsynced data */
-			if (!test_opt(this, DISABLE_ROLL_FORWARD) &&	!test_opt(this, NORECOVERY))
-			{	/* mount should be failed, when device has readonly mode, and previous checkpoint was not done by 
-				clean system shutdown. */
+			if (!test_opt_(F2FS_MOUNT_DISABLE_ROLL_FORWARD) &&	!test_opt_(F2FS_MOUNT_NORECOVERY))
+			{	/* mount should be failed, when device has readonly mode, and previous checkpoint was not done by clean system shutdown. */
 				if (f2fs_hw_is_readonly(this))
 				{
 					if (!is_set_ckpt_flags(CP_UMOUNT_FLAG))
@@ -4664,39 +4621,33 @@ int f2fs_sb_info::f2fs_fill_super(const std::wstring & str_option, int silent)
 					goto reset_checkpoint;
 				}
 
-				if (need_fsck)
-					set_sbi_flag(SBI_NEED_FSCK);
+				if (need_fsck)		set_sbi_flag(SBI_NEED_FSCK);
 
-				if (skip_recovery)
-					goto reset_checkpoint;
+				if (skip_recovery)	goto reset_checkpoint;
 
 				err = f2fs_recover_fsync_data(this, false);
 				if (err < 0)
 				{
-					if (err != -ENOMEM)
-						skip_recovery = true;
+					if (err != -ENOMEM)		skip_recovery = true;
 					need_fsck = true;
 					f2fs_err(this, L"Cannot recover all fsync data errno=%d", err);
 					THROW_ERROR(ERR_APP, L"Cannot recover all fsync data errno=%d", err);
-
 					//goto free_meta;
 				}
 			}
 			else
 			{
 				err = f2fs_recover_fsync_data(this, true);
-
 				if (!f2fs_readonly() && err > 0)
 				{
 					err = -EINVAL;
 					f2fs_err(this, L"Need to recover fsync data");	
 					THROW_ERROR(ERR_APP, L"Need to recover fsync data");
-
 					//goto free_meta;
 				}
 			}
 
-			/* If the f2fs is not readonly and fsync data recovery succeeds, check zoned block devices' write pointer consistency. */
+			/* If the f2fs is not readonly and fsync data recovery succeeds, check zoned block devices' write pointer sistency. */
 			if (!err && !f2fs_readonly() && f2fs_sb_has_blkzoned(this))
 			{
 				err = f2fs_check_write_pointer(this);
@@ -4710,7 +4661,7 @@ int f2fs_sb_info::f2fs_fill_super(const std::wstring & str_option, int silent)
 			/* f2fs_recover_fsync_data() cleared this already */
 			clear_sbi_flag(this, SBI_POR_DOING);
 
-			if (test_opt(this, DISABLE_CHECKPOINT))
+			if (test_opt_(F2FS_MOUNT_DISABLE_CHECKPOINT))
 			{
 				err = f2fs_disable_checkpoint();
 				//if (err)	goto sync_free_meta;
@@ -4719,7 +4670,7 @@ int f2fs_sb_info::f2fs_fill_super(const std::wstring & str_option, int silent)
 			else if (is_set_ckpt_flags(CP_DISABLED_FLAG)) { f2fs_enable_checkpoint(this); }
 
 			/* If filesystem is not mounted as read-only then do start the gc_thread. */
-			if ((F2FS_OPTION(this).bggc_mode != BGGC_MODE_OFF || test_opt(this, GC_MERGE)) && !f2fs_readonly())
+			if ((F2FS_OPTION(this).bggc_mode != BGGC_MODE_OFF || test_opt_(F2FS_MOUNT_GC_MERGE)) && !f2fs_readonly())
 			{
 				/* After POR, we can run background GC thread.*/
 				err = f2fs_start_gc_thread(this);
@@ -4858,20 +4809,13 @@ free_options:
 }
 
 
-//static struct dentry *f2fs_mount(struct file_system_type *fs_type, int flags, const char *dev_name, void *data)
-//{
-//	return mount_bdev(fs_type, flags, dev_name, data, f2fs_fill_super);
-//}
-
 //static void kill_f2fs_super(struct super_block *sb)
 void f2fs_sb_info::kill_f2fs_super(void)
 {
 	if (s_root) 
 	{
-//		struct f2fs_sb_info *sbi = F2FS_SB(sb);
 		set_sbi_flag(SBI_IS_CLOSE);
 		f2fs_stop_gc_thread();
-//		f2fs_stop_discard_thread();
 		sm_info->dcc_info->Stop();
 
 		if (is_sbi_flag_set( SBI_IS_DIRTY) ||  !is_set_ckpt_flags( CP_UMOUNT_FLAG)) 
@@ -4881,10 +4825,12 @@ void f2fs_sb_info::kill_f2fs_super(void)
 			f2fs_write_checkpoint( &cpc);
 		}
 
-		if (is_sbi_flag_set( SBI_IS_RECOVERED) && f2fs_readonly())
-			s_flags &= ~SB_RDONLY;
+		if (is_sbi_flag_set( SBI_IS_RECOVERED) && f2fs_readonly())		s_flags &= ~SB_RDONLY;
 	}
 	kill_block_super(this);
+	m_io_control->Stop();
+	delete m_io_control;
+	m_io_control = nullptr;
 }
 
 #if 0 //<TODO>
@@ -5176,10 +5122,10 @@ int f2fs_sb_info::inc_valid_node_count(f2fs_inode_info* iinode, bool is_inode)
 
 	valid_node_count = this->total_valid_node_count + 1;
 	if (iinode) {
-		LOG_DEBUG(L"increase valid node count, is_inode=%d, iinode=0x%X, valid_node_count=%d",
+		LOG_DEBUG_(1,L"increase valid node count, is_inode=%d, iinode=0x%X, valid_node_count=%d",
 			is_inode, iinode->i_ino, valid_node_count);
 	}
-	else LOG_DEBUG(L"increase valid node count, is_inode=%d, iinode=null, valid_node_count=%d",
+	else LOG_DEBUG_(1,L"increase valid node count, is_inode=%d, iinode=null, valid_node_count=%d",
 		is_inode, valid_node_count);
 	if (unlikely(valid_node_count > this->total_node_count))
 	{
@@ -5212,8 +5158,6 @@ enospc:
 //static inline void dec_valid_node_count(f2fs_sb_info* sbi, struct inode* iinode, bool is_inode)
 void f2fs_sb_info::dec_valid_node_count(f2fs_inode_info* iinode, bool is_inode)
 {
-	//	LOG_DEBUG(L"decrease valid node count, iinode=0x%X", iinode->i_ino);
-
 	spin_lock(&this->stat_lock);
 
 	f2fs_bug_on(this, !this->total_valid_block_count);
@@ -5223,7 +5167,7 @@ void f2fs_sb_info::dec_valid_node_count(f2fs_inode_info* iinode, bool is_inode)
 	this->total_valid_block_count--;
 	if (this->reserved_blocks && this->current_reserved_blocks < this->reserved_blocks)
 		this->current_reserved_blocks++;
-	LOG_DEBUG(L"decrease valid node count, is_inode=%d, iinode=0x%X, valid_node_count=%d",
+	LOG_DEBUG_(1,L"decrease valid node count, is_inode=%d, iinode=0x%X, valid_node_count=%d",
 		is_inode, iinode->i_ino, total_valid_node_count);
 
 	spin_unlock(&this->stat_lock);

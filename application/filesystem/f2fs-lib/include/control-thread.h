@@ -25,7 +25,8 @@ protected:
 	HANDLE	m_thread;
 	HANDLE	m_que_event;
 	DWORD	m_thread_id;
-	long	m_running;
+	long	m_running;		// 主线程通知工作线程是否要结束工作。
+	long	m_started;		// 工作线程指示是否已经开始工作。
 #ifdef _DEBUG
 	std::wstring m_thread_name;
 #endif

@@ -268,6 +268,7 @@ int f2fs_inode_info::f2fs_do_sync_file(file *ffile, loff_t start, loff_t end, in
 	int ret = 0;
 	enum cp_reason_type cp_reason = CP_NO_NEEDED;
 	writeback_control wbc;
+	memset(&wbc, 0, sizeof(writeback_control));
 	wbc.sync_mode = WB_SYNC_ALL;
 	wbc.nr_to_write = LONG_MAX;
 	wbc.for_reclaim = 0;
@@ -656,9 +657,7 @@ int f2fs_inode_info::f2fs_do_truncate_blocks(u64 from, bool lock)
 
 	free_from = (pgoff_t)F2FS_BLK_ALIGN(from);
 
-	if (free_from >= max_file_blocks(this))
-		goto free_partial;
-
+	if (free_from >= max_file_blocks(this))		goto free_partial;
 	if (lock)	m_sbi->f2fs_lock_op();
 
 	ipage = m_sbi->f2fs_get_node_page(i_ino);
@@ -739,14 +738,8 @@ int f2fs_inode_info::f2fs_truncate_blocks(u64 from, bool lock)
 int f2fs_inode_info::f2fs_truncate(void)
 {
 	int err;
-//	f2fs_sb_info* sbi = F2FS_I_SB(this);
 	if (unlikely(m_sbi->f2fs_cp_error()))		return -EIO;
-
-	if (!(S_ISREG(i_mode) || S_ISDIR(i_mode) || S_ISLNK(i_mode)))
-		return 0;
-
-//	trace_f2fs_truncate(this);
-
+	if (!(S_ISREG(i_mode) || S_ISDIR(i_mode) || S_ISLNK(i_mode)))	return 0;
 	if (time_to_inject(m_sbi, FAULT_TRUNCATE)) 
 	{
 		f2fs_show_injection_info(m_sbi, FAULT_TRUNCATE);
@@ -1652,7 +1645,7 @@ next_alloc:
 		sbi->f2fs_unlock_op();
 
 		map.m_seg_type = CURSEG_COLD_DATA_PINNED;
-		err = f2fs_map_blocks(this, &map, 1, F2FS_GET_BLOCK_PRE_DIO);
+		err = f2fs_map_blocks(&map, 1, F2FS_GET_BLOCK_PRE_DIO);
 
 		up_write(&sbi->pin_sem);
 
@@ -1665,7 +1658,7 @@ next_alloc:
 	} 
 	else
 	{
-		err = f2fs_map_blocks(this, &map, 1, F2FS_GET_BLOCK_PRE_AIO);
+		err = f2fs_map_blocks(&map, 1, F2FS_GET_BLOCK_PRE_AIO);
 		expanded = map.m_len;
 	}
 out_err:
@@ -4266,7 +4259,7 @@ ssize_t Cf2fsFileNode::write_iter(kiocb*iocb, iov_iter*from)
 			/* Convert inline data for Direct I/O before entering f2fs_direct_IO().	 */
 			err = this->f2fs_convert_inline_inode();
 			if (err)				goto out_err;
-			/* If force_buffere_io() is true, we have to allocate blocks all the time, since f2fs_direct_IO will fall back to buffered IO. */
+			/* If force_buffere_io() is true, we have to alloc_obj blocks all the time, since f2fs_direct_IO will fall back to buffered IO. */
 			if (!f2fs_force_buffered_io(this, iocb, from) &&	allow_outplace_dio(this, iocb, from))
 				goto write;
 		}

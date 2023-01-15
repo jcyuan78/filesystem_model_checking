@@ -292,7 +292,7 @@ static void xas_destroy(xa_state *xas)
  * @xas: XArray operation state.
  * @gfp: Memory allocation flags.
  *
- * If we need to add new nodes to the XArray, we try to allocate memory
+ * If we need to add new nodes to the XArray, we try to alloc_obj memory
  * with GFP_NOWAIT while holding the lock, which will usually succeed.
  * If it fails, @xas is flagged as needing memory to continue.  The caller
  * should drop the lock and call xas_nomem().  If xas_nomem() succeeds,
@@ -329,7 +329,7 @@ bool xas_nomem(xa_state *xas, gfp_t gfp)
 #if 0 //<TODO>
 
 /*
- * __xas_nomem() - Drop locks and allocate memory if needed.
+ * __xas_nomem() - Drop locks and alloc_obj memory if needed.
  * @xas: XArray operation state.
  * @gfp: Memory allocation flags.
  *
@@ -991,7 +991,7 @@ static void node_set_marks(struct xa_node *node, unsigned int offset,
  * @gfp: Memory allocation flags.
  *
  * This function should be called before calling xas_split().
- * If necessary, it will allocate new nodes (and fill them with @entry)
+ * If necessary, it will alloc_obj new nodes (and fill them with @entry)
  * to prepare for the upcoming split of an entry of @order size into
  * entries of the order stored in the @xas.
  *
@@ -1497,7 +1497,7 @@ EXPORT_SYMBOL(xa_erase);
  * @gfp: Memory allocation flags.
  *
  * You must already be holding the xa_lock when calling this function.
- * It will drop the lock if needed to allocate memory, and then reacquire
+ * It will drop the lock if needed to alloc_obj memory, and then reacquire
  * it afterwards.
  *
  * Context: Any context.  Expects xa_lock to be held on entry.  May
@@ -1562,7 +1562,7 @@ EXPORT_SYMBOL(xa_store);
  * @gfp: Memory allocation flags.
  *
  * You must already be holding the xa_lock when calling this function.
- * It will drop the lock if needed to allocate memory, and then reacquire
+ * It will drop the lock if needed to alloc_obj memory, and then reacquire
  * it afterwards.
  *
  * Context: Any context.  Expects xa_lock to be held on entry.  May
@@ -1807,7 +1807,7 @@ EXPORT_SYMBOL(__xa_alloc);
  * @id: Pointer to ID.
  * @entry: New entry.
  * @limit: Range of allocated ID.
- * @next: Pointer to next ID to allocate.
+ * @next: Pointer to next ID to alloc_obj.
  * @gfp: Memory allocation flags.
  *
  * Finds an empty entry in @xa between @limit.min and @limit.max,

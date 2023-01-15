@@ -49,9 +49,6 @@ public:
 	virtual int write_page(page* page, writeback_control* wbc);
 	virtual int write_pages(writeback_control* wbc);
 	virtual int set_node_page_dirty(page* page);
-	//virtual int release_page(page* page, gfp_t wait) UNSUPPORT_1(int);
-	//virtual int migrate_page(page* newpage, page* page, enum migrate_mode mode) UNSUPPORT_1(int);
-
 };
 
 class Cf2fsDataMapping : public Cf2fsMappingBase

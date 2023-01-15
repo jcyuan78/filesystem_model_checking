@@ -7,60 +7,88 @@
 #include "../include/pagemap.h"
 #include "../include/page-manager.h"
 
-LOCAL_LOGGER_ENABLE(L"linux.page_manager", LOGGER_LEVEL_DEBUGINFO);
+LOCAL_LOGGER_ENABLE(L"linux.page_manager", LOGGER_LEVEL_NOTICE);
 
 
 CPageManager::CPageManager(size_t cache_size)
 {
-	m_cache_nr = cache_size;
-	size_t mem_size = cache_size * PAGE_SIZE;
-	m_cache = new page[cache_size];
-	m_buffer = VirtualAlloc(0, mem_size, MEM_COMMIT, PAGE_READWRITE);
-
-	for (size_t ii = 0; ii < cache_size; ++ii)
-	{
-		m_cache[ii].init(this, (BYTE*)m_buffer + ii * PAGE_SIZE);
-		set_bit(PG_free, m_cache[ii].flags);
-		m_free_list.push_back(m_cache + ii);
-	}
-
 	InitializeCriticalSection(&m_page_wait_lock);
 	InitializeCriticalSection(&m_free_list_lock);
+
+	m_buffer_size = cache_size;
+	AllocatePageBuffer(m_buffer_size);
 }
 
 CPageManager::~CPageManager(void)
 {
 #ifdef _DEBUG
 	LOG_ERROR(L"buf_size=%d, active=%d, inactive=%d, free=%d", m_cache_nr, m_active.size(), m_inactive.size(), m_free_list.size());
-	JCASSERT(m_cache_nr == m_free_list.size());
+	//JCASSERT(m_cache_nr == m_free_list.size());
 	if (m_cache_nr != m_free_list.size())
 	{
+		LOG_ERROR(L"[err] memory leak:on page cache, total pages=%lld, free pages=%lld", m_cache_nr, m_free_list.size())
 		for (auto it = m_active.begin(); it != m_active.end(); ++it)
 		{
 			page* pp = *it;
-			LOG_DEBUG(L"leak page: page=%p, type=%d, inode=%d, index=%d, ref=%d, flag=%X, active", pp, pp->m_type, pp->m_inode, pp->_refcount, pp->flags);
+			LOG_DEBUG_(1,L"leak page: page=%p, type=%d, inode=%d, index=%d, ref=%d, flag=%X, active", pp, pp->m_type, pp->m_inode, pp->_refcount, pp->flags);
 		}
 		for (auto it = m_inactive.begin(); it != m_inactive.end(); ++it)
 		{
 			page* pp = *it;
-			LOG_DEBUG(L"leak page: page=%p, type=%d, inode=%d, index=%d, ref=%d, flag=%X, inactive", pp, pp->m_type, pp->m_inode, pp->_refcount, pp->flags);
+			LOG_DEBUG_(1,L"leak page: page=%p, type=%d, inode=%d, index=%d, ref=%d, flag=%X, inactive", pp, pp->m_type, pp->m_inode, pp->_refcount, pp->flags);
 		}
 	}
 #endif
-	delete[] m_cache;
-	VirtualFree(m_buffer, m_cache_nr * PAGE_SIZE, MEM_RELEASE);
+	for (auto it = m_page_buffer.begin(); it != m_page_buffer.end(); ++it)
+	{
+		delete[](*it);
+	}
+
+	for (auto it = m_buffer_list.begin(); it != m_buffer_list.end(); ++it)
+	{
+		VirtualFree((*it), m_buffer_size * PAGE_SIZE, MEM_RELEASE);
+	}
+
+	//delete[] m_cache;
+	//VirtualFree(m_buffer, m_cache_nr * PAGE_SIZE, MEM_RELEASE);
 	DeleteCriticalSection(&m_page_wait_lock);
 	DeleteCriticalSection(&m_free_list_lock);
+}
+
+void CPageManager::AllocatePageBuffer(size_t page_nr)
+{	
+	// 当page不够时，每次申请一批page
+	size_t mem_size = page_nr * PAGE_SIZE;
+	page * pages = new page[page_nr];
+	if (pages == nullptr) THROW_ERROR(ERR_MEM, L"no enough memory for page caches, current pages=%lld, allocate pages=%lld", m_cache_nr, page_nr);
+	void * buffers = VirtualAlloc(0, mem_size, MEM_COMMIT, PAGE_READWRITE);
+
+	lock();
+	m_page_buffer.push_back(pages);
+	m_buffer_list.push_back(buffers);
+
+	m_cache_nr += page_nr;
+	for (size_t ii = 0; ii < page_nr; ++ii)
+	{
+		pages[ii].init(this, (BYTE*)buffers + ii * PAGE_SIZE);
+		set_bit(PG_free, pages[ii].flags);
+		m_free_list.push_back(pages + ii);
+	}
+	unlock();
 }
 
 page* CPageManager::NewPage(void)
 {
 //	EnterCriticalSection(&m_free_list_lock);
+//	if (m_free_list.empty())
+//	{
+////		LeaveCriticalSection(&m_free_list_lock);
+//		size_t reclaim = reclaim_pages();		// 尝试回收page
+//		if (reclaim == 0 || m_free_list.empty() ) THROW_ERROR(ERR_MEM, L"no enough pages, total pages=%lld, active=%lld, inactive=%lld", m_cache_nr, m_active.size(), m_inactive.size());
+//	}
 	if (m_free_list.empty())
 	{
-//		LeaveCriticalSection(&m_free_list_lock);
-		size_t reclaim = reclaim_pages();		// 尝试回收page
-		if (reclaim == 0 || m_free_list.empty() ) THROW_ERROR(ERR_MEM, L"no enough pages, total pages=%lld, active=%lld, inactive=%lld", m_cache_nr, m_active.size(), m_inactive.size());
+		AllocatePageBuffer(m_buffer_size);
 	}
 
 	page* pp = nullptr;
@@ -83,7 +111,7 @@ page* CPageManager::NewPage(void)
 	// 重新初始化 page
 	pp->reinit();
 #ifdef DEBUG_PAGE
-	LOG_TRACK(L"page", L" page=%p, location=%lld, ref=%d, flag=%X, lock_th=%04X, new page", pp, pp-m_cache, pp->_refcount, pp->flags, pp->lock_th_id);
+	LOG_TRACK(L"page", L" page=%p, ref=%d, flag=%X, lock_th=%04X, new page", pp, pp->_refcount, pp->flags, pp->lock_th_id);
 #endif
 	return pp;
 }
@@ -280,7 +308,7 @@ void del_page_from_lru_list(page* pp, lruvec* lru)
  * Return: The found page or %NULL otherwise. */
 page* pagecache_get_page(address_space* mapping, pgoff_t index, int fgp_flags, gfp_t gfp_mask)
 {
-	LOG_DEBUG(L"flag = %s", FGP2String(fgp_flags).c_str());
+	LOG_DEBUG_(1,L"flag = %s", FGP2String(fgp_flags).c_str());
 	page* pp = NULL;
 	auto it = mapping->i_pages.find(index);
 	if (it != mapping->i_pages.end())
@@ -311,7 +339,7 @@ page* pagecache_get_page(address_space* mapping, pgoff_t index, int fgp_flags, g
 	{	// no_page
 		if (fgp_flags & FGP_CREAT)
 		{
-			// allocate page
+			// alloc_obj page
 			pp = new page;
 			if (!pp) THROW_ERROR(ERR_MEM, L"failed on allocating page");
 			memset(pp, 0, sizeof(page));
@@ -590,7 +618,7 @@ reset:
 unsigned find_get_pages_range_tag(address_space* mapping, pgoff_t* index, pgoff_t end, xa_mark_t tag, 
 	unsigned int nr_pages, page** pages)
 {
-	LOG_DEBUG(L"find pages with tag: %s", PageTag2String(tag).c_str());
+	LOG_DEBUG_(1,L"find pages with tag: %s", PageTag2String(tag).c_str());
 	XA_STATE(xas, &mapping->i_pages, *index);
 	//page* ppage;
 	unsigned ret = 0;

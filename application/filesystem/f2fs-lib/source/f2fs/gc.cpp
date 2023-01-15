@@ -44,8 +44,10 @@ DWORD f2fs_gc_kthread::gc_thread_func(void)
 #if 0
 	set_freezable();
 #endif
+	InterlockedExchange(&m_started, 1);
 	do
 	{
+
 		bool sync_mode, foreground = false;
 
 #if 0
@@ -142,7 +144,7 @@ DWORD f2fs_gc_kthread::gc_thread_func(void)
 #endif 
 //		trace_f2fs_background_gc(sbi->sb, wait_ms, sbi->prefree_segments(), sbi->free_segments());
 		/* balancing f2fs's metadata periodically */
-		f2fs_balance_fs_bg(sbi, true);
+		sbi->f2fs_balance_fs_bg( true);
 	next:
 		sb_end_write(sbi);
 
@@ -152,16 +154,8 @@ DWORD f2fs_gc_kthread::gc_thread_func(void)
 
 int f2fs_start_gc_thread(f2fs_sb_info *sbi)
 {
-	f2fs_gc_kthread *gc_th;
-//	dev_t dev = sbi->s_bdev->bd_dev;
 	int err = 0;
-
-	//gc_th = f2fs_kmalloc(sbi, sizeof(struct f2fs_gc_kthread), GFP_KERNEL);
-	//if (!gc_th) {
-	//	err = -ENOMEM;
-	//	goto out;
-	//}
-	gc_th = new f2fs_gc_kthread(sbi);
+	f2fs_gc_kthread *gc_th = new f2fs_gc_kthread(sbi);
 	if (!gc_th) THROW_ERROR(ERR_MEM, L"failed on creating f2fs_gc_kthread object");
 
 	//gc_th->urgent_sleep_time = DEF_GC_THREAD_URGENT_SLEEP_TIME;
@@ -176,12 +170,6 @@ int f2fs_start_gc_thread(f2fs_sb_info *sbi)
 	init_waitqueue_head(&sbi->gc_thread->gc_wait_queue_head);
 	init_waitqueue_head(&sbi->gc_thread->fggc_wq);
 #endif 
-//	sbi->gc_thread->f2fs_gc_task = kthread_run(gc_thread_func, sbi, "f2fs_gc-%u:%u", MAJOR(dev), MINOR(dev));
-	//if (IS_ERR(gc_th->f2fs_gc_task)) {
-	//	err = PTR_ERR(gc_th->f2fs_gc_task);
-	//	kfree(gc_th);
-	//	sbi->gc_thread = NULL;
-	//}
 	bool br = gc_th->Start(THREAD_PRIORITY_BELOW_NORMAL);
 	if (!br) THROW_ERROR(ERR_APP, L"failed to start gc thread");
 //out:
@@ -893,7 +881,7 @@ static int gc_node_segment(f2fs_sb_info *sbi, f2fs_summary *sum, unsigned int se
 	int phase = 0;
 	bool fggc = (gc_type == FG_GC);
 	int submitted = 0;
-	unsigned int usable_blks_in_seg = f2fs_usable_blks_in_seg(sbi, segno);
+	unsigned int usable_blks_in_seg = sbi->f2fs_usable_blks_in_seg(segno);
 
 	start_addr = START_BLOCK(sbi, segno);
 
@@ -1144,8 +1132,7 @@ int f2fs_inode_info::move_data_block(block_t bidx, int gc_type, unsigned int seg
 	block_t newaddr;
 	int err = 0;
 	bool lfs_mode = f2fs_lfs_mode(fio.sbi);
-	int type = fio.sbi->am.atgc_enabled && (gc_type == BG_GC) &&
-				(fio.sbi->gc_mode != GC_URGENT_HIGH) ?
+	SEGMENT_TYPE type = fio.sbi->am.atgc_enabled && (gc_type == BG_GC) && (fio.sbi->gc_mode != GC_URGENT_HIGH) ?
 				CURSEG_ALL_DATA_ATGC : CURSEG_COLD_DATA;
 
 	/* do not read out */
@@ -1234,8 +1221,8 @@ int f2fs_inode_info::move_data_block(block_t bidx, int gc_type, unsigned int seg
 
 	set_summary(&sum, dn.nid, dn.ofs_in_node, ni.version);
 
-	/* allocate block address */
-	f2fs_allocate_data_block(fio.sbi, NULL, fio.old_blkaddr, &newaddr,	&sum, type, NULL);
+	/* alloc_obj block address */
+	fio.sbi->f2fs_allocate_data_block(NULL, fio.old_blkaddr, &newaddr,	&sum, type, NULL);
 
 	fio.encrypted_page = f2fs_pagecache_get_page(META_MAPPING(fio.sbi),	newaddr, FGP_LOCK | FGP_CREAT, GFP_NOFS);
 	if (!fio.encrypted_page) {
@@ -1388,7 +1375,7 @@ static int gc_data_segment(f2fs_sb_info *sbi, f2fs_summary *sum,
 	int off;
 	int phase = 0;
 	int submitted = 0;
-	unsigned int usable_blks_in_seg = f2fs_usable_blks_in_seg(sbi, segno);
+	unsigned int usable_blks_in_seg = sbi->f2fs_usable_blks_in_seg(segno);
 
 	start_addr = START_BLOCK(sbi, segno);
 	
@@ -1596,8 +1583,7 @@ static int do_garbage_collect(f2fs_sb_info *sbi, unsigned int start_segno,
 		sum = page_address<f2fs_summary_block>(sum_page);
 		if (type != GET_SUM_TYPE((&sum->footer))) 
 		{
-			LOG_ERROR(L"[err] Inconsistent segment (%u) type [%d, %d] in SSA and SIT",
-				 segno, type, GET_SUM_TYPE((&sum->footer)));
+			LOG_ERROR(L"[err] Inconsistent segment (%u) type [%d, %d] in SSA and SIT", segno, type, GET_SUM_TYPE((&sum->footer)));
 			sbi->set_sbi_flag(SBI_NEED_FSCK);
 			f2fs_stop_checkpoint(sbi, false);
 			goto skip;

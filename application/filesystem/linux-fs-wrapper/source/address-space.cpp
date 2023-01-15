@@ -37,10 +37,7 @@ int set_page_dirty(page* page)
 	address_space* mapping = page->mapping;
 	//	page = compound_head(page);
 	if (likely(mapping))
-	{	/* readahead/lru_deactivate_page could remain PG_readahead/PG_reclaim due to race with end_page_writeback
-		* About readahead, if the page is written, the flags would be reset. So no problem. About lru_deactivate_page,
-		if the page is redirty, the flag will be reset. So no problem. but if the page is used by readahead it will
-		confuse readahead and make it restart the size rampup process. But it's a trivial problem. */
+	{	/* readahead/lru_deactivate_page could remain PG_readahead/PG_reclaim due to race with end_page_writeback. About readahead, if the page is written, the flags would be reset. So no problem. About lru_deactivate_page, if the page is redirty, the flag will be reset. So no problem. but if the page is used by readahead it will confuse readahead and make it restart the size rampup process. But it's a trivial problem. */
 		if (PageReclaim(page))		ClearPageReclaim(page);
 		//		return mapping->a_ops->set_page_dirty(page);
 		mapping->set_node_page_dirty(page);
@@ -56,36 +53,25 @@ int set_page_dirty(page* page)
 page::page(CPageManager * manager) : m_manager(manager), virtual_add(nullptr)
 {
 //	LOG_STACK_TRACE();
-//	memset(this, 0, sizeof(page));
 	mapping = nullptr;
 	index = 0;
 	private_data = 0;
 	_refcount = 1;
 	index = -1;
-//	virtual_add = VirtualAlloc(0, PAGE_SIZE, MEM_COMMIT, PAGE_READWRITE);
-//	if (virtual_add == 0) THROW_WIN32_ERROR(L"failed on allocate page");
 	InitializeCriticalSection(&m_lock);
-//	m_event_state = CreateEvent(NULL, FALSE, FALSE, NULL);
 	InitializeConditionVariable(&m_state_condition);
 }
 
 page::page(void) : m_manager(nullptr), virtual_add(nullptr)
 {
 	//	LOG_STACK_TRACE();
-	//	memset(this, 0, sizeof(page));
 	mapping = nullptr;
 	index = 0;
 	private_data = 0;
 	_refcount = 1;
 	index = -1;
-//	virtual_add = VirtualAlloc(0, PAGE_SIZE, MEM_COMMIT, PAGE_READWRITE);
-//	if (virtual_add == 0) THROW_WIN32_ERROR(L"failed on allocate page");
-//#ifdef _DEBUG
-//	LOG_DEBUG(L"page allocated, page=0x%llX, add=0x%llX", this, virtual_add);
-//	back_add = virtual_add;
-//#endif
+
 	InitializeCriticalSection(&m_lock);
-	//	m_event_state = CreateEvent(NULL, FALSE, FALSE, NULL);
 	InitializeConditionVariable(&m_state_condition);
 }
 
@@ -94,22 +80,14 @@ page::~page(void)
 #ifdef DEBUG_PAGE
 	LOG_TRACK(L"page", L"page destory, page=0x%llX, add=0x%llX, ref=%d, type=%d, index=%d",
 		this, virtual_add, _refcount, m_type, index);
-	//if (back_add != virtual_add) LOG_ERROR(L"[err] page address changed, org=0x%llX, new=0x%llX", back_add, virtual_add);
-//		THROW_ERROR(ERR_APP, L"page address changed, org=0x%llX, new=0x%llX", back_add, virtual_add);
 #endif
-//	VirtualFree(virtual_add, PAGE_SIZE, MEM_RELEASE);
 	DeleteCriticalSection(&m_lock);
-//	CloseHandle(m_event_state);
 }
 
 void page::init(CPageManager* manager, void* vmem)
 {
 	m_manager = manager;
 	virtual_add = vmem;
-//#ifdef DEBUG_PAGE
-//	back_add = virtual_add;
-//#endif
-
 }
 
 void page::reinit(void)

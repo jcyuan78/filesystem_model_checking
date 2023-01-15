@@ -192,7 +192,7 @@ void page_cache_ra_unbounded(readahead_control *ractl, unsigned long nr_to_read,
 	gfp_t gfp_mask = readahead_gfp_mask(mapping);
 	unsigned long i;
 
-	/* Partway through the readahead operation, we will have added locked pages to the page cache, but will not yet have submitted them for I/O.  Adding another page may need to allocate memory, which can trigger memory reclaim.  Telling the VM we're in the middle of a filesystem operation will cause it to not touch file-backed pages, preventing a deadlock.  Most (all?) filesystems already specify __GFP_NOFS in their mapping's gfp_mask, but let's be explicit here.	 */
+	/* Partway through the readahead operation, we will have added locked pages to the page cache, but will not yet have submitted them for I/O.  Adding another page may need to alloc_obj memory, which can trigger memory reclaim.  Telling the VM we're in the middle of a filesystem operation will cause it to not touch file-backed pages, preventing a deadlock.  Most (all?) filesystems already specify __GFP_NOFS in their mapping's gfp_mask, but let's be explicit here.	 */
 	unsigned int nofs = memalloc_nofs_save();
 
 	/* Preallocate as many pages as we will need. */
@@ -411,21 +411,17 @@ static void ondemand_readahead(readahead_control *ractl, bool hit_readahead_mark
 	if (!index)		goto initial_readahead;
 
 	/* It's the expected callback index, assume sequential access. Ramp up sizes, and push forward the readahead window.*/
-	if ((index == (ra->start + ra->size - ra->async_size) ||
-	     index == (ra->start + ra->size))) {
+	if ((index == (ra->start + ra->size - ra->async_size) || index == (ra->start + ra->size))) 
+	{
 		ra->start += ra->size;
 		ra->size = get_next_ra_size(ra, max_pages);
 		ra->async_size = ra->size;
 		goto readit;
 	}
 
-	/*
-	 * Hit a marked page without valid readahead state.
-	 * E.g. interleaved reads.
-	 * Query the pagecache for async_size, which normally equals to
-	 * readahead size. Ramp it up and use it as the new readahead size.
-	 */
-	if (hit_readahead_marker) {
+	/* Hit a marked page without valid readahead state. E.g. interleaved reads. Query the pagecache for async_size, which normally equals to readahead size. Ramp it up and use it as the new readahead size. */
+	if (hit_readahead_marker)
+	{
 		pgoff_t start;
 
 //		rcu_read_lock();
@@ -443,32 +439,22 @@ static void ondemand_readahead(readahead_control *ractl, bool hit_readahead_mark
 		goto readit;
 	}
 
-	/*
-	 * oversize read
-	 */
+	/* oversize read */
 	if (req_size > max_pages)
 		goto initial_readahead;
 
-	/*
-	 * sequential cache miss
-	 * trivial case: (index - prev_index) == 1
-	 * unaligned reads: (index - prev_index) == 0
-	 */
+	/* sequential cache miss
+	trivial case: (index - prev_index) == 1 
+	unaligned reads: (index - prev_index) == 0 */
 	prev_index = (unsigned long long)ra->prev_pos >> PAGE_SHIFT;
 	if (index - prev_index <= 1UL)
 		goto initial_readahead;
 
-	/*
-	 * Query the page cache and look for the traces(cached history pages)
-	 * that a sequential stream would leave behind.
-	 */
+	/* Query the page cache and look for the traces(cached history pages) that a sequential stream would leave behind. */
 	if (try_context_readahead(ractl->mapping, ra, index, req_size, 	max_pages))
 		goto readit;
 
-	/*
-	 * standalone, small random read
-	 * Read as is, and do not pollute the readahead state.
-	 */
+	/* standalone, small random read Read as is, and do not pollute the readahead state. */
 	do_page_cache_ra(ractl, req_size, 0);
 	return;
 
@@ -478,18 +464,17 @@ initial_readahead:
 	ra->async_size = ra->size > req_size ? ra->size - req_size : ra->size;
 
 readit:
-	/*
-	 * Will this read hit the readahead marker made by itself?
-	 * If so, trigger the readahead marker hit now, and merge
-	 * the resulted next readahead window into the current one.
-	 * Take care of maximum IO pages as above.
-	 */
-	if (index == ra->start && ra->size == ra->async_size) {
+	/* Will this read hit the readahead marker made by itself? If so, trigger the readahead marker hit now, and merge the resulted next readahead window into the current one. Take care of maximum IO pages as above. */
+	if (index == ra->start && ra->size == ra->async_size) 
+	{
 		add_pages = get_next_ra_size(ra, max_pages);
-		if (ra->size + add_pages <= max_pages) {
+		if (ra->size + add_pages <= max_pages) 
+		{
 			ra->async_size = add_pages;
 			ra->size += add_pages;
-		} else {
+		}
+		else
+		{
 			ra->size = max_pages;
 			ra->async_size = max_pages >> 1;
 		}
@@ -526,22 +511,14 @@ void page_cache_sync_ra(readahead_control *ractl, unsigned long req_count)
 void page_cache_async_ra(readahead_control *ractl, struct page *page, unsigned long req_count)
 {
 	/* no read-ahead */
-	if (!ractl->ra->ra_pages)
-		return;
-
-	/*
-	 * Same bit is used for PG_readahead and PG_reclaim.
-	 */
+	if (!ractl->ra->ra_pages)	return;
+	/* Same bit is used for PG_readahead and PG_reclaim. */
 	if (PageWriteback(page))		return;
-
 	ClearPageReadahead(page);
-
 	/* Defer asynchronous read-ahead on IO congestion. */
-	if (inode_read_congested(ractl->mapping->host))
-		return;
+	if (inode_read_congested(ractl->mapping->host))		return;
 
-	if (blk_cgroup_congested())
-		return;
+	if (blk_cgroup_congested())		return;
 
 	/* do read-ahead */
 	ondemand_readahead(ractl, true, req_count);

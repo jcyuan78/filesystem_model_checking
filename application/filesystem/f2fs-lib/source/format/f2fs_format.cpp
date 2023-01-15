@@ -766,7 +766,7 @@ int CF2fsFileSystem::f2fs_write_check_point_pack(f2fs_configuration & c)
 		set_cp(free_segment_count, f2fs_get_usable_segments(sb) - 6);
 		set_cp(user_block_count, ((get_cp(free_segment_count) + 6 - get_cp(overprov_segment_count)) * c.blks_per_seg));
 	}
-	LOG_DEBUG(L"free setment=%d,", cp->free_segment_count);
+	LOG_DEBUG_(1,L"free setment=%d,", cp->free_segment_count);
 	/* cp page (2), data summaries (1), node summaries (3) */
 	set_cp(cp_pack_total_block_count, 6 + get_sb(cp_payload));
 	flags = CP_UMOUNT_FLAG | CP_COMPACT_SUM_FLAG;

@@ -7,11 +7,8 @@
  * Copyright (C) 1994-1999  Linus Torvalds
  */
 
-/*
- * This file handles the generic file mmap semantics used by
- * most "normal" filesystems (but you don't /have/ to use this:
- * the NFS filesystem used to do this differently, for example)
- */
+/* This file handles the generic file mmap semantics used by most "normal" filesystems (but you don't /have/ to use this:
+ * the NFS filesystem used to do this differently, for example) */
 
 #include "../include/linux_comm.h"
 
@@ -56,27 +53,17 @@
 
 #define CREATE_TRACE_POINTS
 //#include <trace/events/filemap.h>
-LOCAL_LOGGER_ENABLE(L"vfs.filemap", LOGGER_LEVEL_DEBUGINFO);
+LOCAL_LOGGER_ENABLE(L"vfs.filemap", LOGGER_LEVEL_NOTICE);
 
 
-/*
- * FIXME: remove all knowledge of the buffer layer from the core VM
- */
+/* FIXME: remove all knowledge of the buffer layer from the core VM */
 //#include "..include/buffer_head.h" /* for try_to_free_buffers */
-
 //#include <asm/mman.h>
 
-/*
- * Shared mappings implemented 30.11.1994. It's not fully working yet,
- * though.
- *
+/* Shared mappings implemented 30.11.1994. It's not fully working yet, though.
  * Shared mappings now work. 15.8.1995  Bruno.
- *
- * finished 'unifying' the page and buffer cache and SMP-threaded the
- * page-cache, 21.05.1999, Ingo Molnar <mingo@redhat.com>
- *
- * SMP-threaded pagemap-LRU 1999, Andrea Arcangeli <andrea@suse.de>
- */
+ * finished 'unifying' the page and buffer cache and SMP-threaded the page-cache, 21.05.1999, Ingo Molnar <mingo@redhat.com>
+ * SMP-threaded pagemap-LRU 1999, Andrea Arcangeli <andrea@suse.de> */
 
 /*
  * Lock ordering:
@@ -366,16 +353,15 @@ static int filemap_check_and_keep_errors(struct address_space *mapping)
  * @sync_mode:	enable synchronous operation
  *
  * Start writeback against all of a mapping's dirty pages that lie within the byte offsets <start, end> inclusive.
- * If sync_mode is WB_SYNC_ALL then this is a "data integrity" operation, as opposed to a regular memory cleansing 
-   writeback.  The difference between these two operations is that if a dirty page/buffer is encountered, it must
-   be waited upon, and not just skipped over.
+ * If sync_mode is WB_SYNC_ALL then this is a "data integrity" operation, as opposed to a regular memory cleansing writeback.  The difference between these two operations is that if a dirty page/buffer is encountered, it must be waited upon, and not just skipped over.
  *
  * Return: %0 on success, negative error code otherwise. */
 //int __filemap_fdatawrite_range(address_space* mapping, loff_t start, loff_t end, int sync_mode)
 int address_space::__filemap_fdatawrite_range(loff_t start, loff_t end, int sync_mode)
 {
 	int ret;
-	struct writeback_control wbc;
+	writeback_control wbc;
+	memset(&wbc, 0, sizeof(writeback_control));
 	wbc.sync_mode = (writeback_sync_modes)sync_mode;
 	wbc.nr_to_write = LONG_MAX;
 	wbc.range_start = start;
@@ -1574,7 +1560,7 @@ int page::WaitOnPageBitCommon(int bit_nr, int state, behavior bb)
 	
 	//	while (i_state & state_bmp)
 	DWORD timeout = INFINITE;
-	if ((state & TASK_KILLABLE)==TASK_KILLABLE)	{	timeout = 10;	}
+	if ((state & TASK_KILLABLE)==TASK_KILLABLE)	{	timeout = 1000;	}
 	EnterCriticalSection(&m_manager->m_page_wait_lock);
 	while (1)
 	{
@@ -1590,7 +1576,7 @@ int page::WaitOnPageBitCommon(int bit_nr, int state, behavior bb)
 void wait_on_page_bit(page *ppage, int bit_nr)
 {
 //	wait_queue_head_t *q = page_waitqueue(ppage);
-	JCASSERT(0);
+//	JCASSERT(0);
 	wait_on_page_bit_common(nullptr, ppage, bit_nr, TASK_UNINTERRUPTIBLE, SHARED);
 }
 //EXPORT_SYMBOL(wait_on_page_bit);
@@ -2463,9 +2449,7 @@ static void shrink_readahead_size_eio(file_ra_state *ra)
 
 /* filemap_get_read_batch - Get a batch of pages for read
  *
- * Get a batch of pages which represent a contiguous range of bytes in the file. No tail pages will be returned.  
- If @index is in the middle of a THP, the entire THP will be returned.  The last page in the batch may have Readahead
- set or be not Uptodate so that the caller can take the appropriate action. */
+ * Get a batch of pages which represent a contiguous range of bytes in the file. No tail pages will be returned. If @index is in the middle of a THP, the entire THP will be returned.  The last page in the batch may have Readahead set or be not Uptodate so that the caller can take the appropriate action. */
 static void filemap_get_read_batch(address_space *mapping, pgoff_t index, pgoff_t max, pagevec *pvec)
 {
 	XA_STATE(xas, &mapping->i_pages, index);
@@ -2615,8 +2599,6 @@ static int filemap_readahead(kiocb *iocb, struct file *file, address_space *mapp
 	return 0;
 }
 
-
-
 static int filemap_get_pages(struct kiocb *iocb, struct iov_iter *iter, struct pagevec *pvec)
 {
 	file *filp = iocb->ki_filp;
@@ -2630,16 +2612,14 @@ static int filemap_get_pages(struct kiocb *iocb, struct iov_iter *iter, struct p
 	last_index = DIV_ROUND_UP<size_t>(iocb->ki_pos + iter->count, PAGE_SIZE);
 retry:
 //	if (fatal_signal_pending(current))		return -EINTR;
-	LOG_DEBUG(L"get page from %d to %d", index, last_index);
+	LOG_DEBUG_(1,L"get page from %d to %d", index, last_index);
 	filemap_get_read_batch(mapping, index, last_index, pvec);
-#if 1 //TODO
 	if (!pagevec_count(pvec)) 
 	{
 		if (iocb->ki_flags & IOCB_NOIO)		return -EAGAIN;
 		page_cache_sync_readahead(mapping, ra, filp, index, last_index - index);
 		filemap_get_read_batch(mapping, index, last_index, pvec);
 	}
-#endif
 
 	if (!pagevec_count(pvec)) 
 	{
@@ -2681,15 +2661,13 @@ static inline void iov_iter_truncate(iov_iter* i, u64 count)
 	if (i->count > count)	i->count = count;
 }
 
-/**
- * filemap_read - Read data from the page cache.
+/* filemap_read - Read data from the page cache.
  * @iocb: The iocb to read.
  * @iter: Destination for the data.
  * @already_read: Number of bytes already read by the caller.
  *
  * Copies data from the page cache.  If the data is not currently present, uses the readahead and readpage address_space operations to fetch it.
- * Return: Total number of bytes copied, including those already read by the caller.  If an error happens before any bytes are copied, returns a negative error number.
- */
+ * Return: Total number of bytes copied, including those already read by the caller.  If an error happens before any bytes are copied, returns a negative error number. */
 ssize_t filemap_read(kiocb *iocb, iov_iter *iter, ssize_t already_read)
 {
 	file *filp = iocb->ki_filp;
@@ -2708,14 +2686,11 @@ ssize_t filemap_read(kiocb *iocb, iov_iter *iter, ssize_t already_read)
 	pagevec_init(&pvec);
 
 	do {
-//		cond_resched();
-
 		/* If we've already successfully copied some data, then we can no longer safely return -EIOCBQUEUED. Hence mark an async read NOWAIT at that point. */
 		if ((iocb->ki_flags & IOCB_WAITQ) && already_read) iocb->ki_flags |= IOCB_NOWAIT;
 		// 实际读取页面，读取结果放入pvec中，然后从pvec复制数据到iter中。
 		error = filemap_get_pages(iocb, iter, &pvec);
 		if (error < 0) break;
-
 		/* i_size must be checked after we know the pages are Uptodate.
 		 * Checking i_size after the check allows us to calculate the correct value for "nr", which means the zero-filled part of the page is not copied back to userspace (unless another truncate extends the file - this is desired though).	 */
 		isize = i_size_read(inode);
@@ -2781,26 +2756,16 @@ put_pages:
  * @iter:	destination for the data read
  *
  * This is the "read_iter()" routine for all filesystems that can use the page cache directly.
- *
- * The IOCB_NOWAIT flag in iocb->ki_flags indicates that -EAGAIN shall be returned when no data can be read without 
- waiting for I/O requests to complete; it doesn't prevent readahead.
- *
- * The IOCB_NOIO flag in iocb->ki_flags indicates that no new I/O requests shall be made for the read or for readahead.  
- When no data can be read, -EAGAIN shall be returned.  When readahead would be triggered, a partial, possibly empty 
- read shall be returned.
+ * The IOCB_NOWAIT flag in iocb->ki_flags indicates that -EAGAIN shall be returned when no data can be read without waiting for I/O requests to complete; it doesn't prevent readahead.
+ * The IOCB_NOIO flag in iocb->ki_flags indicates that no new I/O requests shall be made for the read or for readahead. When no data can be read, -EAGAIN shall be returned.  When readahead would be triggered, a partial, possibly empty read shall be returned.
  *
  * Return:
- * * number of bytes copied, even for partial reads negative error code (or 0 if IOCB_NOIO) if nothing was read
- */
+ * * number of bytes copied, even for partial reads negative error code (or 0 if IOCB_NOIO) if nothing was read */
 ssize_t generic_file_read_iter(struct kiocb *iocb, struct iov_iter *iter)
 {
-//	size_t count = iov_iter_count(iter);
 	size_t count = iter->count;
-
 	ssize_t retval = 0;
-
 	if (!count)	return 0; /* skip atime */
-
 	if (iocb->ki_flags & IOCB_DIRECT) 
 	{	// 不使用缓存，
 #if 0 //<TODO>
@@ -2837,11 +2802,9 @@ ssize_t generic_file_read_iter(struct kiocb *iocb, struct iov_iter *iter)
 		if (retval < 0 || !count || iocb->ki_pos >= size ||  IS_DAX(inode))
 			return retval;
 #else
-		// 暂时不支持直接读写
-		JCASSERT(0);
+		JCASSERT(0);	// 暂时不支持直接读写
 #endif
 	}
-
 	return filemap_read(iocb, iter, retval);
 }
 
@@ -3783,13 +3746,12 @@ again:
 			break;
 		}
 
-		//if (fatal_signal_pending(current)) {
-		//	status = -EINTR;
-		//	break;
-		//}
-
 		status = mapping->write_begin(ffile, pos, bytes, flags, &page, &fsdata);
-		if (unlikely(status < 0))		break;
+		if (unlikely(status < 0))
+		{
+			LOG_ERROR(L"[err] failed on begin write, status=%d, pos=%d", status, pos);
+			break;
+		}
 
 		if (mapping_writably_mapped(mapping))	flush_dcache_page(page);
 
@@ -3798,7 +3760,11 @@ again:
 		flush_dcache_page(page);
 
 		status = mapping->write_end(ffile, pos, bytes, copied,	page, fsdata);
-		if (unlikely(status < 0))		break;
+		if (unlikely(status < 0))
+		{
+			LOG_ERROR(L"[err] failed on end write, status=%d, pos=%d, copied=%d", status, pos, copied);
+			break;
+		}
 		copied = status;
 
 //		cond_resched();

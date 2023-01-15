@@ -5,26 +5,28 @@
  * Copyright (C) 2001 Jens Axboe <axboe@kernel.dk>
  */
 #include "../include/linux_comm.h"
+
+#include "../include/fs.h"
+#include "../include/bio.h"
 #include "../include/blkdev.h"
-#include "../include/blk_types.h"
-//#include <linux/mm.h>
-//#include <linux/swap.h>
-//#include <linux/bio.h>
-//#include <linux/blkdev.h>
-//#include <linux/uio.h>
-//#include <linux/iocontext.h>
-//#include <linux/slab.h>
-//#include <linux/init.h>
-//#include <linux/kernel.h>
-//#include <linux/export.h>
-//#include <linux/mempool.h>
-//#include <linux/workqueue.h>
-//#include <linux/cgroup.h>
-//#include <linux/blk-cgroup.h>
-//#include <linux/highmem.h>
-//#include <linux/sched/sysctl.h>
-//#include <linux/blk-crypto.h>
-//#include <linux/xarray.h>
+//#include "../include/blk_types.h"
+//#include "../include/mm.h>
+//#include "../include/swap.h"
+//#include "../include/blkdev.h>
+//#include "../include/uio.h"
+//#include "../include/iocontext.h>
+//#include "../include/slab.h"
+//#include "../include/init.h>
+//#include "../include/kernel.h"
+//#include "../include/export.h>
+//#include "../include/mempool.h"
+//#include "../include/workqueue.h>
+//#include "../include/cgroup.h"
+//#include "../include/blk-cgroup.h>
+//#include "../include/highmem.h"
+//#include "../include/sched/sysctl.h>
+//#include "../include/blk-crypto.h"
+//#include "../include/xarray.h>
 //
 //#include <trace/events/block.h>
 //#include "blk.h"
@@ -371,18 +373,18 @@ static void punt_bios_to_rescuer(struct bio_set *bs)
 }
 
 /**
- * bio_alloc_bioset - allocate a bio for I/O
+ * bio_alloc_bioset - alloc_obj a bio for I/O
  * @gfp_mask:   the GFP_* mask given to the slab allocator
- * @nr_iovecs:	number of iovecs to pre-allocate
- * @bs:		the bio_set to allocate from.
+ * @nr_iovecs:	number of iovecs to pre-alloc_obj
+ * @bs:		the bio_set to alloc_obj from.
  *
  * Allocate a bio from the mempools in @bs.
  *
  * If %__GFP_DIRECT_RECLAIM is set then bio_alloc will always be able to
- * allocate a bio.  This is due to the mempool guarantees.  To make this work,
- * callers must never allocate more than 1 bio at a time from the general pool.
- * Callers that need to allocate more than 1 bio must always submit the
- * previously allocated bio for IO before attempting to allocate a new one.
+ * alloc_obj a bio.  This is due to the mempool guarantees.  To make this work,
+ * callers must never alloc_obj more than 1 bio at a time from the general pool.
+ * Callers that need to alloc_obj more than 1 bio must always submit the
+ * previously allocated bio for IO before attempting to alloc_obj a new one.
  * Failure to do so can cause deadlocks under memory pressure.
  *
  * Note that when running under submit_bio_noacct() (i.e. any block driver),
@@ -415,17 +417,17 @@ struct bio *bio_alloc_bioset(gfp_t gfp_mask, unsigned short nr_iovecs,
 
 	/*
 	 * submit_bio_noacct() converts recursion to iteration; this means if
-	 * we're running beneath it, any bios we allocate and submit will not be
+	 * we're running beneath it, any bios we alloc_obj and submit will not be
 	 * submitted (and thus freed) until after we return.
 	 *
-	 * This exposes us to a potential deadlock if we allocate multiple bios
+	 * This exposes us to a potential deadlock if we alloc_obj multiple bios
 	 * from the same bio_set() while running underneath submit_bio_noacct().
-	 * If we were to allocate multiple bios (say a stacking block driver
+	 * If we were to alloc_obj multiple bios (say a stacking block driver
 	 * that was splitting bios), we would deadlock if we exhausted the
 	 * mempool's reserve.
 	 *
 	 * We solve this, and guarantee forward progress, with a rescuer
-	 * workqueue per bio_set. If we go to allocate and there are bios on
+	 * workqueue per bio_set. If we go to alloc_obj and there are bios on
 	 * current->bio_list, we first try the allocation without
 	 * __GFP_DIRECT_RECLAIM; if that fails, we punt those bios we would be
 	 * blocking to the rescuer workqueue before we retry with the original
@@ -478,9 +480,9 @@ EXPORT_SYMBOL(bio_alloc_bioset);
 /**
  * bio_kmalloc - kmalloc a bio for I/O
  * @gfp_mask:   the GFP_* mask given to the slab allocator
- * @nr_iovecs:	number of iovecs to pre-allocate
+ * @nr_iovecs:	number of iovecs to pre-alloc_obj
  *
- * Use kmalloc to allocate and initialize a bio.
+ * Use kmalloc to alloc_obj and initialize a bio.
  *
  * Returns: Pointer to new bio on success, NULL on failure.
  */
@@ -662,7 +664,7 @@ EXPORT_SYMBOL(__bio_clone_fast);
  *	bio_clone_fast - clone a bio that shares the original bio's biovec
  *	@bio: bio to clone
  *	@gfp_mask: allocation priority
- *	@bs: bio_set to allocate from
+ *	@bs: bio_set to alloc_obj from
  *
  * 	Like __bio_clone_fast, only also allocates the returned bio
  */
@@ -697,24 +699,27 @@ const char *bio_devname(struct bio *bio, char *buf)
 }
 EXPORT_SYMBOL(bio_devname);
 
-static inline bool page_is_mergeable(const struct bio_vec *bv,
-		struct page *page, unsigned int len, unsigned int off,
+#endif
+
+static inline bool page_is_mergeable(const bio_vec *bv, page *ppage, unsigned int len, unsigned int off,
 		bool *same_page)
 {
+#if 0 //TODO
 	size_t bv_end = bv->bv_offset + bv->bv_len;
 	phys_addr_t vec_end_addr = page_to_phys(bv->bv_page) + bv_end - 1;
-	phys_addr_t page_addr = page_to_phys(page);
+	phys_addr_t page_addr = page_to_phys(ppage);
 
-	if (vec_end_addr + 1 != page_addr + off)
-		return false;
-	if (xen_domain() && !xen_biovec_phys_mergeable(bv, page))
-		return false;
-
+	if (vec_end_addr + 1 != page_addr + off)		return false;
+	if (xen_domain() && !xen_biovec_phys_mergeable(bv, ppage))		return false;
 	*same_page = ((vec_end_addr & PAGE_MASK) == page_addr);
-	if (*same_page)
-		return true;
-	return (bv->bv_page + bv_end / PAGE_SIZE) == (page + off / PAGE_SIZE);
+	if (*same_page)		return true;
+	return (bv->bv_page + bv_end / PAGE_SIZE) == (ppage + off / PAGE_SIZE);
+#else
+	return false;
+#endif
 }
+
+#if 0
 
 /*
  * Try to merge a page into a segment, while obeying the hardware segment
@@ -846,6 +851,7 @@ int bio_add_zone_append_page(struct bio *bio, struct page *page,
 			       queue_max_zone_append_sectors(q), &same_page);
 }
 EXPORT_SYMBOL_GPL(bio_add_zone_append_page);
+#endif
 
 /**
  * __bio_try_merge_page - try appending data to an existing bvec.
@@ -855,25 +861,22 @@ EXPORT_SYMBOL_GPL(bio_add_zone_append_page);
  * @off: offset of the data relative to @page
  * @same_page: return if the segment has been merged inside the same page
  *
- * Try to add the data at @page + @off to the last bvec of @bio.  This is a
- * useful optimisation for file systems with a block size smaller than the
- * page size.
- *
- * Warn if (@len, @off) crosses pages in case that @same_page is true.
- *
- * Return %true on success or %false on failure.
- */
-bool __bio_try_merge_page(struct bio *bio, struct page *page,
-		unsigned int len, unsigned int off, bool *same_page)
+ * Try to add the data at @page + @off to the last bvec of @bio.  This is a useful optimisation for file systems with a block size smaller than the page size.
+ * Warn if (@len, @off) crosses pages in case that @same_page is true. 
+ * Return %true on success or %false on failure. */
+bool __bio_try_merge_page(bio *bio, page *page, unsigned int len, unsigned int off, bool *same_page)
 {
-	if (WARN_ON_ONCE(bio_flagged(bio, BIO_CLONED)))
-		return false;
+	bool flagged = bio_flagged(bio, BIO_CLONED);
+	JCASSERT(!flagged);
+	if (/*WARN_ON_ONCE*/ (flagged) ) 	return false;
 
-	if (bio->bi_vcnt > 0) {
+	if (bio->bi_vcnt > 0) 
+	{
 		struct bio_vec *bv = &bio->bi_io_vec[bio->bi_vcnt - 1];
-
-		if (page_is_mergeable(bv, page, len, off, same_page)) {
-			if (bio->bi_iter.bi_size > UINT_MAX - len) {
+		if (page_is_mergeable(bv, page, len, off, same_page)) 
+		{
+			if (bio->bi_iter.bi_size > UINT_MAX - len) 
+			{
 				*same_page = false;
 				return false;
 			}
@@ -884,7 +887,7 @@ bool __bio_try_merge_page(struct bio *bio, struct page *page,
 	}
 	return false;
 }
-EXPORT_SYMBOL_GPL(__bio_try_merge_page);
+//EXPORT_SYMBOL_GPL(__bio_try_merge_page);
 
 /**
  * __bio_add_page - add page(s) to a bio in a new segment
@@ -893,52 +896,46 @@ EXPORT_SYMBOL_GPL(__bio_try_merge_page);
  * @len: length of the data to add, may cross pages
  * @off: offset of the data relative to @page, may cross pages
  *
- * Add the data at @page + @off to @bio as a new bvec.  The caller must ensure
- * that @bio has space for another bvec.
- */
-void __bio_add_page(struct bio *bio, struct page *page,
-		unsigned int len, unsigned int off)
+ * Add the data at @page + @off to @bio as a new bvec.  The caller must ensure that @bio has space for another bvec. */
+void __bio_add_page(bio *bio, page *ppage, unsigned int len, unsigned int off)
 {
 	struct bio_vec *bv = &bio->bi_io_vec[bio->bi_vcnt];
 
-	WARN_ON_ONCE(bio_flagged(bio, BIO_CLONED));
-	WARN_ON_ONCE(bio_full(bio, len));
+	JCASSERT(!bio_flagged(bio, BIO_CLONED));		//WARN_ON_ONCE
+	JCASSERT(!bio_full(bio, len));					//	WARN_ON_ONCE
 
-	bv->bv_page = page;
+	bv->bv_page = ppage;
 	bv->bv_offset = off;
 	bv->bv_len = len;
 
 	bio->bi_iter.bi_size += len;
 	bio->bi_vcnt++;
 
-	if (!bio_flagged(bio, BIO_WORKINGSET) && unlikely(PageWorkingset(page)))
+	if (!bio_flagged(bio, BIO_WORKINGSET) && unlikely(PageWorkingset(ppage)))
 		bio_set_flag(bio, BIO_WORKINGSET);
 }
-EXPORT_SYMBOL_GPL(__bio_add_page);
+//EXPORT_SYMBOL_GPL(__bio_add_page);
 
-/**
- *	bio_add_page	-	attempt to add page(s) to bio
+/**	bio_add_page	-	attempt to add page(s) to bio
  *	@bio: destination bio
  *	@page: start page to add
  *	@len: vec entry length, may cross pages
  *	@offset: vec entry offset relative to @page, may cross pages
  *
- *	Attempt to add page(s) to the bio_vec maplist. This will only fail
- *	if either bio->bi_vcnt == bio->bi_max_vecs or it's a cloned bio.
- */
-int bio_add_page(struct bio *bio, struct page *page,
-		 unsigned int len, unsigned int offset)
+ *	Attempt to add page(s) to the bio_vec maplist. This will only fail if either bio->bi_vcnt == bio->bi_max_vecs or it's a cloned bio. */
+int bio_add_page(bio *bio, page *page, unsigned int len, unsigned int offset)
 {
 	bool same_page = false;
 
-	if (!__bio_try_merge_page(bio, page, len, offset, &same_page)) {
-		if (bio_full(bio, len))
-			return 0;
+	if (!__bio_try_merge_page(bio, page, len, offset, &same_page)) 
+	{
+		if (bio_full(bio, len)) return 0;
 		__bio_add_page(bio, page, len, offset);
 	}
 	return len;
 }
-EXPORT_SYMBOL(bio_add_page);
+//EXPORT_SYMBOL(bio_add_page);
+#if 0
 
 void bio_release_pages(struct bio *bio, bool mark_dirty)
 {
@@ -1426,7 +1423,7 @@ EXPORT_SYMBOL(bio_endio);
  * @bio:	bio to split
  * @sectors:	number of sectors to split from the front of @bio
  * @gfp:	gfp mask
- * @bs:		bio set to allocate from
+ * @bs:		bio set to alloc_obj from
  *
  * Allocates and returns a new bio which represents @sectors from the start of
  * @bio, and updates @bio to represent the remaining sectors.
@@ -1527,7 +1524,7 @@ EXPORT_SYMBOL(bioset_exit);
  * bioset_init - Initialize a bio_set
  * @bs:		pool to initialize
  * @pool_size:	Number of bio and bio_vecs to cache in the mempool
- * @front_pad:	Number of bytes to allocate in front of the returned bio
+ * @front_pad:	Number of bytes to alloc_obj in front of the returned bio
  * @flags:	Flags to modify behavior, currently %BIOSET_NEED_BVECS
  *              and %BIOSET_NEED_RESCUER
  *

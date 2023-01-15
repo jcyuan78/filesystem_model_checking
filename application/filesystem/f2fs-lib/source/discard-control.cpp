@@ -7,6 +7,7 @@
 #include "../include/discard-control.h"
 #include "../include/f2fs_fs.h"
 #include "../include/f2fs-filesystem.h"
+#include "../include/io-complete-ctrl.h"
 #include "f2fs/node.h"
 #include "f2fs/segment.h"
 
@@ -114,8 +115,10 @@ DWORD discard_cmd_control::issue_discard_thread(void)
 #if 0
 	set_freezable();
 #endif
+	InterlockedExchange(&m_started, 1);
 	do
 	{
+
 		if (m_sbi->gc_mode == GC_URGENT_HIGH || !f2fs_available_free_memory(m_sbi, DISCARD_CACHE))
 			__init_discard_policy(&dpolicy, DPOLICY_FORCE, 1);
 		else
@@ -123,15 +126,15 @@ DWORD discard_cmd_control::issue_discard_thread(void)
 
 		if (!atomic_read(&discard_cmd_cnt))       wait_ms = dpolicy.max_interval;
 
-		LOG_DEBUG(L"waiting for que");
+		LOG_DEBUG_(1,L"waiting for que");
 		WaitForSingleObject(m_que_event, wait_ms);
 		//wait_event_interruptible_timeout(*q, kthread_should_stop() || freezing(current) || discard_wake, 	msecs_to_jiffies(wait_ms));
 		if (m_running == 0)
 		{
-			LOG_DEBUG(L"stop running by host");
+			LOG_DEBUG_(1,L"stop running by host");
 			break;
 		}
-		LOG_DEBUG(L"processing discard cmd");
+		LOG_DEBUG_(1,L"processing discard cmd");
 		if (discard_wake)		discard_wake = 0;
 		/* clean up pending candidates before going to sleep */
 		if (atomic_read(&queued_discard))	__wait_all_discard_cmd(NULL);
@@ -198,8 +201,10 @@ discard_cmd* discard_cmd_control::__create_discard_cmd(block_device* bdev, block
 	dc->error = 0;
 	init_completion(&dc->wait);
 	list_add_tail(&dc->list, local_pend_list);
+#ifdef _DEBUG
 	atomic_inc(&(n_pend_list[index]));
-	LOG_DEBUG(L"add cmd to list %d, size=%d", index, n_pend_list[index]);
+	LOG_DEBUG_(1,L"add cmd to list %d, size=%d", index, n_pend_list[index]);
+#endif
 
 	spin_lock_init(&dc->lock);
 	dc->bio_ref = 0;
@@ -506,7 +511,9 @@ retry:
 		if (list_empty(local_pend_list))		goto next;
 		if (unlikely(rbtree_check))		f2fs_bug_on(m_sbi, !f2fs_check_rb_tree_consistence(m_sbi, &root, false));
 		blk_start_plug(&plug);
-		LOG_DEBUG(L"check discoard cmd, list=%d, size=%d", i, n_pend_list[i]);
+#ifdef _DEBUG
+		LOG_DEBUG_(1,L"check discoard cmd, list=%d, size=%d", i, n_pend_list[i]);
+#endif
 		list_for_each_entry_safe(discard_cmd, dc, tmp, local_pend_list, list)
 		{
 			f2fs_bug_on(m_sbi, dc->state != D_PREP);
@@ -645,7 +652,7 @@ int discard_cmd_control::__submit_discard_cmd(discard_policy* dpolicy, discard_c
 	total_len = len;
 
 	dc->len = 0;
-	CF2fsFileSystem* fs = m_sbi->m_fs;
+	//CF2fsFileSystem* fs = m_sbi->m_fs;
 
 	while (total_len && *issued < dpolicy->max_requests && !err)
 	{
@@ -670,7 +677,7 @@ int discard_cmd_control::__submit_discard_cmd(discard_policy* dpolicy, discard_c
 			err = -EIO;
 			goto submit;
 		}
-		err = fs->__blkdev_issue_discard(bdev, SECTOR_FROM_BLOCK(start), SECTOR_FROM_BLOCK(len), GFP_NOFS, 0, &bio);
+		err = m_sbi->__blkdev_issue_discard(bdev, SECTOR_FROM_BLOCK(start), SECTOR_FROM_BLOCK(len), GFP_NOFS, 0, &bio);
 	submit:
 		if (err)
 		{
@@ -700,7 +707,7 @@ int discard_cmd_control::__submit_discard_cmd(discard_policy* dpolicy, discard_c
 		bio->bi_end_io = f2fs_submit_discard_endio;
 		bio->bi_opf |= flag;
 //		m_sbi->submit_bio(bio);
-		m_sbi->submit_async_io(bio);
+		m_sbi->m_io_control->submit_async_io(bio);
 
 		atomic_inc(&issued_discard);
 

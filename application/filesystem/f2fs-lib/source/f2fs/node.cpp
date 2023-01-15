@@ -8,15 +8,7 @@
  *             http://www.samsung.com/
  */
 #include <linux-fs-wrapper.h>
-//#include <linux/fs.h>
-//#include <linux/f2fs_fs.h>
 #include "../../include/f2fs_fs.h"
-//#include <linux/mpage.h>
-//#include <linux/backing-dev.h>
-//#include <linux/blkdev.h>
-//#include <linux/pagevec.h>
-//#include <linux/swap.h>
-//
 #include "../../include/f2fs.h"
 #include "node.h"
 #include "segment.h"
@@ -25,9 +17,7 @@
 #include "../mapping.h"
 #include "../../include/f2fs-filesystem.h"
 //#include <trace/events/f2fs.h>
-LOCAL_LOGGER_ENABLE(L"f2fs.node", LOGGER_LEVEL_DEBUGINFO);
-
-//#define on_f2fs_build_free_nids(nmi) mutex_is_locked(&(nm_i)->build_lock)
+LOCAL_LOGGER_ENABLE(L"f2fs.node", LOGGER_LEVEL_NOTICE);
 
 static struct kmem_cache *nat_entry_slab;
 static struct kmem_cache *free_nid_slab;
@@ -563,6 +553,7 @@ int f2fs_nm_info::f2fs_get_node_info(nid_t nid, /*out*/ node_info* ni)
 	memset(&ne, 0, sizeof(struct f2fs_nat_entry));
 
 	/* Check current segment summary */
+	TRACK_JOURNAL_SEM(curseg - m_sbi->sm_info->curseg_array, L"down_read", L"");
 	down_read(&curseg->journal_rwsem);
 	i = f2fs_lookup_journal_in_cursum(journal, NAT_JOURNAL, nid, 0);
 	if (i >= 0) 
@@ -571,6 +562,7 @@ int f2fs_nm_info::f2fs_get_node_info(nid_t nid, /*out*/ node_info* ni)
 		node_info_from_raw_nat(ni, &ne);
 		LOG_TRACK(L"nat", L"found in journal, ino=%d, nid=%d, block=0x%X", ni->ino, ni->nid, ni->blk_addr);
 	}
+	TRACK_JOURNAL_SEM(curseg - m_sbi->sm_info->curseg_array, L"up_read", L"");
 	up_read(&curseg->journal_rwsem);
 	if (i >= 0) 
 	{
@@ -806,7 +798,7 @@ int f2fs_get_dnode_of_data(dnode_of_data *dn, pgoff_t index, int mode)
 		} 
 		else if (mode == LOOKUP_NODE_RA && i == level && level > 1) 
 		{
-			npage[i] = f2fs_get_node_page_ra(parent, offset[i - 1]);
+			npage[i] = sbi->f2fs_get_node_page_ra(parent, offset[i - 1]);
 			if (IS_ERR(npage[i])) 
 			{
 				err = PTR_ERR(npage[i]);
@@ -1242,7 +1234,7 @@ int f2fs_remove_inode_page(struct inode *inode)
 page *f2fs_inode_info::f2fs_new_inode_page()
 {
 	dnode_of_data dn;
-	/* allocate inode page for new inode */
+	/* alloc_obj inode page for new inode */
 	dn.set_new_dnode(this, NULL, NULL, i_ino);
 	/* caller should f2fs_put_page(page, 1); */
 	return f2fs_new_node_page(&dn, 0);
@@ -1266,7 +1258,7 @@ page *f2fs_inode_info::f2fs_new_node_page(dnode_of_data *dn, unsigned int ofs)
 #ifdef INODE_DEBUG
 	jcvos::Utf8ToUnicode(ppage->m_type, "inode");
 	ppage->m_description = L"page of " + m_description;
-	LOG_DEBUG(L"got page for inode (%s), index=%d, addr=%llX", m_description.c_str(), ppage->index, ppage->virtual_add);
+	LOG_DEBUG_(1,L"got page for inode (%s), index=%d, addr=%llX", m_description.c_str(), ppage->index, ppage->virtual_add);
 #endif 
 #ifdef DEBUG_PAGE
 	ppage->m_type = page::INODE_PAGE;
@@ -1467,17 +1459,12 @@ page_hit:
 //	return __get_node_page(sbi, nid, NULL, 0);
 //}
 
-#if 0
-
-struct page *f2fs_get_node_page_ra(struct page *parent, int start)
+page * f2fs_sb_info::f2fs_get_node_page_ra(page *parent, int start)
 {
-	struct f2fs_sb_info *sbi = F2FS_P_SB(parent);
+//	f2fs_sb_info *sbi = F2FS_P_SB(parent);
 	nid_t nid = get_nid(parent, start, false);
-
-	return __get_node_page(sbi, nid, parent, start);
+	return __get_node_page(nid, parent, start);
 }
-
-#endif
 
 static void flush_inline_data(f2fs_sb_info* sbi, nid_t ino)
 {
@@ -1571,7 +1558,7 @@ continue_unlock:
 
 static int __write_node_page(page *ppage, bool atomic, bool *submitted, writeback_control *wbc, bool do_balance,	enum iostat_type io_type, unsigned int *seq_id)
 {
-	LOG_DEBUG(L"[IO] write node page: index=%d", ppage->index);
+	LOG_DEBUG_(1,L"[IO] write node page: index=%d", ppage->index);
 	f2fs_sb_info *sbi = F2FS_P_SB(ppage);
 	nid_t nid;
 	struct node_info ni;
@@ -1691,6 +1678,7 @@ int f2fs_move_node_page(page *node_page, int gc_type)
 	if (gc_type == FG_GC) 
 	{
 		writeback_control wbc;
+		memset(&wbc, 0, sizeof(writeback_control));
 		wbc.sync_mode = WB_SYNC_ALL;
 		wbc.nr_to_write = 1;
 		wbc.for_reclaim = 0;
@@ -2105,7 +2093,7 @@ int Cf2fsNodeMapping::write_pages(writeback_control *wbc)
 	if (unlikely(sbi->is_sbi_flag_set( SBI_POR_DOING))) 	goto skip_write;
 
 	/* balancing f2fs's metadata in background */
-	f2fs_balance_fs_bg(sbi, true);
+	sbi->f2fs_balance_fs_bg(true);
 
 	/* collect a number of dirty node pages and write together */
 	if (wbc->sync_mode != WB_SYNC_ALL && sbi->get_pages( F2FS_DIRTY_NODES) <	nr_pages_to_skip(sbi, NODE))
@@ -2372,6 +2360,7 @@ static void scan_curseg_cache(f2fs_sb_info *sbi)
 	f2fs_journal *journal = &curseg->journal;
 	int i;
 
+	TRACK_JOURNAL_SEM(curseg - sbi->sm_info->curseg_array, L"down_read", L"");
 	down_read(&curseg->journal_rwsem);
 	for (i = 0; i < nats_in_cursum(journal); i++) 
 	{
@@ -2383,6 +2372,7 @@ static void scan_curseg_cache(f2fs_sb_info *sbi)
 		if (addr == NULL_ADDR)		nm_i->add_free_nid(nid, true, false);
 		else						nm_i->remove_free_nid(nid);
 	}
+	TRACK_JOURNAL_SEM(curseg - sbi->sm_info->curseg_array, L"up_read", L"");
 	up_read(&curseg->journal_rwsem);
 }
 
@@ -2483,12 +2473,12 @@ int f2fs_nm_info::__f2fs_build_free_nids(bool sync, bool mount)
 int f2fs_nm_info::f2fs_build_free_nids(bool sync, bool mount)
 {
 	int ret;
-	LOG_DEBUG(L"[build_lock] lock");
+	LOG_DEBUG_(1,L"[build_lock] lock");
 	auto_lock<mutex_locker> lock(build_lock);
 	//mutex_lock(&NM_I(this)->build_lock);
 	ret = __f2fs_build_free_nids(sync, mount);
 	//mutex_unlock(&NM_I(this)->build_lock);
-	LOG_DEBUG(L"[build_lock] release");
+	LOG_DEBUG_(1,L"[build_lock] release");
 	return ret;
 }
 
@@ -2517,10 +2507,10 @@ retry:
 
 		/* We should not use stale free nids created by f2fs_build_free_nids */
 //		if (nid_cnt[FREE_NID] && !on_f2fs_build_free_nids(this))
-		LOG_DEBUG(L"[build_lock] check lock");
+		LOG_DEBUG_(1,L"[build_lock] check lock");
 		if (nid_cnt[FREE_NID] && !mutex_is_locked(&build_lock))
 		{
-			LOG_DEBUG(L"[build_lock] check result not locked");
+			LOG_DEBUG_(1,L"[build_lock] check result not locked");
 //			f2fs_bug_on(sbi, list_empty(&nm_i->free_nid_list));
 			JCASSERT(!list_empty(&free_nid_list));
 			i = list_first_entry(&free_nid_list, free_nid, list);
@@ -2818,30 +2808,28 @@ static void remove_nats_in_journal(f2fs_sb_info *sbi)
 	f2fs_journal *journal = &curseg->journal;
 	int i;
 
+	TRACK_JOURNAL_SEM(curseg - sbi->sm_info->curseg_array, L"down_write", L"");
 	down_write(&curseg->journal_rwsem);
-	for (i = 0; i < nats_in_cursum(journal); i++) {
+	for (i = 0; i < nats_in_cursum(journal); i++) 
+	{
 		struct nat_entry *ne;
 		struct f2fs_nat_entry raw_ne;
 		nid_t nid = le32_to_cpu(nid_in_journal(journal, i));
 
-		if (f2fs_check_nid_range(sbi, nid))
-			continue;
+		if (f2fs_check_nid_range(sbi, nid))		continue;
 
 		raw_ne = nat_in_journal(journal, i);
 
 		ne = nm_i->__lookup_nat_cache(nid);
-		if (!ne) {
+		if (!ne) 
+		{
 			ne = __alloc_nat_entry(nid, true);
 			nm_i->__init_nat_entry( ne, &raw_ne, true);
 		}
 
-		/*
-		 * if a free nat in journal has not been used after last
-		 * checkpoint, we should remove it from available nids,
-		 * since later we will add it again.
-		 */
-		if (!get_nat_flag(ne, IS_DIRTY) &&
-				le32_to_cpu(raw_ne.block_addr) == NULL_ADDR) {
+		/* if a free nat in journal has not been used after last  checkpoint, we should remove it from available nids, since later we will add it again. */
+		if (!get_nat_flag(ne, IS_DIRTY) && le32_to_cpu(raw_ne.block_addr) == NULL_ADDR) 
+		{
 			spin_lock(&nm_i->nid_list_lock);
 			nm_i->available_nids--;
 			spin_unlock(&nm_i->nid_list_lock);
@@ -2850,6 +2838,7 @@ static void remove_nats_in_journal(f2fs_sb_info *sbi)
 		__set_nat_cache_dirty(nm_i, ne);
 	}
 	update_nats_in_cursum(journal, -i);
+	TRACK_JOURNAL_SEM(curseg - sbi->sm_info->curseg_array, L"up_write", L"");
 	up_write(&curseg->journal_rwsem);
 }
 
@@ -2924,6 +2913,7 @@ static int __flush_nat_entry_set(f2fs_sb_info *sbi, nat_entry_set *set, cp_contr
 
 	if (to_journal) 
 	{
+		TRACK_JOURNAL_SEM(curseg - sbi->sm_info->curseg_array, L"down_write", L"");
 		down_write(&curseg->journal_rwsem);
 	}
 	else 
@@ -2945,14 +2935,15 @@ static int __flush_nat_entry_set(f2fs_sb_info *sbi, nat_entry_set *set, cp_contr
 
 		f2fs_bug_on(sbi, nat_get_blkaddr(ne) == NEW_ADDR);
 
-		if (to_journal) {
+		if (to_journal) 
+		{
 			offset = f2fs_lookup_journal_in_cursum(journal, NAT_JOURNAL, nid, 1);
+			JCASSERT(offset >= 0);
 			f2fs_bug_on(sbi, offset < 0);
 			raw_ne = &nat_in_journal(journal, offset);
 			nid_in_journal(journal, offset) = cpu_to_le32(nid);
-		} else {
-			raw_ne = &nat_blk->entries[nid - start_nid];
 		}
+		else {	raw_ne = &nat_blk->entries[nid - start_nid];	}
 		raw_nat_from_node_info(raw_ne, &ne->ni);
 		nat_reset_flag(ne);
 		__clear_nat_cache_dirty(NM_I(sbi), set, ne);
@@ -2966,12 +2957,16 @@ static int __flush_nat_entry_set(f2fs_sb_info *sbi, nat_entry_set *set, cp_contr
 			nmi->update_free_nid_bitmap(nid, false, false);
 			spin_unlock(&NM_I(sbi)->nid_list_lock);
 		}
+//		JCASSERT(((UINT64)curseg->journal_rwsem.Ptr) <=1 );
 	}
 
 	if (to_journal)
 	{
+		TRACK_JOURNAL_SEM(curseg - sbi->sm_info->curseg_array, L"up_write", L"");
 		up_write(&curseg->journal_rwsem);
-	} else {
+	} 
+	else
+	{
 		nmi->__update_nat_bits(start_nid, page);
 		f2fs_put_page(page, 1);
 	}
@@ -2998,7 +2993,8 @@ int f2fs_flush_nat_entries(f2fs_sb_info *sbi, cp_control *cpc)
 	int err = 0;
 
 	/* during unmount, let's flush nat_bits before checking nat_cnt[DIRTY_NAT].	 */
-	if (enabled_nat_bits(sbi, cpc)) {
+	if (enabled_nat_bits(sbi, cpc)) 
+	{
 		down_write(&nm_i->nat_tree_lock);
 		remove_nats_in_journal(sbi);
 		up_write(&nm_i->nat_tree_lock);
@@ -3009,24 +3005,18 @@ int f2fs_flush_nat_entries(f2fs_sb_info *sbi, cp_control *cpc)
 
 	down_write(&nm_i->nat_tree_lock);
 
-	/*
-	 * if there are no enough space in journal to store dirty nat
-	 * entries, remove all entries from journal and merge them
-	 * into nat entry set.
-	 */
-	if (enabled_nat_bits(sbi, cpc) ||
-		!__has_cursum_space(journal,
-			nm_i->nat_cnt[DIRTY_NAT], NAT_JOURNAL))
+	/* if there are no enough space in journal to store dirty nat entries, remove all entries from journal and merge them
+	 * into nat entry set. */
+	if (enabled_nat_bits(sbi, cpc) || !__has_cursum_space(journal, nm_i->nat_cnt[DIRTY_NAT], NAT_JOURNAL))
 		remove_nats_in_journal(sbi);
 
-	while ((found = __gang_lookup_nat_set(nm_i,
-					set_idx, SETVEC_SIZE, setvec))) {
+	while ((found = __gang_lookup_nat_set(nm_i,	set_idx, SETVEC_SIZE, setvec))) 
+	{
 		unsigned idx;
 
 		set_idx = setvec[found - 1]->set + 1;
 		for (idx = 0; idx < found; idx++)
-			__adjust_nat_entry_set(setvec[idx], &sets,
-						MAX_NAT_JENTRIES(journal));
+			__adjust_nat_entry_set(setvec[idx], &sets,	MAX_NAT_JENTRIES(journal));
 	}
 
 	/* flush dirty nats in nat entry set */
@@ -3291,7 +3281,7 @@ f2fs_nm_info::f2fs_nm_info(f2fs_sb_info * sbi) : m_sbi(sbi), build_lock(NULL)
 	INIT_LIST_HEAD(&nat_entries);
 	spin_lock_init(&nat_list_lock);
 
-	LOG_DEBUG(L"[build_lock] init");
+	LOG_DEBUG_(1,L"[build_lock] init");
 	mutex_init(&build_lock);
 	spin_lock_init(&nid_list_lock);
 	init_rwsem(&nat_tree_lock);
@@ -3387,7 +3377,7 @@ f2fs_nm_info::~f2fs_nm_info(void)
 	kvfree(nat_bitmap_mir);
 #endif
 
-	LOG_DEBUG(L"[build_lock] destory");
+	LOG_DEBUG_(1,L"[build_lock] destory");
 	mutex_destory(&build_lock);
 
 }

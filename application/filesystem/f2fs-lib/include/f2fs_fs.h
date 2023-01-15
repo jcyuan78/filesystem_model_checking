@@ -668,7 +668,7 @@ template<> inline UINT16 get_cp_le(UINT16 val) { return le16_to_cpu(val); }
 #define NR_CURSEG_NODE_TYPE	(3)
 //#define NR_CURSEG_TYPE	(NR_CURSEG_DATA_TYPE + NR_CURSEG_NODE_TYPE)
 
-enum
+enum SEGMENT_TYPE
 {
 	CURSEG_HOT_DATA = 0,	/* directory entry blocks */
 	CURSEG_WARM_DATA,	/* data blocks */

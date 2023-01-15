@@ -384,4 +384,8 @@ public:
 	void* i_private; /* fs or device private pointer */
 };
 
+#define TRACK_INODE(iinode, ev, ...) LOG_TRACK(L"inode", L",inode=%p,ino=%d,ref=%d," ev, iinode, \
+	iinode->i_ino, iinode->i_count, __VA_ARGS__)
+
+
 //__randomize_layout;

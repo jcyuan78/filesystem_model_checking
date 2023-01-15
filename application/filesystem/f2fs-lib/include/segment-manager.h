@@ -35,19 +35,12 @@ public:
 
 public:
 	DWORD issue_flush_thread(void);
-	//bool StartThread(void);
-	//void StopThread(void);
-	//static DWORD WINAPI _issue_flush_thread(LPVOID data);
-	//bool is_running(void) { return (f2fs_issue_flush_thread && m_run); }
 	virtual DWORD Run(void) { return issue_flush_thread(); }
 	int f2fs_issue_flush(nid_t ino);
 //	void f2fs_destroy_flush_cmd_control(bool free);
 	atomic_t atomic_read_queued(void) { return atomic_read(&queued_flush); }
 
 protected:
-//	struct task_struct* f2fs_issue_flush;	/* flush thread */
-	//HANDLE f2fs_issue_flush_thread;
-	//DWORD  thread_id;
 
 //	wait_queue_head_t flush_wait_queue;	/* waiting queue for wake-up */
 	//HANDLE m_que_event;		// 用于出发queue的变化，代替wait queue
@@ -58,7 +51,6 @@ protected:
 
 	//member functions
 	f2fs_sb_info* m_sb_info;
-	//long m_run;
 };
 
 //<YUAN> segment info?
@@ -74,7 +66,7 @@ public:
 	struct dirty_seglist_info* dirty_info = nullptr;	/* dirty segment information */
 	struct curseg_info* curseg_array = nullptr;	/* active segment information */
 
-	SRWLOCK /*semaphore*/  curseg_lock;	/* for preventing curseg change */
+	semaphore  curseg_lock;	/* for preventing curseg change */
 
 	block_t seg0_blkaddr;		/* block address of 0'th segment */
 	block_t main_blkaddr;		/* start block address of main area */

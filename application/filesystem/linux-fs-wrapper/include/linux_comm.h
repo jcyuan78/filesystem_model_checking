@@ -58,25 +58,11 @@ typedef UINT32 xa_mark_t;
 /* This looks more complex than it should be. But we need to get the type for the ~ right in round_down (it needs to
 be as wide as the result!), and we want to evaluate the macro arguments just once each. */
 
- //#define __round_mask(x, y)	((__typeof__(x))((y)-1))
-//template <typename T1, typename T2>
-//inline T1 __round_mask(T1 x, T2 y) { return (T1)((y)-1); }
-
-/* round_up - round up to next specified power of 2
- * @x: the value to round
- * @y: multiple to round up to (must be a power of 2)
- *
- * Rounds @x up to next multiple of @y (which must be a power of 2). To perform arbitrary rounding up, use roundup() below. */
-//#define round_up(x, y)		(((x) + (y) - 1) / (y))
-//#define round_up(x, y)		((((x)-1) | __round_mask(x, y))+1)
-
-
 /** round_down - round down to next specified power of 2
  * @x: the value to round
  * @y: multiple to round down to (must be a power of 2)
  *
  * Rounds @x down to next multiple of @y (which must be a power of 2). To perform arbitrary rounding down, use rounddown() below. */
- //#define round_down(x, y)	((x) & ~__round_mask(x, y))
 
 //<YUAN> my defined
 template <typename T> inline T DIV_ROUND_UP(T x, T y) { return (x + y - 1) / y; }
@@ -84,10 +70,8 @@ template <typename T> inline T DIV_ROUND_UP(T x, T y) { return (x + y - 1) / y; 
 /* fls - find last set bit in word
  * @x: the word to search
  *
- * This is defined in a similar way as the libc and compiler builtin ffs, but returns the position of the most 
- significant set bit.
-  * fls(value) returns 0 if value is 0 or the position of the last set bit if value is nonzero. The last 
-  (most significant) bit is at position 32. */
+ * This is defined in a similar way as the libc and compiler builtin ffs, but returns the position of the most significant set bit.
+ * fls(value) returns 0 if value is 0 or the position of the last set bit if value is nonzero. The last (most significant) bit is at position 32. */
 // 找到做高位的 1
 template <typename T> inline T roundup_pow_of_two(T x)
 {
@@ -129,6 +113,7 @@ size_t BITS_PER_T(T1 v = 0) { return sizeof(T1) * BITS_PER_BYTE; }
 #define PAGE_SHIFT		12
 #define PAGE_SIZE		(1 << PAGE_SHIFT)
 #define PAGE_MASK		(~(PAGE_SIZE-1))
+#define SECTOR_PER_PAGE	8
 
 
 /* assumes size > 256 */

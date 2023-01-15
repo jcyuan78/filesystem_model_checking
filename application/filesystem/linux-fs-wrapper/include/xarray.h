@@ -233,8 +233,8 @@ static inline UINT64 xa_err(void *entry)
 
 /**
  * struct xa_limit - Represents a range of IDs.
- * @min: The lowest ID to allocate (inclusive).
- * @max: The maximum ID to allocate (inclusive).
+ * @min: The lowest ID to alloc_obj (inclusive).
+ * @max: The maximum ID to alloc_obj (inclusive).
  *
  * This structure is used either directly or via the XA_LIMIT() macro
  * to communicate the range of IDs that are valid for allocation.
@@ -289,7 +289,7 @@ enum xa_lock_type {
  *
  * To use the xarray, define it statically or embed it in your data structure.
  * It is a very small data structure, so it does not usually make sense to
- * allocate it separately and keep a pointer to it in your data structure.
+ * alloc_obj it separately and keep a pointer to it in your data structure.
  *
  * You may use the xa_lock to protect your own data structures as well.
  */
@@ -567,7 +567,7 @@ static inline bool xa_marked(const struct xarray *xa, xa_mark_t mark)
 
 
 /* Versions of the normal API which require the caller to hold the xa_lock.  If the GFP flags allow it, they will 
-   drop the lock to allocate memory, then reacquire it afterwards.  These functions may also re-enable interrupts if
+   drop the lock to alloc_obj memory, then reacquire it afterwards.  These functions may also re-enable interrupts if
    the XArray flags indicate the locking should be interrupt safe.  */
 void __xa_set_mark(xarray *, unsigned long index, xa_mark_t);
 #if 0 //TODO
@@ -852,7 +852,7 @@ static inline int __must_check xa_insert_irq(struct xarray *xa,
  * @xa: XArray.
  * @id: Pointer to ID.
  * @entry: New entry.
- * @limit: Range of ID to allocate.
+ * @limit: Range of ID to alloc_obj.
  * @gfp: Memory allocation flags.
  *
  * Finds an empty entry in @xa between @limit.min and @limit.max,
@@ -881,7 +881,7 @@ static inline __must_check int xa_alloc(struct xarray *xa, u32 *id,
  * @xa: XArray.
  * @id: Pointer to ID.
  * @entry: New entry.
- * @limit: Range of ID to allocate.
+ * @limit: Range of ID to alloc_obj.
  * @gfp: Memory allocation flags.
  *
  * Finds an empty entry in @xa between @limit.min and @limit.max,
@@ -910,7 +910,7 @@ static inline int __must_check xa_alloc_bh(struct xarray *xa, u32 *id,
  * @xa: XArray.
  * @id: Pointer to ID.
  * @entry: New entry.
- * @limit: Range of ID to allocate.
+ * @limit: Range of ID to alloc_obj.
  * @gfp: Memory allocation flags.
  *
  * Finds an empty entry in @xa between @limit.min and @limit.max,
@@ -940,7 +940,7 @@ static inline int __must_check xa_alloc_irq(struct xarray *xa, u32 *id,
  * @id: Pointer to ID.
  * @entry: New entry.
  * @limit: Range of allocated ID.
- * @next: Pointer to next ID to allocate.
+ * @next: Pointer to next ID to alloc_obj.
  * @gfp: Memory allocation flags.
  *
  * Finds an empty entry in @xa between @limit.min and @limit.max,
@@ -973,7 +973,7 @@ static inline int xa_alloc_cyclic(struct xarray *xa, u32 *id, void *entry,
  * @id: Pointer to ID.
  * @entry: New entry.
  * @limit: Range of allocated ID.
- * @next: Pointer to next ID to allocate.
+ * @next: Pointer to next ID to alloc_obj.
  * @gfp: Memory allocation flags.
  *
  * Finds an empty entry in @xa between @limit.min and @limit.max,
@@ -1006,7 +1006,7 @@ static inline int xa_alloc_cyclic_bh(struct xarray *xa, u32 *id, void *entry,
  * @id: Pointer to ID.
  * @entry: New entry.
  * @limit: Range of allocated ID.
- * @next: Pointer to next ID to allocate.
+ * @next: Pointer to next ID to alloc_obj.
  * @gfp: Memory allocation flags.
  *
  * Finds an empty entry in @xa between @limit.min and @limit.max,

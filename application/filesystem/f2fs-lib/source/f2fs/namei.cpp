@@ -104,10 +104,10 @@ f2fs_inode_info* f2fs_sb_info::f2fs_new_inode(Cf2fsDirInode* dir, umode_t mode, 
 		iinode->i_extra_isize = F2FS_TOTAL_EXTRA_ATTR_SIZE;
 	}
 
-	if (test_opt(this, INLINE_XATTR))
+	if (test_opt_(F2FS_MOUNT_INLINE_XATTR))
 		set_inode_flag(iinode, FI_INLINE_XATTR);
 
-	if (test_opt(this, INLINE_DATA) && f2fs_may_inline_data(iinode))
+	if (test_opt_(F2FS_MOUNT_INLINE_DATA) && f2fs_may_inline_data(iinode))
 		set_inode_flag(iinode, FI_INLINE_DATA);
 	if (f2fs_may_inline_dentry(iinode))
 		set_inode_flag(iinode, FI_INLINE_DENTRY);
@@ -657,7 +657,8 @@ int Cf2fsDirInode::create(user_namespace *mnt_userns, dentry *entry, umode_t mod
 	iinode->m_description = L"file of " + fn;
 	//, iinode->i_size_lock.LockCount);
 #endif
-	LOG_TRACK(L"inode", L" add=%p, ino=%d, fn=%s, create for new file", iinode, iinode->i_ino, fn.c_str());
+	//LOG_TRACK(L"inode", L" add=%p, ino=%d, fn=%s, create for new file", iinode, iinode->i_ino, fn.c_str());
+	TRACK_INODE(iinode, L"create file=%s", fn.c_str());
 
 	if (!test_opt(m_sbi, DISABLE_EXT_IDENTIFY)) iinode->set_file_temperature(fn);
 
@@ -830,7 +831,7 @@ dentry *Cf2fsDirInode::lookup(dentry *src_entry, unsigned int flags)
 	unsigned int root_ino = m_sbi->F2FS_ROOT_INO();
 	
 	f2fs_filename fname;
-	LOG_DEBUG(L"looup for %S", src_entry->d_name.name.c_str());
+	LOG_DEBUG_(1,L"looup for %S", src_entry->d_name.name.c_str());
 //	trace_f2fs_lookup_start(dir, dentry, flags);
 
 	if (src_entry->d_name.len() > F2FS_NAME_LEN)
@@ -856,17 +857,13 @@ dentry *Cf2fsDirInode::lookup(dentry *src_entry, unsigned int flags)
 	ino = le32_to_cpu(de->ino);
 	f2fs_put_page(page, 0);
 
-	LOG_DEBUG(L"find inode by ino=%d", ino);
+	LOG_DEBUG_(1,L"find inode by ino=%d", ino);
 	f2fs_inode_info * new_node = m_sbi->f2fs_iget(ino);
 
 	if (IS_ERR(new_node)) 	{	return ERR_PTR<dentry>(PTR_ERR(new_node));	}
-//#ifdef _DEBUG
-//	std::wstring fn;
-//	jcvos::Utf8ToUnicode(fn, fname.usr_fname->name);
-//	new_node->m_description = L"file of " + fn;
-	LOG_TRACK(L"inode", L" addr=%p, ino=%d, lock=%d, file=%S - got for file",
-		new_node, new_node->i_ino, new_node->i_size_lock.LockCount, src_entry->d_name.name.c_str());
-//#endif
+	//LOG_TRACK(L"inode", L" addr=%p, ino=%d, lock=%d, file=%S - got for file",
+	//	new_node, new_node->i_ino, new_node->i_size_lock.LockCount, src_entry->d_name.name.c_str());
+	TRACK_INODE(new_node, L"file=%S", src_entry->d_name.name.c_str());
 
 	if ((i_ino == root_ino) && f2fs_has_inline_dots())
 	{
@@ -902,6 +899,7 @@ dentry *Cf2fsDirInode::lookup(dentry *src_entry, unsigned int flags)
 	new_entry = new_node->splice_alias(src_entry);
 	dput(src_entry);
 	err = IS_ERR(new_entry)?reinterpret_cast<UINT64>(new_entry):0;
+	iput(new_node);
 //	trace_f2fs_lookup_end(dir, src_entry, ino, !new_entry ? -ENOENT : err);
 	return new_entry;
 out_iput:
@@ -1045,7 +1043,7 @@ int Cf2fsDirInode::enum_childs(dentry* parent, std::list<dentry*>& result)
 			for (UINT bb = 0; bb < nblock_per_level; bb++, bidx++)
 			{
 				if (bidx >= npages) break;
-				/* no need to allocate new dentry pages to all the indices */
+				/* no need to alloc_obj new dentry pages to all the indices */
 				page* dentry_page = f2fs_find_data_page(bidx);
 #ifdef DEBUG_PAGE
 				dentry_page->m_type = page::DENTRY_PAGE;

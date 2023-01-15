@@ -114,6 +114,9 @@
     <ClCompile Include="source\healthinfo-file.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="source\io-complete-ctrl.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="source\framework.h">
@@ -186,6 +189,9 @@
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="source\unit_test.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\io-complete-ctrl.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>

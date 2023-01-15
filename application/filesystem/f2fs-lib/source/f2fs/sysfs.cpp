@@ -10,21 +10,11 @@
  * Copyright (c) 2017 Chao Yu <chao@kernel.org>
  */
 
-//#include <linux/compiler.h>
-//#include <linux/proc_fs.h>
-//#include <linux/f2fs_fs.h>
-//#include <linux/seq_file.h>
-//#include <linux/unicode.h>
-//#include <linux/ioprio.h>
-//#include <linux/sysfs.h>
-//
-//#include "f2fs.h"
 #include "../../include/f2fs.h"
 #include "segment.h"
 #include "gc.h"
+//#include "f2fs-super-block.h"
 //#include <trace/events/f2fs.h>
-
-//static struct proc_dir_entry *f2fs_proc_root;
 
 /* Sysfs support for f2fs */
 enum {
@@ -954,30 +944,33 @@ static int __maybe_unused segment_bits_seq_show(struct seq_file *seq,
 }
 #endif //<TODO>
 
-void f2fs_record_iostat(struct f2fs_sb_info *sbi)
+//void f2fs_record_iostat(struct f2fs_sb_info *sbi)
+void f2fs_sb_info::f2fs_record_iostat(void)
 {
 	unsigned long long iostat_diff[NR_IO_TYPE];
 	int i;
-	if (time_after(sbi->iostat_next_period, jiffies))		return;
+	if (time_after(iostat_next_period, jiffies))		return;
 	/* Need double check under the lock */
-	spin_lock(&sbi->iostat_lock);
-	if (time_after(sbi->iostat_next_period, jiffies))
+	spin_lock(&iostat_lock);
+	if (time_after(iostat_next_period, jiffies))
 	{
-		spin_unlock(&sbi->iostat_lock);
+		spin_unlock(&iostat_lock);
 		return;
 	}
 //	sbi->iostat_next_period = jiffies +	msecs_to_jiffies(sbi->iostat_period_ms);
-	sbi->iostat_next_period = jiffies + jcvos::usecsToTimeStamp(sbi->iostat_period_ms * 1000);
+	iostat_next_period = jiffies + jcvos::usecsToTimeStamp(iostat_period_ms * 1000);
 
 	for (i = 0; i < NR_IO_TYPE; i++) 
 	{
-		iostat_diff[i] = sbi->rw_iostat[i] - sbi->prev_rw_iostat[i];
-		sbi->prev_rw_iostat[i] = sbi->rw_iostat[i];
+		iostat_diff[i] = rw_iostat[i] - prev_rw_iostat[i];
+		prev_rw_iostat[i] = rw_iostat[i];
 	}
-	spin_unlock(&sbi->iostat_lock);
+	spin_unlock(&iostat_lock);
 
 //	trace_f2fs_iostat(sbi, iostat_diff);
 }
+
+
 
 #if 0 //<TODO>
 

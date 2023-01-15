@@ -3,6 +3,7 @@
 
 #include <linux-fs-wrapper.h>
 #include "../include/f2fs-filesystem.h"
+#include "../include/io-complete-ctrl.h"
 #include <boost/property_tree/json_parser.hpp>
 #include "f2fs/segment.h"
 
@@ -117,7 +118,9 @@ bool CF2fsFileSystem::Mount(IVirtualDisk* dev)
 {
 	LOG_STACK_TRACE();
 	//m_sb_info 已经初始化过
-	JCASSERT(m_sb_info == nullptr);
+	JCASSERT(m_sb_info == nullptr && m_file_manager == nullptr);
+
+	m_file_manager = new CFileInfoManager(1024);
 
 	// 初始化 file_system_type结构。原：super.cpp中静态初始化，在init_f2fs_fs()中注册到Linux fs
 	file_system_type* fs_type = new file_system_type;
@@ -127,8 +130,7 @@ bool CF2fsFileSystem::Mount(IVirtualDisk* dev)
 	m_sb_info = new f2fs_sb_info(this, fs_type, m_mount_opt);
 	ConnectToDevice(dev);
 
-
-	int err = m_sb_info->f2fs_fill_super(L"", 0);
+	int err = m_sb_info->f2fs_fill_super(m_mount_options, 0);
 	if (err)
 	{
 		LOG_ERROR(L"[err] failed on calling fill super");
@@ -152,7 +154,7 @@ void CF2fsFileSystem::Unmount(void)
 	Disconnect();
 }
 
-bool CF2fsFileSystem::MakeFileSystem(IVirtualDisk* dev, UINT32 volume_size, const std::wstring& volume_name, const std::wstring & options)
+bool CF2fsFileSystem::MakeFileSystem(IVirtualDisk* dev, size_t volume_size, const std::wstring& volume_name, const std::wstring & options)
 {
 #ifdef _DEBUG
 	int err = run_unit_test();
@@ -166,11 +168,6 @@ bool CF2fsFileSystem::MakeFileSystem(IVirtualDisk* dev, UINT32 volume_size, cons
 	file_system_type* fs_type = new file_system_type;
 	fs_type->name = fs_name;
 	fs_type->fs_flags = FS_REQUIRES_DEV;
-
-	//m_mount_opt.m_dentry_cache_num = 128;
-	//m_mount_opt.m_page_cache_num = 1024;
-
-	//m_sb_info = new f2fs_sb_info(this, fs_type, m_mount_opt);
 
 	ConnectToDevice(dev);
 	f2fs_get_device_info(m_config);
@@ -192,12 +189,13 @@ bool CF2fsFileSystem::DokanGetDiskSpace(ULONGLONG& free_bytes, ULONGLONG& total_
 {
 	UINT64 block_count = le64_to_cpu(m_sb_info->raw_super->block_count);
 //	UINT32 log_block_size = le32_to_cpu(m_sb_info->raw_super->log_blocksize);
-	LOG_DEBUG(L"total blk=%d, user blk=%d, total valid blk=%d, discard blk=%d, last valid blk=%d",
+	LOG_DEBUG_(1,L"total blk=%d, user blk=%d, total valid blk=%d, discard blk=%d, last valid blk=%d",
 		block_count, m_sb_info->user_block_count, m_sb_info->total_valid_block_count,
 		m_sb_info->discard_blks, m_sb_info->last_valid_block_count);
 
 	total_bytes = ((block_count) << (m_sb_info->log_blocksize));
-	free_bytes = ((m_sb_info->user_block_count - m_sb_info->total_valid_block_count) << (m_sb_info->log_blocksize));
+	size_t free_block_count = (m_sb_info->user_block_count - m_sb_info->total_valid_block_count);
+	free_bytes = ( free_block_count << (m_sb_info->log_blocksize));
 	total_free_bytes = free_bytes;
 
 	return true;
@@ -206,8 +204,9 @@ bool CF2fsFileSystem::DokanGetDiskSpace(ULONGLONG& free_bytes, ULONGLONG& total_
 bool CF2fsFileSystem::GetVolumnInfo(std::wstring& vol_name, DWORD& sn, DWORD& max_fn_len, DWORD& fs_flag, std::wstring& fs_name)
 {
 	vol_name = m_sb_info->raw_super->volume_name;
-	BYTE* uuid = m_sb_info->raw_super->uuid;
-	sn = MAKELONG(MAKEWORD(uuid[3], uuid[2]), MAKEWORD(uuid[1], uuid[0]));
+//	BYTE* uuid = m_sb_info->raw_super->uuid;
+//	sn = MAKELONG(MAKEWORD(uuid[3], uuid[2]), MAKEWORD(uuid[1], uuid[0]));
+	sn = 0xFAF175A2;
 	max_fn_len = 256;
 
 	fs_name = L"f2fs";
@@ -261,7 +260,6 @@ NTSTATUS CF2fsFileSystem::DokanCreateFile(IFileInfo*& file, const std::wstring& 
 		return OpenSpecialFile(file, path);
 	}
 
-//	LOG_DEBUG(L"[fs_op] Create, %s, disp=%s, fn=%s", isdir?L"Dir":L"File", DispToString(disp), path.c_str());
 	//	(1) 打开parent
 	// 	(2) 在parent中查找目标
 	//  (3) 如果是 OPEN_EXIST, OPEN_ALWAYS, TRUNCATE_EXIST: 
@@ -386,6 +384,19 @@ NTSTATUS CF2fsFileSystem::DokanCreateFile(IFileInfo*& file, const std::wstring& 
 	return STATUS_SUCCESS;
 }
 
+#define FILE_DIRECTORY_FILE 0x00000001
+
+
+bool CF2fsFileSystem::MakeDir(const std::wstring& dir)
+{
+	IFileInfo* file = nullptr;
+	NTSTATUS err = DokanCreateFile(file, dir, GENERIC_ALL, 0, IFileSystem::FS_CREATE_NEW, 0, FILE_DIRECTORY_FILE, true);
+	if (file == nullptr) return false;
+	file->CloseFile();
+	RELEASE(file);
+	return true;
+}
+
 NTSTATUS CF2fsFileSystem::DokanDeleteFile(const std::wstring& full_path, IFileInfo* file, bool isdir)
 {
 	LOG_STACK_TRACE();
@@ -406,10 +417,9 @@ NTSTATUS CF2fsFileSystem::DokanDeleteFile(const std::wstring& full_path, IFileIn
 NTSTATUS CF2fsFileSystem::DokanMoveFile(const std::wstring& src_fn, const std::wstring& dst_fn, bool replace, IFileInfo* file)
 {
 	LOG_STACK_TRACE();
-//	LOG_DEBUG(L"[fs_op] Move, %s to %s", src_fn.c_str(), dst_fn.c_str());
 	//<TODO>优化：file已经指向source了，不需要再次查找source.
 	CF2fsFile* ff = dynamic_cast<CF2fsFile*>(file);
-	if (ff) LOG_DEBUG(L"file: dentry=%p, inode=%p, fn=%S, ino=%d", ff->m_dentry, ff->m_inode, ff->m_dentry->d_name.name.c_str(), ff->m_inode->i_ino);
+	if (ff) LOG_DEBUG_(1,L"file: dentry=%p, inode=%p, fn=%S, ino=%d", ff->m_dentry, ff->m_inode, ff->m_dentry->d_name.name.c_str(), ff->m_inode->i_ino);
 	jcvos::auto_interface<CF2fsFile> old_parent_dir;
 	std::wstring old_fn;
 	OpenParent(old_parent_dir, src_fn, old_fn);
@@ -481,9 +491,11 @@ bool CF2fsFileSystem::Sync(void)
 
 bool CF2fsFileSystem::ConfigFs(const boost::property_tree::wptree& pt)
 {
-	m_mount_opt.m_page_cache_num = pt.get<size_t>(L"page_cache_num", 1024 * 128);
-	m_mount_opt.m_dentry_cache_num = pt.get<size_t>(L"dentry_cache_num", 128);
-	m_debug_mode = pt.get<int>(L"debug_mode", 0);
+	m_mount_options = pt.get_child(L"mount");
+	m_mount_opt.m_page_cache_num = m_mount_options.get<size_t>(L"page_cache_num", 1024 * 128);
+	m_mount_opt.m_dentry_cache_num = m_mount_options.get<size_t>(L"dentry_cache_num", 128);
+	m_debug_mode = m_mount_options.get<int>(L"debug_mode", 0);
+	
 	return true;
 }
 
@@ -498,7 +510,8 @@ bool CF2fsFileSystem::GetRoot(IFileInfo*& root)
 
 bool CF2fsFileSystem::_GetRoot(CF2fsFile*& root)
 {
-	root = jcvos::CDynamicInstance<CF2fsFile>::Create();
+//	root = jcvos::CDynamicInstance<CF2fsFile>::Create();
+	root = m_file_manager->file_get();
 	if (!root) THROW_ERROR(ERR_MEM, L"failed on creating root file");
 	root->Init(m_sb_info->s_root, NULL, this, FMODE_READ | FMODE_WRITE);
 	return true;
@@ -519,7 +532,7 @@ bool CF2fsFileSystem::OpenParent(CF2fsFile*& dir, const std::wstring& path, std:
 	str_fn = ch + 1;	// 排除根目录的"\"
 	size_t fn_len = path_len - (str_fn - str_path);		// 不包含斜杠
 	size_t parent_len = ch - str_path;					// 包含斜杠
-	LOG_DEBUG(L"parent=%s, parent len=%zd, file name = %s, length = %zd", ch, parent_len, str_fn, fn_len);
+	LOG_DEBUG_(1,L"parent=%s, parent len=%zd, file name = %s, length = %zd", ch, parent_len, str_fn, fn_len);
 
 	fn = str_fn;
 
@@ -595,7 +608,7 @@ CBufferHead* CF2fsFileSystem::bread(sector_t block, size_t size)
 }
 
 
-int CF2fsFileSystem::__blkdev_issue_discard(block_device* bdev, sector_t lba, sector_t secs, gfp_t gfp_mask, int flag, bio** bb)
+int f2fs_sb_info::__blkdev_issue_discard(block_device* bdev, sector_t lba, sector_t secs, gfp_t gfp_mask, int flag, bio** bb)
 {
 	sector_t part_offset = 0;	// partition offset;
 	UINT discard_granularity = 128;
@@ -620,11 +633,12 @@ int CF2fsFileSystem::__blkdev_issue_discard(block_device* bdev, sector_t lba, se
 
 		//bio_ptr = blk_next_bio(bio_ptr, 0, gfp_mask);
 		//<YUAN> 展开blk_next_bio
-		bio* new_bio = m_bio_set.bio_alloc_bioset(gfp_mask, 0/*, NULL*/);
+//		bio* new_bio = m_bio_set.bio_alloc_bioset(gfp_mask, 0/*, NULL*/);
+		bio* new_bio = m_io_control->bio_alloc_bioset(gfp_mask, 0);
 		if (bio_ptr)
 		{
 			bio_chain(bio_ptr, new_bio);
-			m_sb_info->submit_async_io(bio_ptr);
+			m_io_control->submit_async_io(bio_ptr);
 		}
 		bio_ptr = new_bio;
 
@@ -749,7 +763,102 @@ bool CF2fsFactory::CreateVirtualDisk(IVirtualDisk*& dev, const boost::property_t
 
 bool f2fs_sb_info::f2fs_is_checkpoint_ready(void)
 {
-	if (likely(!is_sbi_flag_set(SBI_CP_DISABLED))) 	return true;
+	if (likely(!is_sbi_flag_set(SBI_CP_DISABLED))) 		return true;
 	if (likely(!has_not_enough_free_secs(0, 0)))		return true;
 	return false;
+}
+
+static const wchar_t* STR_SGEMENT_TYPE[] = {
+	L"HOT__DATA", L"WARM_DATA", L"COLD_DATA",
+	L"HOT__NODE", L"WARM_NODE", L"COLD_NODE",
+	L"COLD_DATA_PINNED", L"ALL_DATA_ATGC", L"NO_CHECK_TYPE",
+};
+
+class MERGED_SEGMENT
+{
+public:
+	UINT start_seg = 0;
+	UINT seg_num = 0;
+	UINT first_start_blk = 0;
+	UINT last_start_blk = 0;		// start_blk为0 表示无效，强制输出
+};
+
+void MergeFreeSegment()
+{
+
+}
+
+void f2fs_sb_info::DumpSegInfo(void)
+{
+	// dump setment info from memory
+	f2fs_lock_all();
+	UINT seg_num = sm_info->main_segments;
+	size_t free_seg = sm_info->free_info->free_segments;
+	LOG_DEBUG(L"Start dumpping segment info, total segment=%d, used=%d, free=%d", seg_num, seg_num-free_seg, free_seg);
+
+	size_t free_bitmap_size = f2fs_bitmap_size(seg_num);
+	unsigned long* free_bmp = sm_info->free_info->free_segmap;
+	unsigned long free_bmp_mask = 1;
+
+	MERGED_SEGMENT merged;
+
+	jcvos::auto_array<wchar_t> str_valid_blk(65);	// 64blk /行
+//	jcvos::auto_array<wchar_t> str_discard(65);
+	for (UINT ss = 0; ss < seg_num; ++ss, free_bmp_mask <<=1)
+	{
+		if (free_bmp_mask == 0)
+		{
+			free_bmp_mask = 1;
+			free_bmp++;
+		}
+
+		seg_entry& entry = sm_info->sit_info->sentries[ss];
+		block_t first_block = START_BLOCK(this, ss);
+//		UINT type = entry.type;
+		if ((*free_bmp & free_bmp_mask) == 0)
+		{
+			if (merged.first_start_blk == 0) merged.first_start_blk = first_block;
+			if (merged.start_seg == 0) merged.start_seg = ss;
+			merged.seg_num++;
+			merged.last_start_blk = first_block;
+			continue;
+		}
+		// 输出merged segments
+		if (merged.last_start_blk != 0)
+		{
+			LOG_DEBUG(L"segments:%d ~ %d, start block=0x%X ~, free segments", merged.start_seg, ss - 1, merged.first_start_blk);
+			memset(&merged, 0, sizeof(merged));
+			merged.start_seg = ss + 1;
+		}
+
+		LOG_DEBUG(L"Segment=%d, first_block=0x%X, type=%s, valid_block=%d, padding=%d", ss, first_block, STR_SGEMENT_TYPE[entry.type], entry.valid_blocks, entry.padding);
+		curseg_info& curseg = sm_info->curseg_array[entry.type];
+		if (curseg.segno == ss) LOG_DEBUG(L" == current segment of %s, alloc type=%d, next blk=0x%X, next seg=%d, ", STR_SGEMENT_TYPE[curseg.seg_type], curseg.alloc_type, curseg.next_blkoff, curseg.next_segno);
+		// dump valid block
+		for (size_t bb = 0; bb < SIT_VBLOCK_MAP_SIZE/8; ++bb)
+		{
+			for (size_t ll = 0; ll < 8; ll++)
+			{
+				BYTE valid = entry.cur_valid_map[bb * 8 + ll];
+				BYTE discard = entry.discard_map[bb * 8 + ll];
+				BYTE mask = 0x80;
+				for (size_t ii = 0; ii < 8; ++ii, mask >>= 1)
+				{
+					if (valid & mask) str_valid_blk[ll * 8 + ii] = 'O';
+					else
+					{
+						if (discard & mask) str_valid_blk[ll * 8 + ii] = '_';
+						else str_valid_blk[ll * 8 + ii] = 'X';
+					}
+				}
+			}
+			str_valid_blk[64] = 0;
+			LOG_DEBUG(L"Blk Bitmap: %s", (const wchar_t*)str_valid_blk);
+		}
+	}
+	if (merged.last_start_blk != 0)
+	{
+		LOG_DEBUG(L"segments:%d ~ %d, start block=0x%X ~, free segments", merged.start_seg, merged.start_seg+merged.seg_num-1, merged.first_start_blk);
+	}
+	f2fs_unlock_all();
 }
