@@ -40,23 +40,36 @@ void TrackIo(int event, PHY_BLK phy, FID fid, LBLK_T lblk)
 	}
 }
 
+//CLfsBase::CLfsBase(void)
+//{	// 初始化m_level_to_offset
+//	m_level_to_offset[0] = LEVEL1_OFFSET;
+//	m_level_to_offset[1] = m_level_to_offset[0] + (LEVEL2_OFFSET - LEVEL1_OFFSET) * INDEX_SIZE;
+//	m_level_to_offset[2] = m_level_to_offset[1] + (MAX_TABLE_SIZE - LEVEL2_OFFSET) * INDEX_SIZE * INDEX_SIZE;
+//}
+//
+//CLfsBase::~CLfsBase(void)
+//{
+//	if (m_log_invalid_trace) fclose(m_log_invalid_trace);
+//	if (m_log_write_trace) fclose(m_log_write_trace);
+//	if (m_gc_trace) fclose(m_gc_trace);
+//
+//}
+
+
 /// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 CSingleLogSimulator::CSingleLogSimulator(void)
-{	// 初始化m_level_to_offset
-	m_level_to_offset[0] = LEVEL1_OFFSET;
-	m_level_to_offset[1] = m_level_to_offset[0] + (LEVEL2_OFFSET - LEVEL1_OFFSET) * INDEX_SIZE;
-	m_level_to_offset[2] = m_level_to_offset[1] + (MAX_TABLE_SIZE - LEVEL2_OFFSET) * INDEX_SIZE * INDEX_SIZE;
+{
 }
 
 CSingleLogSimulator::~CSingleLogSimulator(void)
 {
-	LOG_STACK_TRACE();
 }
 
 
 bool CSingleLogSimulator::Initialzie(const boost::property_tree::wptree& config)
 {
+	m_segments.m_gc_trace = m_gc_trace;
 	memset(&m_health_info, 0, sizeof(FsHealthInfo));
 
 	size_t fs_size = config.get<size_t>(L"volume_size");
@@ -64,8 +77,13 @@ bool CSingleLogSimulator::Initialzie(const boost::property_tree::wptree& config)
 	float op = config.get<float>(L"over_provision");
 	size_t phy_blk = (size_t)(m_health_info.m_logical_blk_nr * op);
 	SEG_T seg_nr = (SEG_T)ROUND_UP_DIV(phy_blk, BLOCK_PER_SEG);
+	
+	m_gc_th_low = config.get<SEG_T>(L"gc_seg_lo");
+	m_gc_th_hi = config.get<SEG_T>(L"gc_seg_hi");
+
 	m_segments.SetHealth(&m_health_info);
-	m_segments.InitSegmentManager(seg_nr);
+	m_segments.InitSegmentManager(seg_nr,m_gc_th_low, m_gc_th_hi);
+	m_segments.m_inodes = &m_inodes;
 
 	m_health_info.m_seg_nr = seg_nr;
 	m_health_info.m_blk_nr = seg_nr * BLOCK_PER_SEG;
@@ -83,9 +101,58 @@ FID CSingleLogSimulator::FileCreate(const std::wstring &fn)
 	// 初始化inode
 	inode->m_dirty = true;
 	// 更新inode
-	WriteInode(*inode);
+	LFS_BLOCK_INFO lblk(inode->m_fid, INVALID_BLK);
+	WriteInode(lblk);
+	LOG_TRACK(L"inode", L",CREATE,fid=%d,phy=%X", inode->m_fid, inode->m_phy_blk);
 	return inode->m_fid;
 }
+
+#define INVALID_PHY_BLOCK(reason, phy_blk) \
+	if (phy_blk!=INVALID_BLK)	{\
+		free_seg = m_segments.InvalidBlock(phy_blk);\
+		SEG_T _seg; BLK_T _blk;		BlockToSeg(_seg,_blk,phy_blk);\
+		fprintf(m_log_invalid_trace, "%lld," #reason ",%d,%d,%d\n", \
+			m_write_count++/*index*/, phy_blk/*blk_invalid*/, _seg, _blk);	}
+
+
+void CSingleLogSimulator::UpdateInode(inode_info* inode)
+{
+	// 更新ipath
+	LBLK_T bb = 0;
+	for (size_t ii = 0; ii < MAX_TABLE_SIZE; ++ii)
+	{
+		inode_info* index_blk = inode->inode_blk.m_direct[ii];
+		if (index_blk)
+		{
+			if (index_blk->m_phy_blk == INVALID_BLK)
+			{
+				LFS_BLOCK_INFO ipage(index_blk->m_fid, INVALID_BLK);
+				ipage.parent = inode;
+				ipage.parent_offset = (UINT)ii;
+				WriteInode(ipage);
+			}
+			else
+			{
+				LFS_BLOCK_INFO& ipage = m_segments.get_block(index_blk->m_phy_blk);
+				// sanity check
+				if (ipage.parent != inode || ipage.parent_offset != ii)
+					THROW_ERROR(ERR_APP, L"index node page does not match, inode=%p,offset=%d,inode_in_index=%p,offset_in_index=%d", inode, ii, ipage.parent, ipage.parent_offset);
+				WriteInode(ipage);
+			}
+		}
+		bb += INDEX_SIZE;
+		if (bb >= inode->inode_blk.m_blks) break;
+	}
+	//	inode->m_dirty = true;
+	PHY_BLK old_phy = inode->m_phy_blk;
+	LFS_BLOCK_INFO& ipage = m_segments.get_block(inode->m_phy_blk);
+	//sanity check
+	if (ipage.parent != nullptr || ipage.parent_offset != INVALID_BLK)
+		THROW_ERROR(ERR_APP, L"inode page does not match, fid=%d,parent=%p,offset=%d", inode->m_fid,ipage.parent, ipage.parent_offset);
+	WriteInode(ipage);
+	LOG_TRACK(L"inode", L",UPDATE,fid=%d,new_phy=%X,old_phy=%X", inode->m_fid, inode->m_phy_blk, old_phy);
+}
+
 
 void CSingleLogSimulator::FileWrite(FID fid, size_t offset, size_t secs)
 {
@@ -101,6 +168,8 @@ void CSingleLogSimulator::FileWrite(FID fid, size_t offset, size_t secs)
 	index_path ipath;
 	InitIndexPath(ipath, inode);
 	inode_info* direct_node = nullptr;
+	//fprintf_s(m_log_write_trace, "index,fid,start_blk,blk_nr\n");
+	fprintf_s(m_log_write_trace, "%lld,%d,%d,%d", m_write_count++, fid, start_blk, end_blk - start_blk);
 	for (; start_blk < end_blk; start_blk++)
 	{
 		// 查找PHY_BLK定位到
@@ -113,20 +182,40 @@ void CSingleLogSimulator::FileWrite(FID fid, size_t offset, size_t secs)
 		}
 		index = ipath.offset[ipath.level];
 
-		// 旧的block信息
-		PHY_BLK old_blk = direct_node->index_blk.m_index[index];// phy_index;
 		// 确定数据温度
 		BLK_TEMP temp = get_temperature(*inode, start_blk);
-		// 分配segment，
 		InterlockedIncrement64(&m_health_info.m_total_host_write);
-		PHY_BLK new_blk = m_segments.WriteBlockToSeg(fid, start_blk, BT_HOT__DATA);
-		TrackIo(WRITE_DATA, new_blk, fid, start_blk);
-//		LFS_BLOCK_INFO & blk = m_segments.get_block(new_blk);
-
-		direct_node->index_blk.m_index[index] = new_blk;
-		direct_node->m_dirty = true;
-		if (old_blk == INVALID_BLK)
+		// 旧的block信息
+//		LFS_BLOCK_INFO* lblk = nullptr;
+		PHY_BLK old_blk = direct_node->index_blk.m_index[index];// phy_index;
+		PHY_BLK new_blk;
+		if (old_blk != INVALID_BLK)
 		{
+			LFS_BLOCK_INFO &lblk = m_segments.get_block(old_blk);
+			lblk.host_write++;
+			new_blk = m_segments.WriteBlockToSeg(lblk, BT_HOT__DATA);
+			// 无效原来的block
+			bool free_seg = false;
+			//= m_segments.InvalidBlock(old_blk);
+			//fprintf(m_log_invalid_trace, "%lld,%d,%d\n", m_write_count++/*index*/, old_blk/*blk_invalid*/);
+			INVALID_PHY_BLOCK("WRITE_DATA", old_blk);
+
+			if (free_seg)
+			{
+				//LOG_TRACK(L"gc", L"FREE_SEG, host_write=%d, media_write=%d, free_segs=%d",
+				//	m_health_info.m_total_host_write - m_last_host_write, m_health_info.m_total_media_write - m_last_media_write, m_health_info.m_free_seg);
+				m_last_host_write = m_health_info.m_total_host_write;
+				m_last_media_write = m_health_info.m_total_media_write;
+			}
+		}
+		else
+		{	// 分配segment，
+			LFS_BLOCK_INFO lblk(fid, start_blk);
+			lblk.parent = direct_node;
+			lblk.parent_offset = index;
+			lblk.host_write++;
+//			new_blk = m_segments.WriteBlockToSeg(fid, start_blk, BT_HOT__DATA);
+			new_blk = m_segments.WriteBlockToSeg(lblk, BT_HOT__DATA);
 			direct_node->index_blk.m_valid_blk++;
 			// 这个逻辑块没有被写过，增加逻辑饱和度
 			InterlockedIncrement(&m_health_info.m_logical_saturation);
@@ -134,36 +223,30 @@ void CSingleLogSimulator::FileWrite(FID fid, size_t offset, size_t secs)
 			{
 				THROW_ERROR(ERR_APP, L"logical saturation overflow, logical_saturation=%d, logical_block=%d", m_health_info.m_logical_saturation, m_health_info.m_logical_blk_nr);
 			}
-//			blk.host_write = 1;
 		}
-		else
-		{	// 无效原来的block
-//			LFS_BLOCK_INFO
-			m_segments.InvalidBlock(old_blk);
+		if (m_segments.m_cur_segs[BT_HOT__DATA] == INVALID_BLK)
+		{
+			//LOG_TRACK(L"gc", L"NEW__SEG, host_write=%d, media_write=%d, free_segs=%d",
+			//	m_health_info.m_total_host_write - m_last_host_write, m_health_info.m_total_media_write - m_last_media_write, m_health_info.m_free_seg-1);
+			m_last_host_write = m_health_info.m_total_host_write;
+			m_last_media_write = m_health_info.m_total_media_write;
 		}
+		//fprintf(m_log_invalid_trace, "%lld,%d,%d\n", m_write_count++/*index*/, new_blk/*blk_write*/, old_blk/*blk_invalid*/);
+		TrackIo(WRITE_DATA, new_blk, fid, start_blk);
+		direct_node->index_blk.m_index[index] = new_blk;
+		direct_node->m_dirty = true;
+
+		m_segments.CheckGarbageCollection();
 
 		// 将ipath移动到下一个offset 
 		NextOffset(ipath);
 		inode->inode_blk.m_host_write++;
 	}
 	// 更新ipath
-	LBLK_T bb = 0;
-	for (size_t ii=0; ii<MAX_TABLE_SIZE; ++ii)
-	{
-		if (inode->inode_blk.m_direct[ii])
-		{
-			WriteInode(*inode->inode_blk.m_direct[ii]);
-		}
-		bb += INDEX_SIZE;
-		if (bb >= inode->inode_blk.m_blks) break;
-	}
-	inode->m_dirty = true;
-	WriteInode(*inode);
-	// check GC
-
+	UpdateInode(inode);
 }
 
-void CSingleLogSimulator::FileRead(FID fid, size_t offset, size_t secs)
+void CSingleLogSimulator::FileRead(std::vector<CPageInfoBase*>& blks, FID fid, size_t offset, size_t secs)
 {
 	// sanity check
 	// 计算起始block和结束block，end_block是最后要写入的下一个。blk_nr=end_block - start_block
@@ -174,8 +257,9 @@ void CSingleLogSimulator::FileRead(FID fid, size_t offset, size_t secs)
 	JCASSERT(inode);
 	if (end_blk > inode->inode_blk.m_blks)
 	{
-		LOG_WARNING(L"Oversize on reading file, fid=%d,blks=%d,file_blks=%d", fid, end_blk, inode->inode_blk.m_blks);
+	//	LOG_WARNING(L"Oversize on reading file, fid=%d,blks=%d,file_blks=%d", fid, end_blk, inode->inode_blk.m_blks);
 	}
+//	blks.resize(end_blk - start_blk);
 
 	index_path ipath;
 	InitIndexPath(ipath, inode);
@@ -194,12 +278,14 @@ void CSingleLogSimulator::FileRead(FID fid, size_t offset, size_t secs)
 		if (direct_node && direct_node->index_blk.m_index[index] != INVALID_BLK)
 		{
 			PHY_BLK phy = direct_node->index_blk.m_index[index];
-			LFS_BLOCK_INFO & blk = m_segments.get_block(phy);
+			LFS_BLOCK_INFO& blk = m_segments.get_block(phy);
 			if (blk.nid != fid || blk.offset != start_blk)
 			{
 				THROW_ERROR(ERR_APP, L"L2P not match, fid=%d, lblk=%d, phy_blk=%X, fid_p2f=%d, lblk_p2f=%d", fid, start_blk, phy, blk.nid, blk.offset);
 			}
+			blks.push_back(&blk);
 		}
+		else blks.push_back(nullptr);
 		// 将ipath移动到下一个offset 
 		NextOffset(ipath);
 	}
@@ -216,7 +302,6 @@ void CSingleLogSimulator::FileTruncate(FID fid)
 	inode_info* direct_node = nullptr;
 	for (LBLK_T bb = 0; bb < inode->inode_blk.m_blks; ++bb)
 	{
-//		PHY_BLK phy_blk = inode.inode_blk.m_index[bb];
 		if (ipath.level < 0)
 		{
 			OffsetToIndex(ipath, bb, false);
@@ -229,11 +314,12 @@ void CSingleLogSimulator::FileTruncate(FID fid)
 			PHY_BLK* phy_blk = direct_node->index_blk.m_index + index;
 			if (*phy_blk != INVALID_BLK)
 			{
-	//			LOG_TRACK(L"io", L",TRIM,pblk=%X,fid=%d,lblk=%d", phy_blk, fid, bb);
 				TrackIo(TRIM_DATA, *phy_blk, fid, bb);
 				InterlockedDecrement(&m_health_info.m_logical_saturation);
 			}
-			m_segments.InvalidBlock(*phy_blk);
+			//m_segments.InvalidBlock(*phy_blk);
+			bool free_seg = false;
+			INVALID_PHY_BLOCK("TRANCATE", * phy_blk);
 			*phy_blk = INVALID_BLK;
 			direct_node->m_dirty = true;
 			direct_node->index_blk.m_valid_blk--;
@@ -242,18 +328,19 @@ void CSingleLogSimulator::FileTruncate(FID fid)
 	}
 
 	// 更新ipath
-	LBLK_T bb = 0;
-	for (size_t ii = 0; ii < MAX_TABLE_SIZE; ++ii)
-	{
-		if (inode->inode_blk.m_direct[ii])
-		{
-			WriteInode(*inode->inode_blk.m_direct[ii]);
-		}
-		bb += INDEX_SIZE;
-		if (bb >= inode->inode_blk.m_blks) break;
-	}
-	inode->m_dirty = true;
-	WriteInode(*inode);
+	//LBLK_T bb = 0;
+	//for (size_t ii = 0; ii < MAX_TABLE_SIZE; ++ii)
+	//{
+	//	if (inode->inode_blk.m_direct[ii])
+	//	{
+	//		WriteInode(*inode->inode_blk.m_direct[ii]);
+	//	}
+	//	bb += INDEX_SIZE;
+	//	if (bb >= inode->inode_blk.m_blks) break;
+	//}
+	//inode->m_dirty = true;
+	//WriteInode(*inode);
+	UpdateInode(inode);
 }
 
 void CSingleLogSimulator::FileDelete(FID fid)
@@ -268,7 +355,9 @@ void CSingleLogSimulator::FileDelete(FID fid)
 	{
 		TrackIo(TRIM_NODE, inode->m_phy_blk, fid, INVALID_BLK);
 	}
-	m_segments.InvalidBlock(inode_blk);
+	//m_segments.InvalidBlock(inode_blk);
+	bool free_seg = false;
+	INVALID_PHY_BLOCK("DELETE_NODE", inode_blk);
 	inode->m_phy_blk = INVALID_BLK;
 	m_inodes.free_inode(fid);
 }
@@ -295,7 +384,7 @@ void CSingleLogSimulator::FileClose(FID fid)
 }
 
 
-DWORD CSingleLogSimulator::MaxFileSize(void) const
+DWORD CLfsBase::MaxFileSize(void) const
 {
 	// 目前仅支持一层 index
 	//return LEVEL1_OFFSET + (LEVEL2_OFFSET - LEVEL1_OFFSET) * INDEX_SIZE + (MAX_TABLE_SIZE - LEVEL2_OFFSET) * INDEX_SIZE * INDEX_SIZE;
@@ -367,9 +456,6 @@ void CSingleLogSimulator::OffsetToIndex(index_path& ipath, LBLK_T offset, bool a
 	// 计算每一层的偏移量
 }
 
-
-
-
 void CSingleLogSimulator::NextOffset(index_path& ipath)
 {
 //	bool invalid = false;
@@ -404,24 +490,56 @@ void CSingleLogSimulator::NextOffset(index_path& ipath)
 }
 
 // 将inode写入segment中
-PHY_BLK CSingleLogSimulator::WriteInode(inode_info& inode)
+//PHY_BLK CSingleLogSimulator::WriteInode(inode_info& inode)
+PHY_BLK CSingleLogSimulator::WriteInode(LFS_BLOCK_INFO & ipage)
 {
 	// 更新inode
+	inode_info & inode = * m_inodes.get_node(ipage.nid);
+	bool free_seg = false;
 	if (!inode.m_dirty) return inode.m_phy_blk;
 	if (inode.m_type == inode_info::NODE_INDEX && inode.index_blk.m_valid_blk == 0)
 	{	// 删除index block
-		inode_info* parent = inode.m_parent;
-		parent->inode_blk.m_direct[inode.m_parent_offset] = nullptr;
-		m_segments.InvalidBlock(inode.m_phy_blk);
+		//inode_info* parent = inode.m_parent;
+		//parent->inode_blk.m_direct[inode.m_parent_offset] = nullptr;
+		//LFS_BLOCK_INFO& lblk = m_segments.get_block(inode.m_phy_blk);
+		inode_info* parent = ipage.parent;	JCASSERT(parent);
+		parent->inode_blk.m_direct[ipage.parent_offset] = nullptr;
+		parent->m_dirty = true;
+		
+//		m_segments.InvalidBlock(inode.m_phy_blk);
+		INVALID_PHY_BLOCK("WRITE_NODE", inode.m_phy_blk);
 		m_inodes.free_inode(inode.m_phy_blk);
+		//fprintf(m_log_invalid_trace, "%lld,%d,%d\n", m_write_count++/*index*/, -1/*blk_write*/, inode.m_phy_blk/*blk_invalid*/);
 		return INVALID_BLK;
 	}
 	else if (inode.m_type == inode_info::NODE_INODE)
 	{
 		PHY_BLK old_blk = inode.m_phy_blk;
-		inode.m_phy_blk = m_segments.WriteBlockToSeg(inode.m_fid, -1, BT_HOT__DATA);
+		if (old_blk != INVALID_BLK)
+		{
+			//LFS_BLOCK_INFO& lblk = m_segments.get_block(old_blk);
+			inode.m_phy_blk = m_segments.WriteBlockToSeg(ipage, BT_HOT__DATA);
+//			m_segments.InvalidBlock(old_blk);
+			INVALID_PHY_BLOCK("WRITE_NODE", old_blk);
+		}
+		else
+		{
+			//LFS_BLOCK_INFO lblk(inode.m_fid, -1);
+			inode.m_phy_blk = m_segments.WriteBlockToSeg(ipage, BT_HOT__DATA);
+		}
+		// 更新父节点指针
+		if (ipage.parent)
+		{
+			if (ipage.parent->m_type == inode_info::NODE_INDEX) 
+			{
+				ipage.parent->index_blk.m_index[ipage.parent_offset] = inode.m_phy_blk;
+			}
+			ipage.parent->m_dirty = true;
+		}
+		//fprintf(m_log_invalid_trace, "%lld,%d,%d\n", m_write_count++/*index*/, inode.m_phy_blk/*blk_write*/, old_blk/*blk_invalid*/);
+
 		TrackIo(WRITE_NODE, inode.m_phy_blk, inode.m_fid, INVALID_BLK);
-		m_segments.InvalidBlock(old_blk);
+		m_segments.CheckGarbageCollection();
 		inode.m_dirty = false;
 		return inode.m_phy_blk;
 	}
@@ -500,7 +618,7 @@ void CSingleLogSimulator::DumpAllFileMap(const std::wstring& fn)
 	FILE* log = nullptr;
 	_wfopen_s(&log, fn.c_str(), L"w+");
 	if (log == nullptr) THROW_ERROR(ERR_APP, L"failed on opening file %s", fn.c_str());
-	fprintf_s(log, "fn,fid,start_offset,lblk_nr,phy_blk,seg_id,blk_id\n");
+	fprintf_s(log, "fn,fid,start_offset,lblk_nr,phy_blk,seg_id,blk_id,host_write,media_write\n");
 
 	for (FID ii = 0; ii < m_inodes.get_node_nr(); ++ii)
 	{
@@ -511,11 +629,11 @@ void CSingleLogSimulator::DumpAllFileMap(const std::wstring& fn)
 	fclose(log);
 }
 
-#define OUT_FILE_MAP(phy)	{\
+#define FLUSH_FILE_MAP(phy)	{\
 	if (start_phy != INVALID_BLK) {\
 		SEG_T seg; BLK_T blk; BlockToSeg(seg,blk,start_phy);	\
-		fprintf_s(out, "%S,%d,%d,%d,%X,%d,%d\n", inode->m_fn.c_str(), fid, start_offset, (bb - start_offset), start_phy,seg,blk);}\
-	start_phy = phy; pre_phy = phy; }
+		fprintf_s(out, "%S,%d,%d,%d,%X,%d,%d,%d,%d\n", inode->m_fn.c_str(), fid, start_offset, (bb - start_offset), start_phy,seg,blk,host_write,media_write);}\
+		host_write=0, media_write=0; start_phy = phy; pre_phy = phy; }
 
 void CSingleLogSimulator::DumpFileMap_merge(FILE* out, FID fid)
 {
@@ -527,6 +645,8 @@ void CSingleLogSimulator::DumpFileMap_merge(FILE* out, FID fid)
 	PHY_BLK start_phy=INVALID_BLK, pre_phy=0;
 	LBLK_T start_offset = INVALID_BLK, pre_offset = INVALID_BLK;
 	LBLK_T bb = 0;
+	UINT host_write = 0, media_write = 0;
+
 	for (bb = 0; bb < inode->inode_blk.m_blks; ++bb)
 	{
 		if (ipath.level < 0)
@@ -536,8 +656,8 @@ void CSingleLogSimulator::DumpFileMap_merge(FILE* out, FID fid)
 		}
 		int index = ipath.offset[ipath.level];
 		if (direct_node == nullptr)
-		{	// output
-			OUT_FILE_MAP(INVALID_BLK);
+		{	// 空的logical block
+			FLUSH_FILE_MAP(INVALID_BLK);
 
 			bb += INDEX_SIZE;
 			ipath.level = -1;
@@ -547,35 +667,38 @@ void CSingleLogSimulator::DumpFileMap_merge(FILE* out, FID fid)
 
 		if (phy_blk != INVALID_BLK)
 		{
+			LFS_BLOCK_INFO& blk = m_segments.get_block(phy_blk);
 			// merge
 			if (phy_blk == pre_phy + 1)
 			{
+				host_write += blk.host_write;
+				media_write += blk.media_write;
 				pre_phy = phy_blk;
 				pre_offset = bb;
 			}
 			else
 			{	// out
-				OUT_FILE_MAP(phy_blk);
+				FLUSH_FILE_MAP(phy_blk);
 				start_offset = bb;
 			}
 			// sanity check
-			LFS_BLOCK_INFO& blk = m_segments.get_block(phy_blk);
 			if (blk.nid != fid || blk.offset != bb)
 			{
 				THROW_ERROR(ERR_APP, L"L2P not match, fid=%d, lblk=%d, phy_blk=%X, fid_p2f=%d, lblk_p2f=%d", 
 					fid, bb, phy_blk, blk.nid, blk.offset);
 			}
 		}
-		else	{	OUT_FILE_MAP(INVALID_BLK);	}
+		else	{ FLUSH_FILE_MAP(INVALID_BLK);	}
 		NextOffset(ipath);
 	}
-	OUT_FILE_MAP(INVALID_BLK);
+	FLUSH_FILE_MAP(INVALID_BLK);
 }
 
 
 void CSingleLogSimulator::DumpFileMap_no_merge(FILE* out, FID fid)
 {
 	inode_info* inode = m_inodes.get_node(fid);
+	JCASSERT(inode);
 	index_path ipath;
 	InitIndexPath(ipath, inode);
 	inode_info* direct_node = nullptr;
@@ -599,10 +722,11 @@ void CSingleLogSimulator::DumpFileMap_no_merge(FILE* out, FID fid)
 			{
 				SEG_T seg; BLK_T seg_blk; 
 				BlockToSeg(seg, seg_blk, phy_blk);
-				fprintf_s(out, "%S,%d,%d,1,%X,%d,%d\n", inode->m_fn.c_str(), fid, bb, phy_blk, seg, seg_blk);
+				LFS_BLOCK_INFO& blk = m_segments.get_block(phy_blk);
+				fprintf_s(out, "%S,%d,%d,1,%X,%d,%d,%d,%d\n",
+					inode->m_fn.c_str(), fid, bb, phy_blk, seg, seg_blk,blk.host_write,blk.media_write);
 
 				// sanity check
-				LFS_BLOCK_INFO& blk = m_segments.get_block(phy_blk);
 				if (blk.nid != fid || blk.offset != bb)
 				{
 					THROW_ERROR(ERR_APP, L"L2P not match, fid=%d, lblk=%d, phy_blk=%X, fid_p2f=%d, lblk_p2f=%d",
@@ -612,7 +736,28 @@ void CSingleLogSimulator::DumpFileMap_no_merge(FILE* out, FID fid)
 		}
 		NextOffset(ipath);
 	}
-	OUT_FILE_MAP(INVALID_BLK);
+//	FLUSH_FILE_MAP(INVALID_BLK);
+}
+
+void CLfsBase::SetLogFolder(const std::wstring& fn)
+{
+	m_log_fn = fn;
+
+	// invalid block trace log：记录按时间顺序写入和无效化的phy block
+	_wfopen_s(&m_log_invalid_trace, (m_log_fn + L"\\trace_invalid_blk.csv").c_str(), L"w+");
+	if (m_log_invalid_trace == nullptr) THROW_ERROR(ERR_APP, L"failed on creating log file %s", (m_log_fn + L"\\trace_invalid_blk.csv").c_str());
+	fprintf_s(m_log_invalid_trace, "index,reason,invalid,invalid_seg,invalid_blk\n");
+
+	// write trace log:
+	_wfopen_s(&m_log_write_trace, (m_log_fn + L"\\trace_write_blk.csv").c_str(), L"w+");
+	if (m_log_write_trace == nullptr) THROW_ERROR(ERR_APP, L"failed on creating log file %s", (m_log_fn + L"\\trace_write_blk.csv").c_str());
+	fprintf_s(m_log_write_trace, "index,fid,start_blk,blk_nr\n");
+
+	// write trace log:
+	_wfopen_s(&m_gc_trace, (m_log_fn + L"\\trace_gc.csv").c_str(), L"w+");
+	if (m_gc_trace == nullptr) THROW_ERROR(ERR_APP, L"failed on creating log file %s", (m_log_fn + L"\\trace_gc.csv").c_str());
+	//fprintf_s(m_gc_trace, "index,fid,start_blk,blk_nr\n");
+//	m_segments.m_gc_trace = m_gc_trace;
 }
 
 
@@ -673,6 +818,7 @@ void CInodeManager::free_inode(FID nid)
 	inode_info* inode = get_node(nid);
 	JCASSERT(inode);
 	inode->m_phy_blk = INVALID_BLK;
+	inode->m_fid = INVALID_BLK;
 	inode->m_type = inode_info::NODE_FREE;
 	m_free_list.push_back(nid);
 	m_free_nr++;
@@ -682,8 +828,10 @@ void CInodeManager::free_inode(FID nid)
 inode_info * CInodeManager::get_node(FID nid)
 {
 	inode_info * inode = m_nodes.at(nid);
-//	if (inode->m_phy_blk == INVALID_BLK) THROW_ERROR(ERR_APP, L"open an invalid inode, fid=%d", nid);
-	if (inode->m_phy_blk == INVALID_BLK) return nullptr;
+//	LOG_DEBUG(L"get node, fid=%d, inode=%p, fid in inode=%d", nid, inode, inode ? inode->m_fid : 0xFFFFFFFF);
+//	if (inode->m_phy_blk == INVALID_BLK) THROW_ERROR(ERR_APP, L"open an invalid inode, file_index=%d", nid);
+//	if (inode->m_phy_blk == INVALID_BLK) return nullptr;
+	if (inode->m_fid == INVALID_BLK) return nullptr;
 	return inode;
 }
 

@@ -76,7 +76,7 @@ protected:
 
 	//	LOGS
 	std::wstring m_log_fn;
-	FILE* m_log_file = nullptr;
+	FILE* m_log_invalid_trace = nullptr;
 
 protected:
 	CSsdSegmentManager m_segment;

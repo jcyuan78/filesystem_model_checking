@@ -2,6 +2,7 @@
 
 #include "pch.h"
 #include "segment_manager.h"
+#include "lfs_simulator.h"
 
 LOCAL_LOGGER_ENABLE(L"simulator.segment", LOGGER_LEVEL_DEBUGINFO);
 
@@ -16,6 +17,8 @@ template <> void TypedInvalidBlock<LFS_BLOCK_INFO>(LFS_BLOCK_INFO& blk)
 {
 	blk.nid = INVALID_BLK;
 	blk.offset = INVALID_BLK;
+	blk.parent = nullptr;
+	blk.parent_offset = 0;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -34,9 +37,10 @@ PHY_BLK CLfsSegmentManager::WriteBlockToSeg(const LFS_BLOCK_INFO& lblk, BLK_TEMP
 	//	seg_id = m_cur_seg;
 	SEG_INFO<LFS_BLOCK_INFO>& seg = m_segments[cur_seg_id];
 	BLK_T blk_id = seg.cur_blk;
-	//seg.blk_map[blk_id].nid = fid;
+	//seg.blk_map[blk_id].nid = file_index;
 	//seg.blk_map[blk_id].offset = blk;
 	seg.blk_map[blk_id] = lblk;
+	seg.blk_map[blk_id].media_write++;
 
 	seg.valid_blk_nr++;
 	seg.cur_blk++;
@@ -44,6 +48,9 @@ PHY_BLK CLfsSegmentManager::WriteBlockToSeg(const LFS_BLOCK_INFO& lblk, BLK_TEMP
 	InterlockedIncrement64(&m_health->m_total_media_write);
 	InterlockedDecrement(&m_health->m_free_blk);
 	InterlockedIncrement(&m_health->m_physical_saturation);
+
+	if (lblk.offset == INVALID_BLK) m_health->m_media_write_node++;
+	else m_health->m_media_write_data++;
 
 	SEG_T tar_seg = cur_seg_id;
 	BLK_T tar_blk = blk_id;
@@ -58,7 +65,7 @@ PHY_BLK CLfsSegmentManager::WriteBlockToSeg(const LFS_BLOCK_INFO& lblk, BLK_TEMP
 void CLfsSegmentManager::GarbageCollection(void)
 {
 	LOG_STACK_TRACE();
-	GcPool<32, LFS_BLOCK_INFO> pool(m_segments);
+	GcPool<64, LFS_BLOCK_INFO> pool(m_segments);
 	for (SEG_T ss = 0; ss < m_seg_nr; ss++)
 	{
 		SEG_INFO<LFS_BLOCK_INFO>& seg = m_segments[ss];
@@ -67,18 +74,63 @@ void CLfsSegmentManager::GarbageCollection(void)
 	}
 
 	pool.LargeToSmall();
+	SEG_T free_before_gc = m_free_nr;
+	SEG_T claimed_seg = 0;
 
-	while (m_free_nr < GC_THREAD_END)
+	LONG64 media_write_before = m_health->m_total_media_write;
+	LONG64 host_write_before = m_health->m_total_host_write;
+	UINT media_write_count = 0;
+	while (m_free_nr < m_gc_hi)
 	{
 		SEG_T min_seg = pool.Pop();
 		SEG_INFO<LFS_BLOCK_INFO>& src_seg = m_segments[min_seg];
-		if (min_seg == INVALID_BLK) THROW_ERROR(ERR_APP, L"cannot find segment has invalid block");
+		if (min_seg == INVALID_BLK)
+		{
+			// GC pool中的block都以取完，如果有block被回收，则暂时停止GC。否则报错
+			if (m_free_nr > m_gc_lo) break;
+			THROW_ERROR(ERR_APP, L"cannot find segment which has invalid block");
+		}
 		for (BLK_T bb = 0; bb < BLOCK_PER_SEG; ++bb)
 		{
 			LFS_BLOCK_INFO& blk = src_seg.blk_map[bb];
 			if (blk.nid == INVALID_BLK) continue;
-			MoveBlock(min_seg, bb, BT_HOT__DATA);
+			PHY_BLK* parent_entry = nullptr;
+			if (blk.parent && blk.parent->m_type == inode_info::NODE_INDEX)
+			{
+				parent_entry = &(blk.parent->index_blk.m_index[blk.parent_offset]);
+			}
+
+			PHY_BLK old_phy = PhyBlock(min_seg, bb);
+			//LOG_TRACK(L"gc", L"MOVE,fid=%d,blk=%d,src=%X,src_seg=%d,src_blk=%d", blk.nid, blk.offset, old_phy, min_seg, bb);
+			PHY_BLK new_blk = MoveBlock(min_seg, bb, BT_HOT__DATA);
+			media_write_count++;
+
+			LFS_BLOCK_INFO& new_lblk = get_block(new_blk);
+			if (new_lblk.offset == INVALID_BLK)
+			{	// node block
+				//LOG_TRACK(L"inode", L"MOVE,fid=%d,new_phy=%X,old_phy=%X", new_lblk.nid, new_blk, old_phy);
+				inode_info * inode = m_inodes->get_node(new_lblk.nid);
+				JCASSERT(inode);
+				inode->m_phy_blk = new_blk;
+			}
+			else
+			{	// data block
+
+			}
+			if (parent_entry) *parent_entry = new_blk;
 		}
+		claimed_seg++;
+	}
+	LOG_TRACK(L"gc", L"SUM,free_before=%d,free_after=%d,released_seg=%d,src_nr=%d,host_write=%lld,%lld,media_write=%lld,%lld,delta=%d,media_write=%d",
+		free_before_gc, m_free_nr, m_free_nr - free_before_gc, claimed_seg, 
+		host_write_before, m_health->m_total_host_write, media_write_before, m_health->m_total_media_write,
+		(UINT)(m_health->m_total_media_write-media_write_before), media_write_count);
+	if (m_gc_trace)
+	{
+		//fprintf_s(m_gc_trace, "free_before,free_after,reclaimed,src_sge,media_write\n");
+		fprintf_s(m_gc_trace, "%d,%d,%d,%d,%d,%d\n",
+			free_before_gc, m_free_nr, m_free_nr - free_before_gc, claimed_seg,
+			(UINT)(m_health->m_total_media_write - media_write_before), media_write_count);
 	}
 }
 
@@ -134,5 +186,19 @@ void CLfsSegmentManager::DumpSegmentBlocks(const std::wstring& fn)
 
 	}
 	fclose(log);
+}
+
+bool CLfsSegmentManager::InitSegmentManager(SEG_T segment_nr, SEG_T gc_lo, SEG_T gc_hi, int init_val)
+{
+	CSegmentManagerBase<LFS_BLOCK_INFO>::InitSegmentManager(segment_nr, gc_lo, gc_hi, 0xFFFFFFFF);
+	if (m_gc_trace)
+	{
+		// free_before: GG前的free segment，free_after: GC后的free segment, reclaimed_seg: GC释放的segment数量
+		// src_seg: GC中使用的segment数量（和released相比较可以体现GC效率)
+		// 通过GC前后health.media_write计算得到的media write block数量
+		// GC过程中累加的media write block数量（这两者只是计算方法不同，理论上数值应该相同）
+		fprintf_s(m_gc_trace, "free_before,free_after,released_seg,src_sge,media_write,media_write_gc\n");
+	}
+	return true;
 }
 

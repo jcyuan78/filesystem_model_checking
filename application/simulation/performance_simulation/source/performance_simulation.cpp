@@ -7,6 +7,7 @@
 #include "segment_manager.h"
 #include "ssd_simulator.h"
 #include "trace_tester.h"
+#include "f2fs_simulator.h"
 #include <boost/property_tree/xml_parser.hpp>
 
 #ifdef _DEBUG
@@ -104,6 +105,10 @@ int CSimulatorApp::Run(void)
 	boost::property_tree::wptree prop;
 	boost::property_tree::xml_parser::read_xml(config_fn, prop);
 
+	std::string log_config_fn;
+	jcvos::UnicodeToUtf8(log_config_fn, m_test_id + L"\\config.xml");
+	boost::property_tree::xml_parser::write_xml(log_config_fn, prop);
+
 	const boost::property_tree::wptree& test_config = prop.get_child(L"config.test");
 
 	const std::wstring& test_type = test_config.get<std::wstring>(L"type");
@@ -115,10 +120,20 @@ int CSimulatorApp::Run(void)
 	else if (test_type == L"lfs_test")
 	{
 		const boost::property_tree::wptree& fs_config = prop.get_child(L"config.filesystem");
-		CLfsInterface* lfs = new CSingleLogSimulator;
+		jcvos::auto_ptr<CLfsInterface> lfs(new CSingleLogSimulator);
+		lfs->SetLogFolder(m_test_id);
 		lfs->Initialzie(fs_config);
 		FsTest(test_config, lfs);
-		delete lfs;
+//		delete lfs;
+	}
+	else if (test_type == L"f2fs_test")
+	{
+		const boost::property_tree::wptree& fs_config = prop.get_child(L"config.filesystem");
+		jcvos::auto_ptr<CLfsInterface> lfs(new CF2fsSimulator);
+		lfs->SetLogFolder(m_test_id);
+		lfs->Initialzie(fs_config);
+		FsTest(test_config, lfs);
+		//		delete lfs;
 	}
 	return 0;
 }
@@ -196,7 +211,7 @@ void CSimulatorApp::MakeTestId(void)
 	localtime_s(&ptm, &now);
 	m_test_id.resize(50);
 	wchar_t* str_tid = const_cast<wchar_t*>(m_test_id.data());
-	int len = swprintf_s(str_tid, 50, L"T%02d%02d%02d%02d", ptm.tm_mday, ptm.tm_hour, ptm.tm_min, ptm.tm_sec);
+	int len = swprintf_s(str_tid, 50, L"T%02d%02d%02d%02d%02d", ptm.tm_mon, ptm.tm_mday, ptm.tm_hour, ptm.tm_min, ptm.tm_sec);
 	m_test_id.resize(len);
 }
 

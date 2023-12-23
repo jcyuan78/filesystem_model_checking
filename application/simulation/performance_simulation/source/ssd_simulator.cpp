@@ -42,9 +42,9 @@ CSingleHeadSM::CSingleHeadSM(size_t seg_nr, size_t cap)
 CSingleHeadSM::~CSingleHeadSM(void)
 {
 	delete[] m_l2p_map;
-	if (m_log_file)
+	if (m_log_invalid_trace)
 	{
-		fclose(m_log_file);
+		fclose(m_log_invalid_trace);
 	}
 }
 
@@ -52,7 +52,7 @@ bool CSingleHeadSM::Initialize(const boost::property_tree::wptree& config)
 {
 	m_blk_nr = config.get<size_t>(L"sectors") / 8;
 	SEG_T seg_nr = (SEG_T)((float)m_blk_nr * config.get<float>(L"over_provision") / BLOCK_PER_SEG);
-	m_segment.InitSegmentManager(seg_nr);
+	m_segment.InitSegmentManager(seg_nr, 3, 5);
 
 	LOG_DEBUG(L"logic blk_nr=%d, logical seg_nr=%d, phy seg_n=%dr", m_blk_nr, m_blk_nr / BLOCK_PER_SEG, seg_nr);
 
@@ -73,9 +73,9 @@ bool CSingleHeadSM::Initialize(const boost::property_tree::wptree& config)
 
 void CSingleHeadSM::SetLogFile(const std::wstring& fn)
 {
-	_wfopen_s(&m_log_file, fn.c_str(), L"w+");
-	if (m_log_file == nullptr) THROW_ERROR(ERR_APP, L"failed on create log file %s", fn.c_str());
-	fprintf_s(m_log_file, "Event,LBlock,BlockNr,HostWrite,MediaWrite,WAF,RunningWAF,FreeSeg,FreeBlock\n");
+	_wfopen_s(&m_log_invalid_trace, fn.c_str(), L"w+");
+	if (m_log_invalid_trace == nullptr) THROW_ERROR(ERR_APP, L"failed on create log file %s", fn.c_str());
+	fprintf_s(m_log_invalid_trace, "Event,LBlock,BlockNr,HostWrite,MediaWrite,WAF,RunningWAF,FreeSeg,FreeBlock\n");
 }
 
 bool CSingleHeadSM::WriteSector(size_t lba, size_t secs, BLK_TEMP temp)
@@ -124,7 +124,7 @@ bool CSingleHeadSM::WriteSector(size_t lba, size_t secs, BLK_TEMP temp)
 
 		size_t running_host_write = m_total_host_write - last_host_write;
 
-		fprintf_s(m_log_file, "WriteSector,%lld,%lld,%lld,%lld,%.1f,%.1f,%d, %d\n", lba / 8, end_blk - lba / 8, m_total_host_write, m_total_media_write,
+		fprintf_s(m_log_invalid_trace, "WriteSector,%lld,%lld,%lld,%lld,%.1f,%.1f,%d, %d\n", lba / 8, end_blk - lba / 8, m_total_host_write, m_total_media_write,
 			/*累计WAF*/(double)m_total_media_write / (double)m_total_host_write,
 			/*实时WAF*/(running_host_write) ? ((double)(m_total_media_write - last_media_write) / (double)running_host_write) : 0,
 			m_segment.get_free_nr(), m_segment.get_free_nr() * BLOCK_PER_SEG);
@@ -372,7 +372,7 @@ bool CMultiHeadSM::WriteSector(size_t lba, size_t secs, BLK_TEMP temp)
 
 		size_t running_host_write = m_total_host_write - last_host_write;
 
-		fprintf_s(m_log_file, "WriteSector,%lld,%lld,%lld,%lld,%.1f,%.1f,%d,%d\n", lba / 8, end_blk - lba / 8, m_total_host_write, m_total_media_write,
+		fprintf_s(m_log_invalid_trace, "WriteSector,%lld,%lld,%lld,%lld,%.1f,%.1f,%d,%d\n", lba / 8, end_blk - lba / 8, m_total_host_write, m_total_media_write,
 			/*累计WAF*/(double)m_total_media_write / (double)m_total_host_write,
 			/*实时WAF*/(running_host_write) ? ((double)(m_total_media_write - last_media_write) / (double)running_host_write) : 0,
 			m_segment.get_free_nr(), m_segment.get_free_nr() * BLOCK_PER_SEG);

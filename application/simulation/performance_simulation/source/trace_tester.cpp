@@ -14,8 +14,7 @@ LOCAL_LOGGER_ENABLE(L"test.trace", LOGGER_LEVEL_DEBUGINFO);
 
 
 
-#define MAX_LINE_BUF	(1024)
-#define PATH_PREFIX		(44)
+//#define PATH_PREFIX		(44)
 
 
 class FIELD_INFO
@@ -26,11 +25,23 @@ public:
 	UINT			field_sn;		// 段在csv中出现的位置
 };
 
-enum FIELD_INDEX
-{
-	FIELD_TIMESTAMP=0, FIELD_OPERATION=1, FIELD_PATH=2, FIELD_RESULT=3,FIELD_TID=4, FIELD_PARAM1=5,
-	FIELD_PARAM2=6, FIELD_PARAM3=7,
-};
+
+
+#define TRACE_FILTER	(1306)
+
+#define TRACK_TRACE(action, fid, path, size) \
+	if (wcscmp(action,L"WRITE")==0) LOG_TRACK(L"trace", L"," action L",fid=%d,len=%lld", fid,\
+		ROUND_UP_DIV(size,4096) );
+
+
+#define TRACK_TRACE_WRITE(action, op, fid, path, offset, size)		{ \
+	DWORD start_blk = (DWORD)(offset / 4096), end_blk = (DWORD)ROUND_UP_DIV((offset+size), 4096);	\
+	LOG_TRACK(L"trace", L",WRITE,op=%d,fid=%d,start_blk=%d,end_blk=%d,blks=%d", op, fid, start_blk,\
+		end_blk, end_blk-start_blk); }
+		
+#define TRACK_TRACE_MARK_(action, op, trace_id)		{ \
+	LOG_TRACK(L"trace", L",MARK_,op=%d,begin_trace=%d", op, trace_id); }
+
 
 CTraceTester::CTraceTester(CLfsInterface* lfs)
 //	: CTesterBase(fs, disk)
@@ -41,6 +52,10 @@ CTraceTester::CTraceTester(CLfsInterface* lfs)
 CTraceTester::~CTraceTester(void)
 {
 	LOG_STACK_TRACE();
+	for (auto it = m_traces.begin(); it != m_traces.end(); ++it)
+	{
+		delete (*it);
+	}
 }
 
 void CTraceTester::Config(const boost::property_tree::wptree& pt, const std::wstring& root)
@@ -50,7 +65,7 @@ void CTraceTester::Config(const boost::property_tree::wptree& pt, const std::wst
 	m_root = root;
 	const std::wstring& log_fn = pt.get<std::wstring>(L"log_file", L"");
 	m_timeout = pt.get<DWORD>(L"timeout", INFINITE);
-	m_message_interval = pt.get<DWORD>(L"message_interval", 30);		// 以秒为单位的更新时间
+	m_update_ms = pt.get<DWORD>(L"message_interval", 10000);		// 以秒为单位的更新时间
 	m_repeat = pt.get<int>(L"repeat", 1);
 	// 添加root
 	m_file_access.emplace_back();	// add file 0 (dummy)
@@ -65,32 +80,24 @@ void CTraceTester::Config(const boost::property_tree::wptree& pt, const std::wst
 	m_file_buf = new char[m_file_buf_size];
 
 	const boost::property_tree::wptree& trace_list = pt.get_child(L"traces");
+	int trace_id = 0;
+	int thread_id = 0;
 	for (auto it = trace_list.begin(); it != trace_list.end(); ++it)
 	{
 		// for each thread
 		LOG_DEBUG(L"got node=%s", it->first.c_str());
 		if (it->first != L"thread") continue;
 		const boost::property_tree::wptree& thread_prop = it->second;
-		m_traces.emplace_back();
-		TRACE_INFO& trace_info = m_traces.back();
-		trace_info.m_tid = thread_prop.get<UINT>(L"id");
-		trace_info.m_repeat = thread_prop.get<int>(L"repeat");
-		
-		const boost::property_tree::wptree& trace_files = thread_prop.get_child(L"trace");
-		for (auto tt = trace_files.begin(); tt != trace_files.end(); ++tt)
-		{
-			LOG_DEBUG(L"got sub node=%s", tt->first.c_str());
-			if (tt->first != L"file") continue;
-			const std::wstring & fn = tt->second.get_value<std::wstring>();
-			trace_info.m_trace_fn = fn;
-			LoadTrace(fn, trace_info);
-		}
-
-		//trace_info.m_trace_fn = fn;
-
-		//const std::wstring& fn = it->second.get<std::wstring>(L"file");
-		//UINT tid = it->second.get<UINT>(L"thread");
-		//LoadTrace(fn, tid - 1);
+		const std::wstring& thread_type = thread_prop.get<std::wstring>(L"type");
+		TRACE_INFO_BASE* trace_info = nullptr;
+		if (thread_type == L"trace") { trace_info = new TRACE_INFO; }
+		else if (thread_type == L"cold_files") { trace_info = new TRACE_INFO_COLD_FILES; }
+		else if (thread_type == L"hot_files") { trace_info = new TRACE_INFO_HOT_FILES; }
+		else continue;
+		trace_info->m_tester = this;
+		trace_info->m_tid = thread_id++;
+		trace_info->LoadTrace(thread_prop/*, this, trace_id++*/);
+		m_traces.push_back(trace_info);
 	}
 	delete[] m_file_buf;
 }
@@ -99,8 +106,6 @@ void CTraceTester::FillFile(FID fid, DWORD revision, size_t secs)
 {
 	JCASSERT(fid < m_file_access.size());
 	FILE_ACCESS_INFO& info = m_file_access.at(fid);
-	//LOG_DEBUG_(0, L"Fill file: fid=%d, fn=%s", fid, info.file_name);
-
 	m_lfs->FileOpen(fid);
 	m_lfs->FileWrite(fid, 0, secs);
 	m_lfs->FileClose(fid);
@@ -113,19 +118,14 @@ void CTraceTester::PrepareFiles(void)
 	{
 		FILE_ACCESS_INFO& info = *it;
 		if (info.file_name == L"" || info.fid == 1) continue;
-		std::wstring path = /*m_root +*/ info.file_name;
-//		LOG_DEBUG(L"processing fid=%d, dir=%d, path=%s", info.fid, info.is_dir, path.c_str());
-//		LOG_TRACK(L"trace", L",PREPARE,fid=%d,isdir=%d,fn=%s", info.fid, info.is_dir, path.c_str());
+		std::wstring path = info.file_name;
 		if (info.is_dir || info.child_nr > 0)
 		{
-			//			BOOL br = CreateDirectory(path.c_str(), nullptr);
-			//bool br = m_fs->MakeDir(path);
-			//if (!br) THROW_WIN32_ERROR(L"failed on creating dir: %s", path.c_str());
 		}
 		else
 		{
 			FID fid = info.fid;
-			LOG_TRACK(L"trace", L",PREPARE_WRITE,fid=%d,fn=%s,len=%lld", info.fid, info.file_name.c_str(), info.max_length);
+			TRACK_TRACE(L"PREPARE_WRITE", info.fid, info.file_name, info.max_length);
 			FillFile(fid, 0, ROUND_UP_DIV(info.max_length, 512));
 			SetEvent(m_monitor_event);
 		}
@@ -135,11 +135,14 @@ void CTraceTester::PrepareFiles(void)
 	{
 		FILE_ACCESS_INFO& info = *it;
 		if (info.file_name == L"" || info.fid == 0) continue;
-		std::wstring path = /*m_root +*/ info.file_name;
+		std::wstring path = info.file_name;
 		if (info.is_dir || info.child_nr > 0) continue;
 		FID fid = info.fid;
-		LOG_TRACK(L"verify", L",VERIFY,fid=%d,fn=%s,len=%lld", info.fid, info.file_name.c_str(), info.max_length);
-		m_lfs->FileRead(fid, 0, ROUND_UP_DIV(info.max_length, 512));
+//		LOG_TRACK(L"verify", L",VERIFY,fid=%d,fn=%s,len=%lld", info.fid, info.file_name.c_str(), info.max_length);
+		TRACK_TRACE(L"VERIFY", info.fid, info.file_name, info.max_length);
+		std::vector<CPageInfoBase*> blks;
+
+		m_lfs->FileRead(blks, fid, 0, ROUND_UP_DIV(info.max_length, 512));
 		SetEvent(m_monitor_event);
 	}
 }
@@ -147,35 +150,54 @@ void CTraceTester::PrepareFiles(void)
 int CTraceTester::PrepareTest(void)
 {
 	DWORD ii = 0;
-	for (auto it = m_traces.begin(); it != m_traces.end(); it++, ii++)
-	{
-		it->m_tester = this;
-		it->m_tid = ii;
-		//it->m_max_buf_size = round_up(it->m_max_buf_size, sizeof(FILE_FILL_DATA));
-		//it->m_max_buf_size += sizeof(FILE_FILL_DATA);		// 两头对其
-		//it->m_buf = new BYTE[it->m_max_buf_size];
-	}
+	//for (auto it = m_traces.begin(); it != m_traces.end(); it++, ii++)
+	//{
+	//	(*it)->m_tester = this;
+	//	(*it)->m_tid = ii;
+	//}
 	PrepareFiles();
 	return 0;
 }
 
 int CTraceTester::RunTest(void)
 {
-	HANDLE* threads = new HANDLE[m_traces.size()];
-	memset(threads, 0, sizeof(HANDLE) * m_traces.size());
-	
-	for (size_t ii =0; ii < m_traces.size(); ++ii)
+	//HANDLE* threads = new HANDLE[m_traces.size()];
+	//memset(threads, 0, sizeof(HANDLE) * m_traces.size());
+	// 实际上性能模拟不需要多线程，从不同的线程中随机选择一个线程，完成下一步操作即可。
+	// 把所有thread都放入候选集中
+	size_t working_nr = m_traces.size();
+	size_t forever = 0;		// 没有次数显示的线程数量，当working thread的数量减少到forever时，停止运行
+	jcvos::auto_array<TRACE_INFO_BASE*> _thread_set(working_nr);
+	TRACE_INFO_BASE** thread_set = _thread_set;
+	for (size_t ii = 0; ii < working_nr; ++ii)
 	{
-		// create thread for test
-		TRACE_INFO& trace = m_traces.at(ii);
-//		DWORD thread_id;
-//		threads[ii] = CreateThread(nullptr, 0, _TestThread, &trace, 0, &thread_id);
-//		trace.m_thread = threads[ii];
-		trace.m_thread = nullptr;
-		TestThread(trace);
+		thread_set[ii] = m_traces.at(ii);
+		thread_set[ii]->Reset();
+		if (thread_set[ii]->IsForever()) forever++;
 	}
-	WaitForMultipleObjects(m_traces.size(), threads, TRUE, INFINITE);
-	delete[]threads;
+
+	// 执行测试
+	while (1)
+	{
+		InterlockedIncrement(&m_op_sn);
+		int tid = (rand() % working_nr);
+		TRACE_INFO_BASE* thread = thread_set[tid];
+		TRACE_ENTRY * op = thread->NextOp();
+//		LOG_DEBUG_(1, L"working_nr=%d,tid=%d,thread_id=%d,op=%p", working_nr, tid, thread->m_tid, op);
+		if (op == nullptr)
+		{	// 当前thread已经执行完毕，排除。
+			working_nr--;
+			LOG_DEBUG(L"trace=%d completed, working trace=%d, complete=%d", tid, working_nr, forever);
+			if (working_nr <= forever) break;	// 测试结束
+			thread_set[tid] = thread_set[working_nr];
+			continue;
+		}
+		InvokeOperateion(*op, thread->m_tid);
+		SetEvent(m_monitor_event);
+	}
+
+	//WaitForMultipleObjects(m_traces.size(), threads, TRUE, INFINITE);
+	//delete[]threads;
 	return 0;
 }
 
@@ -197,6 +219,7 @@ int CTraceTester::FinishTest(void)
 	UINT64 total_read_byte=0, total_write_byte=0, total_read_count=0, total_write_count=0;
 	double max_read_bw=0, max_write_bw=0;
 	double ts_cycle = jcvos::GetTsCycle();
+/*
 	for (auto trace = m_traces.begin(); trace != m_traces.end(); ++trace)
 	{
 		std::vector<TRACE_ENTRY>& ops = trace->m_trace;
@@ -226,6 +249,7 @@ int CTraceTester::FinishTest(void)
 			}
 		}
 	}
+*/
 	wprintf_s(L"read  command=%lld, total read =%.1f(MB), total  read time t1=%.1f(us), t2=%lld(us) \n", total_read_count, total_read_byte / (1024.0 * 1024.0), total_read_time*ts_cycle, m_total_read_time);
 	wprintf_s(L"write command=%lld, total write=%.1f(MB), total write time t1=%.1f(us), t2=%lld(us)\n", total_write_count, total_write_byte / (1024.0 * 1024.0), total_write_time*ts_cycle, m_total_write_time);
 	wprintf_s(L"Read  Performance: delay = %.f~%.f(us), avg bw=%.f(MB/s), max bw=%.f(MB/s)\n", min_read_time * ts_cycle, max_read_time * ts_cycle, (double)total_read_byte / (total_read_time * ts_cycle), max_read_bw);
@@ -241,16 +265,26 @@ int CTraceTester::FinishTest(void)
 
 void CTraceTester::CalculateFileAccess(TRACE_ENTRY& op)
 {
-	FILE_ACCESS_INFO& finfo = m_file_access.at(op.fid);
-	size_t start = op.offset;
-	size_t end = op.offset + op.length;
-	if (end > finfo.max_length) finfo.max_length = end;
-	if (op.op_code == OP_CODE::OP_FILE_READ) finfo.total_read += op.length;
-	else if (op.op_code == OP_CODE::OP_FILE_WRITE) finfo.total_write += op.length;
+	FILE_ACCESS_INFO& finfo = m_file_access.at(op.file_index);
+	size_t start_byte = op.offset;
+	size_t end_byte = op.offset + op.length;
+	if (end_byte > finfo.max_length) finfo.max_length = end_byte;
+
+	// byte to sector
+	size_t start_lba, secs;
+	SizeToSector(start_lba, secs, start_byte, op.length);
+
+	// sector to block
+	DWORD start_blk, end_blk;
+	LbaToBlock(start_blk, end_blk, start_lba , secs);
+	DWORD blks = end_blk - start_blk;
+
+	if (op.op_code == OP_CODE::OP_FILE_READ) finfo.total_read += blks;
+	else if (op.op_code == OP_CODE::OP_FILE_WRITE) finfo.total_write += blks;
 	else THROW_ERROR(ERR_APP, L"not read/write op, op=%d", op.op_code);
 }
 
-FID CTraceTester::FindOrNewFile(const std::wstring& path, bool is_dir)
+size_t CTraceTester::FindOrNewFile(const std::wstring& path, bool is_dir)
 {
 	// try to find file id
 	auto found = m_path_map.find(path);
@@ -276,11 +310,12 @@ FID CTraceTester::FindOrNewFile(const std::wstring& path, bool is_dir)
 	}
 	JCASSERT(parent_index != (size_t)(-1));
 
-	//DWORD fid = m_max_fid++;
+	//DWORD file_index = m_max_fid++;
 	FID fid = m_lfs->FileCreate(path);
-	LOG_TRACK(L"trace", L",CREATE,fid=%d,fn=%s", fid, path.c_str());
+//	LOG_TRACK(L"trace", L",CREATE,fid=%d,fn=%s", fid, path.c_str());
+	TRACK_TRACE(L"CREATE", fid, path, 0);
 
-//	LOG_DEBUG_(0, L"create item=%s, id=%d, parent_id=%d", path.c_str(), fid, parent_id);
+//	LOG_DEBUG_(0, L"create item=%s, id=%d, parent_id=%d", path.c_str(), file_index, parent_id);
 	m_file_access.emplace_back();
 	size_t index = m_file_access.size() - 1;
 	FILE_ACCESS_INFO& ff = m_file_access.at(index);
@@ -372,7 +407,7 @@ void CTraceTester::LoadTrace(const std::wstring& fn, UINT tid)
 				if (field_val[0] == 0 ) continue;
 				std::wstring path = field_val + PATH_PREFIX; 
 				op.file_path = path;
-				op.fid = NewFileInfo(op);
+				op.file_index = NewFileInfo(op);
 				break;
 			}
 						   //case 3:	// Result
@@ -437,8 +472,8 @@ void CTraceTester::LoadTrace(const std::wstring& fn, UINT tid)
 		}
 		if (op.op_code == OP_CODE::OP_FILE_CREATE)
 		{
-			//DWORD fid = NewFileInfo(op);
-			//op.fid = fid;
+			//DWORD file_index = NewFileInfo(op);
+			//op.file_index = file_index;
 
 			if (mode == OP_CODE::OP_FILE_OPEN) op.op_code = OP_CODE::OP_FILE_OPEN;
 			else if (mode == OP_CODE::OP_FILE_DELETE) op.op_code = OP_CODE::OP_FILE_DELETE;
@@ -461,7 +496,7 @@ void CTraceTester::LoadTrace(const std::wstring& fn, UINT tid)
 
 int CTraceTester::CalculatePrefix(const char* path)
 {
-	int len = strlen(path);
+	int len = (int)strlen(path);
 	if (len <= 3) return 0;
 	int ii = 3;	//跳过C:/
 	for (; ii < len && path[ii] != '\\'; ii++);
@@ -470,7 +505,7 @@ int CTraceTester::CalculatePrefix(const char* path)
 }
 
 //void CTraceTester::LoadTrace(const std::wstring& fn, UINT tid)
-void CTraceTester::LoadTrace(const std::wstring& fn, TRACE_INFO& trace_info)
+void CTraceTester::LoadTrace(const std::wstring& fn, TRACE_INFO& trace_info, int trace_id)
 {
 	// 读取trace.
 	FILE* trace_file = nullptr;
@@ -503,13 +538,14 @@ void CTraceTester::LoadTrace(const std::wstring& fn, TRACE_INFO& trace_info)
 		heads.push_back(field_name);
 	}
 
-	//if (tid >= m_traces.size())
-	//{
-	//	m_traces.emplace_back();
-	//}
-	//TRACE_INFO& trace_info = m_traces.at(tid);
-	//trace_info.m_trace_fn = fn;
 	int path_prefix = 0;	//去除path的前缀，临时目录部分
+	// 加入trace开始标志
+	trace_info.m_trace.emplace_back();
+	TRACE_ENTRY& op = trace_info.m_trace.at(trace_info.m_trace.size() - 1);
+	trace_info.m_trace_nr++;
+	op.op_code = OP_MARK_TRACE_BEGIN;
+	op.trace_id = trace_id;
+
 	// 读取文件内容
 	while (1)
 	{
@@ -518,12 +554,15 @@ void CTraceTester::LoadTrace(const std::wstring& fn, TRACE_INFO& trace_info)
 		if (line == nullptr) break;
 		std::string str_line = line;	// for debug
 
-		if (trace_info.m_trace_nr >= trace_info.m_trace.size())
-		{
-			size_t new_size = trace_info.m_trace.size() + TRACE_BUFFER;
-			trace_info.m_trace.resize(new_size);
-		}
-		TRACE_ENTRY& op = trace_info.m_trace.at(trace_info.m_trace_nr++);
+		//if (trace_info.m_trace_nr >= trace_info.m_trace.size())
+		//{
+		//	size_t new_size = trace_info.m_trace.size() + TRACE_BUFFER;
+		//	trace_info.m_trace.resize(new_size);
+		//}
+		//TRACE_ENTRY& op = trace_info.m_trace.at(trace_info.m_trace_nr++);
+		trace_info.m_trace.emplace_back();
+		TRACE_ENTRY& op = trace_info.m_trace.at(trace_info.m_trace.size() - 1);
+		trace_info.m_trace_nr++;
 
 		UINT field_sn = 0;
 		char* field_val = strtok_s(line, ",", &context);
@@ -545,12 +584,14 @@ void CTraceTester::LoadTrace(const std::wstring& fn, TRACE_INFO& trace_info)
 				if (field_val[0] == 0) continue;
 				if (path_prefix == 0) path_prefix = CalculatePrefix(field_val);
 				std::string path = field_val + path_prefix;
-				jcvos::Utf8ToUnicode(op.file_path, path);
-				op.fid = NewFileInfo(op);
+				//jcvos::Utf8ToUnicode(op.file_path, path);
+				std::wstring wpath;
+				jcvos::Utf8ToUnicode(wpath, path);
+				op.file_index = NewFileInfo(wpath, op.is_dir);
 				break;
 			}
-						   //case 3:	// Result
-						   //case 4: // Detail
+		   //case 3:	// Result
+		   //case 4: // Detail
 			case FIELD_TID:	// TID
 				op.thread_id = atoi(field_val);
 				break;
@@ -622,6 +663,7 @@ void CTraceTester::LoadTrace(const std::wstring& fn, TRACE_INFO& trace_info)
 }
 #endif
 
+
 DWORD CTraceTester::TestThread(TRACE_INFO& trace_info)
 {
 	DWORD tid = trace_info.m_tid;
@@ -631,99 +673,103 @@ DWORD CTraceTester::TestThread(TRACE_INFO& trace_info)
 		wprintf_s(L"start testing cycle=%d\n", pp);
 		for (size_t ii = 0; ii < trace_info.m_trace_nr; ++ii)
 		{
+			// 实际上性能模拟不需要多线程，从不同的线程中随机选择一个线程，完成下一步操作即可。
 			InterlockedIncrement(&m_op_sn);
-			//TRACE_ENTRY& op = *it;
 			TRACE_ENTRY& op = trace.at(ii);
-			FILE_ACCESS_INFO& info = m_file_access.at(op.fid);
-
-			switch (op.op_code)
-			{
-			case OP_CODE::OP_FILE_CREATE: // continue
-			case OP_CODE::OP_FILE_OPEN:
-			case OP_CODE::OP_FILE_OVERWRITE: {
-				DWORD flag = 0;
-				if (op.file_path == L"") continue;
-				if (info.is_dir) continue;
-				//if (info.file_handle[tid])
-				//{
-				//	info.open_ref[tid]++; 
-				//	continue;
-				//}
-				std::wstring path = m_root + op.file_path;
-				m_lfs->FileOpen(info.fid);
-				if (op.op_code == OP_CODE::OP_FILE_OVERWRITE)
-				{
-					LOG_TRACK(L"trace", L",OVERWRITE,file=%s", path.c_str());
-					m_lfs->FileTruncate(info.fid);
-				}
-				else
-				{
-					LOG_TRACK(L"trace", L",OPEN,file=%s", path.c_str());
-				}
-				//info.file_handle[tid] = file;
-				info.open_ref[tid]++;
-				break;
-			}
-			case OP_CODE::OP_FILE_CLOSE: {
-				if (op.file_path == L"") continue;
-				if (info.is_dir) continue;
-				//JCASSERT(info.open_ref[tid] > 0 && info.file_handle[tid])
-				info.open_ref[tid]--;
-				if (info.open_ref[tid] == 0)
-				{
-					LOG_TRACK(L"trace", L",CLOSE,file=%s", op.file_path.c_str());
-					m_lfs->FileClose(info.fid);
-				}
-
-				break;
-			}
-			case OP_CODE::OP_FILE_DELETE: {
-				std::wstring path = m_root + op.file_path;
-				LOG_TRACK(L"trace", L",DELETE,file=%s", path.c_str());
-
-				if (info.is_dir) { LOG_WARNING(L"delete directry: %s", path.c_str()); }
-				//JCASSERT(info.file_handle[tid] == nullptr);
-				m_lfs->FileOpen(info.fid, true);
-				//info.file_handle[tid] = file;
-				info.open_ref[tid]++;
-				break;
-			}
-			case OP_CODE::OP_FILE_WRITE: {
-				AcquireSRWLockExclusive(&info.file_lock);
-				info.revision++;
-				UINT64 duration = WriteTest(info, op.offset, op.length);
-				op.duration = duration;
-				ReleaseSRWLockExclusive(&info.file_lock);
-				LOG_TRACK(L"trace", L",WRITE,file=%s,offset=%zd,length=%zd,time=%.1f,(us),bw=%.1f,(MB/s)", op.file_path.c_str(), op.offset, op.length, duration * jcvos::GetTsCycle(), op.length / (duration * jcvos::GetTsCycle()));
-				break;
-			}
-			case OP_CODE::OP_FILE_READ: {
-				//if (info.file_handle[tid] == nullptr) continue;
-				AcquireSRWLockShared(&info.file_lock);
-				op.duration = ReadTest(info, op.offset, op.length);
-				ReleaseSRWLockShared(&info.file_lock);
-				LOG_TRACK(L"trace", L",READ,file=%s,offset=%zd,length=%zd,time=%.1f,(us),bw=%.1f,(MB/s)", op.file_path.c_str(), op.offset, op.length, op.duration * jcvos::GetTsCycle(), op.length / (op.duration * jcvos::GetTsCycle()));
-				break;
-			}
-			case OP_CODE::OP_FILE_FLUSH: {
-				break;
-			}
-			case OP_CODE::OP_THREAD_CREATE: {break; }
-			case OP_CODE::OP_THREAD_EXIT: {break; }
-										//		case OP_CODE::OP_FILE: {break; }
-			default: LOG_WARNING(L"Unknown operation op_code=%d", op.op_code);
-			}
+			InvokeOperateion(op, tid);
 			SetEvent(m_monitor_event);
 		}
 	}
 	return 0;
 }
 
-FID CTraceTester::NewFileInfo(TRACE_ENTRY& op)
+void CTraceTester::InvokeOperateion(TRACE_ENTRY& op, DWORD tid)
 {
-	LOG_DEBUG_(1, L"add file=%s, dir=%d, ts=%lld", op.file_path.c_str(), op.is_dir, op.ts);
-	FID fid = FindOrNewFile(op.file_path, op.is_dir);
-	return fid;
+	FILE_ACCESS_INFO& info = m_file_access.at(op.file_index);
+
+	switch (op.op_code)
+	{
+	case OP_CODE::OP_MARK_TRACE_BEGIN:
+		TRACK_TRACE_MARK_(L"MARK", m_op_sn, op.trace_id);
+		break;
+
+	case OP_CODE::OP_FILE_CREATE: // continue
+	case OP_CODE::OP_FILE_OPEN:
+	case OP_CODE::OP_FILE_OVERWRITE: {
+		DWORD flag = 0;
+		if (info.is_dir) return;
+		m_lfs->FileOpen(info.fid);
+		if (op.op_code == OP_CODE::OP_FILE_OVERWRITE)
+		{
+			TRACK_TRACE(L"OVERWRITE", info.fid, info.file_name, 0);
+			m_lfs->FileTruncate(info.fid);
+		}
+		else
+		{
+			TRACK_TRACE(L"OPEN", info.fid, info.file_name, 0);
+		}
+		info.open_ref[tid]++;
+		break;
+	}
+	case OP_CODE::OP_FILE_CLOSE: {
+		if (info.is_dir) return;
+		info.open_ref[tid]--;
+		if (info.open_ref[tid] == 0)
+		{
+			TRACK_TRACE(L"CLOSE", info.fid, info.file_name, info.max_length);
+			m_lfs->FileClose(info.fid);
+		}
+		break;
+	}
+	case OP_CODE::OP_FILE_DELETE: {
+		TRACK_TRACE(L"DELETE", info.fid, info.file_name, info.max_length);
+
+		if (info.is_dir) { LOG_WARNING(L"delete directry: %s", info.file_name.c_str()); }
+		m_lfs->FileOpen(info.fid, true);
+		info.open_ref[tid]++;
+		break;
+	}
+	case OP_CODE::OP_FILE_WRITE: {
+		AcquireSRWLockExclusive(&info.file_lock);
+		info.revision++;
+		TRACK_TRACE_WRITE(L"WRITE", m_op_sn, info.fid, info.file_name, op.offset, op.length);
+		UINT64 duration = WriteTest(info, op.offset, op.length);
+		op.duration = duration;
+		ReleaseSRWLockExclusive(&info.file_lock);
+		break;
+	}
+	case OP_CODE::OP_FILE_READ: {
+		AcquireSRWLockShared(&info.file_lock);
+		op.duration = ReadTest(info, op.offset, op.length);
+		ReleaseSRWLockShared(&info.file_lock);
+		TRACK_TRACE(L"READ", info.fid, info.file_name, op.length);
+
+		break;
+	}
+	case OP_CODE::OP_FILE_FLUSH: {
+		break;
+	}
+	case OP_CODE::OP_THREAD_CREATE: {break; }
+	case OP_CODE::OP_THREAD_EXIT: {break; }
+								//		case OP_CODE::OP_FILE: {break; }
+	default: LOG_WARNING(L"Unknown operation op_code=%d", op.op_code);
+	}
+}
+
+size_t CTraceTester::NewFileInfo(const std::wstring& fn, bool is_dir)
+{
+//	LOG_DEBUG_(1, L"add file=%s, dir=%d, ts=%lld", op.file_path.c_str(), op.is_dir, op.ts);
+	size_t index = FindOrNewFile(fn, is_dir);
+	return index;
+}
+
+size_t CTraceTester::AddFIleInfo(const std::wstring& fn, size_t size)
+{
+	size_t index = FindOrNewFile(fn, false);
+	FILE_ACCESS_INFO& file = m_file_access.at(index);
+	file.max_length = size;
+
+	return index;
 }
 
 UINT64 CTraceTester::WriteTest(FILE_ACCESS_INFO& info, size_t start, size_t len)
@@ -731,7 +777,7 @@ UINT64 CTraceTester::WriteTest(FILE_ACCESS_INFO& info, size_t start, size_t len)
 	// size to sector
 	size_t start_lba, secs;
 	SizeToSector(start_lba, secs, start, len);
-	info.total_write += secs;
+	//info.total_write += secs;
 
 	DWORD written = 0;
 	UINT64 begin = jcvos::GetTimeStamp();
@@ -754,7 +800,8 @@ UINT64 CTraceTester::ReadTest(const FILE_ACCESS_INFO& info, size_t start, size_t
 	UINT64 begin = jcvos::GetTimeStamp();
 	time_t now = time(NULL);
 
-	m_lfs->FileRead(info.fid, start_lba, secs);
+	std::vector<CPageInfoBase*> blks;
+	m_lfs->FileRead(blks, info.fid, start_lba, secs);
 	UINT64 duration = jcvos::GetTimeStamp() - begin;
 	time_t now2 = time(NULL);
 	LONGLONG dt = (LONGLONG)(difftime(now2, now)*1000*1000);	// to us
@@ -817,16 +864,34 @@ void CTraceTester::DumpFileMap(int index)
 	FILE* log = nullptr;
 	_wfopen_s(&log, path.c_str(), L"w+");
 	if (log == nullptr) THROW_ERROR(ERR_APP, L"failed on opening file %s", path.c_str());
-	fprintf_s(log, "fn,fid,host_write,start_offset,lblk_nr,phy_blk,seg_id,blk_id\n");
+	fprintf_s(log, "fn,fid,blk_nr,host_write,write_times,host_write_by_fs,media_write,file_waf\n");
 
 	for (auto it = m_file_access.begin(); it != m_file_access.end(); ++it)
 	{
 		FILE_ACCESS_INFO& info = *it;
 		if (info.file_name == L"" || info.fid == 0) continue;
 		if (info.is_dir || info.child_nr > 0) continue;
+		// 读取所有block，计算host write和media write
 
-		fprintf_s(log, "%S,%d,%lld,,,,,\n", info.file_name.c_str(), info.fid, info.total_write);
-//		m_lfs->DumpFileMap(log, info.fid);
+		UINT blk_nr = (UINT)ROUND_UP_DIV(info.max_length, 4096);
+		UINT host_write = 0, media_write = 0;
+		std::vector<CPageInfoBase*> blks;
+		size_t secs = ROUND_UP_DIV(info.max_length, 512);
+		m_lfs->FileRead(blks, info.fid, 0, secs);
+		for (auto ii = blks.begin(); ii != blks.end(); ++ii)
+		{
+			CPageInfoBase* lblk = (CPageInfoBase*)(*ii);
+			if (lblk)
+			{
+				host_write += lblk->host_write;
+				media_write += lblk->media_write;
+			}
+		}
+		if (blk_nr == 0 || host_write == 0) continue;
+		fprintf_s(log, "%S,%d,%d,%lld,%.2f,%d,%d,%.2f\n", info.file_name.c_str(), info.fid, 
+			blk_nr, info.total_write, (float)(host_write)/(float)(blk_nr),
+			host_write, media_write, (float)(media_write)/(float)(host_write));
+//		m_lfs->DumpFileMap(log, info.file_index);
 	}
 	fclose(log);
 	// dump file by FID
@@ -836,7 +901,7 @@ void CTraceTester::DumpFileMap(int index)
 
 DWORD CTraceTester::Monitor(void)
 {
-	wprintf_s(L"start monitoring, message=%d, timeout=%d\n", m_message_interval, m_timeout);
+	wprintf_s(L"start monitoring, message=%d(ms), timeout=%d(s)\n", m_update_ms, m_timeout);
 	boost::posix_time::ptime ts_update = boost::posix_time::microsec_clock::local_time();;
 
 	while (InterlockedAdd(&m_running, 0))
@@ -844,7 +909,7 @@ DWORD CTraceTester::Monitor(void)
 		DWORD ir = WaitForSingleObject(m_monitor_event, m_timeout);
 		boost::posix_time::ptime ts_cur = boost::posix_time::microsec_clock::local_time();
 		INT64 ts = (ts_cur - m_ts_start).total_seconds();
-		if ((ts_cur - ts_update).total_seconds() > m_message_interval)
+		if ((ts_cur - ts_update).total_milliseconds() > m_update_ms)
 		{	// update lot
 			// get memory info
 			bool br = PrintProgress(ts);
@@ -872,19 +937,18 @@ bool CTraceTester::PrintProgress(INT64 ts)
 	PROCESS_MEMORY_COUNTERS_EX pmc = { 0 };
 	GetProcessMemoryInfo(handle, (PROCESS_MEMORY_COUNTERS*)&pmc, sizeof(pmc));
 
-	//ULONGLONG free_bytes = 0, total_bytes = 0, total_free_bytes = 0;
-	//float usage = (float)(total_bytes - free_bytes) / total_bytes * 100;
-
 	// 输出到concole
-	wprintf_s(L"ts=%llds, op=%d, total_blocks=%d, host_write=%lld, media_write=%lld, WAF=%.2f, free_blk=%d, logical_blk=%d, logical_sat=%d, mem=%.1fMB \n",
-		ts, m_op_sn, health.m_blk_nr, health.m_total_host_write, health.m_total_media_write,
+	wprintf_s(L"ts=%llds, op=%d, total_blocks=%d, host_write=%lld, media_write=%lld, WAF=%.2f, media_write_node=%lld, free_seg=%d, logical_blk=%d, logical_sat=%d, mem=%.1fMB \n",
+		ts, m_op_sn, health.m_blk_nr/*总的block数量*/, health.m_total_host_write/*host写入block数量*/, health.m_total_media_write,
 		(float)(health.m_total_media_write) / (float)(health.m_total_host_write),
-		health.m_free_blk, health.m_logical_blk_nr, health.m_logical_saturation,
+		health.m_media_write_node,
+		health.m_free_seg/*空余segment*/, health.m_logical_blk_nr/*逻辑块数量*/, health.m_logical_saturation,
 		(float)pmc.WorkingSetSize / (1024.0 * 1024.0));
 	// 输出到log
-//	fprintf_s(m_log_file, "Event,LBlock,BlockNr,HostWrite,MediaWrite,WAF,RunningWAF,FreeSeg,FreeBlock\n");
-	fprintf_s(m_log_file, "%d,%d,%lld,%lld,%.2f,%.2f,%d,%d,%d\n",
+//	fprintf_s(m_log_invalid_trace, "Event,LBlock,BlockNr,HostWrite,MediaWrite,MediaWriteNode,WAF,RunningWAF,FreeSeg,FreeBlock\n");
+	fprintf_s(m_log_invalid_trace, "%d,%d,%lld,%lld,%lld,%.2f,%.2f,%d,%d,%d\n",
 		m_op_sn, health.m_blk_nr, health.m_total_host_write, health.m_total_media_write,
+		health.m_media_write_node,
 		(float)(health.m_total_media_write) / (float)(health.m_total_host_write), 0.0,
 		health.m_free_blk, health.m_logical_blk_nr, health.m_logical_saturation);
 	return true;
@@ -894,10 +958,10 @@ void CTraceTester::SetLogFolder(const std::wstring& fn)
 {
 	m_log_folder = fn;
 	std::wstring log_fn = m_log_folder + L"\\log.csv";
-	_wfopen_s(&m_log_file, log_fn.c_str(), L"w+");
-	if (m_log_file == nullptr) THROW_ERROR(ERR_APP, L"failed on create log file %s", fn.c_str());
-	fprintf_s(m_log_file, "OpNr,TotalBlock,HostWrite,MediaWrite,WAF,RunningWAF,FreeBlock,LogicalBlock,LogicalSaturation\n");
+	_wfopen_s(&m_log_invalid_trace, log_fn.c_str(), L"w+");
+	if (m_log_invalid_trace == nullptr) THROW_ERROR(ERR_APP, L"failed on create log file %s", fn.c_str());
 
+//	m_lfs->SetLogFolder(m_log_folder);
 }
 
 int CTraceTester::StartTest(void)
@@ -905,10 +969,18 @@ int CTraceTester::StartTest(void)
 	m_ts_start = boost::posix_time::microsec_clock::local_time();
 	wchar_t fn[32];
 
+	// 基本信息
+	if (m_log_invalid_trace)
+	{
+//		fprintf_s(m_log_invalid_trace, "#trace_nr=%lld,test_cycle=%d\n", m_traces.size(), m_traces.at(0).m_repeat);
+		fprintf_s(m_log_invalid_trace, "#trace_nr=%lld\n", m_traces.size());
+		fprintf_s(m_log_invalid_trace, "OpNr,TotalBlock,HostWrite,MediaWrite,MediaWriteNode,WAF,RunningWAF,FreeBlock,LogicalBlock,LogicalSaturation\n");
+	}
 	int err = 0;
 	try
 	{
 		// 启动监控线程
+		srand(100);
 		m_running = 1;
 		m_monitor_event = CreateEvent(NULL, FALSE, FALSE, NULL);
 		DWORD thread_id = 0;
@@ -935,7 +1007,7 @@ int CTraceTester::StartTest(void)
 		// show stack
 		//TEST_LOG(L"\n\n=== result ===\n");
 		//TEST_LOG(L"  Test failed\n [err] test failed with error: %s\n", err.WhatT());
-		//ShowTestFailure(m_log_file);
+		//ShowTestFailure(m_log_invalid_trace);
 		wprintf_s(L" Test failed! \n");
 	}
 
@@ -948,7 +1020,7 @@ int CTraceTester::StartTest(void)
 	m_monitor_event = NULL;
 
 	err = FinishTest();
-	if (m_log_file) { fclose(m_log_file); }
+	if (m_log_invalid_trace) { fclose(m_log_invalid_trace); }
 
 	boost::posix_time::ptime ts_cur = boost::posix_time::microsec_clock::local_time();
 	INT64 ts = (ts_cur - m_ts_start).total_seconds();
@@ -962,7 +1034,7 @@ int CTraceTester::StartTest(void)
 	m_lfs->DumpSegments(m_log_folder + fn, true);
 
 	wprintf_s(L"Test completed\n");
-	if (m_log_file) fclose(m_log_file);
+	if (m_log_invalid_trace) fclose(m_log_invalid_trace);
 	return err;
 }
 

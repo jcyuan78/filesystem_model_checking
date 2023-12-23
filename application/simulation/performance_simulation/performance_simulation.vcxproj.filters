@@ -33,6 +33,12 @@
     <ClCompile Include="source\trace_tester.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="source\trace_info.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="source\f2fs_simulator.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="source\pch.h">
@@ -48,6 +54,15 @@
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="source\trace_tester.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="source\f2fs_simulator.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\fs_comm.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\f2fs_segment.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>
