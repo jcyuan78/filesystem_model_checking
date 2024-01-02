@@ -19,6 +19,7 @@ public:
 	DWORD valid_blk_nr;	
 	DWORD cur_blk;		// 可以分配的下一个block, 0:表示这个segment未被使用，BLOCK_PER_SEG：表示已经填满，其他：当前segment
 	BLK_TEMP seg_temp;	// 指示segment的温度，用于GC和
+	DWORD erase_count;
 };
 
 template <typename BLOCK_TYPE> void TypedInvalidBlock(BLOCK_TYPE& blk);

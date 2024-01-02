@@ -83,18 +83,6 @@ public:
 	virtual void Reset(void) { m_next_op = m_trace.begin(), m_next_cycle = 0; }			// 初始化
 	virtual bool IsForever(void) { return false; }
 	virtual TRACE_ENTRY* NextOp(void);
-	//{
-	//	if (m_next_cycle >= m_repeat) return nullptr;
-	//	if (m_next_op == m_trace.end())
-	//	{
-	//		if (m_next_cycle >= m_repeat) return nullptr;
-	//		m_next_cycle++;
-	//		m_next_op = m_trace.begin();
-	//	}
-	//	TRACE_ENTRY *op = &(*m_next_op);
-	//	m_next_op++;
-	//	return op;
-	//}
 	virtual void LoadTrace(const boost::property_tree::wptree& trace/*, CTraceTester* tester, int trace_id*/);
 
 public:
@@ -162,7 +150,7 @@ public:
 	SRWLOCK			file_lock;		// 文件锁
 };
 
-class CTraceTester /*: public CTesterBase*/
+class CTraceTester: public ITester
 {
 public:
 	CTraceTester(CLfsInterface * lfs);

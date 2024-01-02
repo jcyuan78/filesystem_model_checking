@@ -4,7 +4,8 @@
 
 LOCAL_LOGGER_ENABLE(L"simulator.f2fs", LOGGER_LEVEL_DEBUGINFO);
 
-#define MULTI_HEAD	4
+//#define MULTI_HEAD	1
+static const char* BLK_TEMP_NAME[] = { "COLD_DATA", "COLD_NODE", "WARM_DATA", "WARM_NODE", "HOT__DATA", "HOT__NODE", "EMPTY"};
 
 
 CF2fsSimulator::~CF2fsSimulator(void)
@@ -17,8 +18,10 @@ CF2fsSimulator::~CF2fsSimulator(void)
 		CInodeInfo* _inode = dynamic_cast<CInodeInfo*>(inode);
 		JCASSERT(_inode);
 		_inode->m_ref_count = 0;
+		// Node::此处删除文件是否导致write统计的增加？
 		FileDelete(ii);
 	}
+	if (m_inode_trace) fclose(m_inode_trace);
 }
 
 bool CF2fsSimulator::Initialzie(const boost::property_tree::wptree& config)
@@ -26,7 +29,8 @@ bool CF2fsSimulator::Initialzie(const boost::property_tree::wptree& config)
 	m_segments.m_gc_trace = m_gc_trace;
 
 	memset(&m_health_info, 0, sizeof(FsHealthInfo));
-
+	m_multihead_cnt = config.get<int>(L"multi_header_num");
+	wprintf_s(L"F2FS simulator, multihead=%d\n", m_multihead_cnt);
 	size_t fs_size = config.get<size_t>(L"volume_size");
 	m_health_info.m_logical_blk_nr = (LBLK_T)(ROUND_UP_DIV(fs_size, SECTOR_PER_BLOCK));
 	float op = config.get<float>(L"over_provision");
@@ -37,12 +41,15 @@ bool CF2fsSimulator::Initialzie(const boost::property_tree::wptree& config)
 	m_gc_th_hi = config.get<SEG_T>(L"gc_seg_hi");
 
 	m_segments.SetHealth(&m_health_info);
-	m_segments.InitSegmentManager(seg_nr, m_gc_th_low, m_gc_th_hi);
+	m_segments.InitSegmentManager(this, seg_nr, m_gc_th_low, m_gc_th_hi);
 	m_segments.m_inodes = &m_inodes;
 
 	m_health_info.m_seg_nr = seg_nr;
 	m_health_info.m_blk_nr = seg_nr * BLOCK_PER_SEG;
 	m_health_info.m_free_blk = m_health_info.m_blk_nr;
+
+	memset(m_truncated_host_write, 0, sizeof(UINT64) * BT_TEMP_NR);
+	memset(m_truncated_media_write, 0, sizeof(UINT64) * BT_TEMP_NR);
 
 	return true;
 }
@@ -53,8 +60,10 @@ FID CF2fsSimulator::FileCreate(const std::wstring& fn)
 	CNodeInfoBase* inode = m_inodes.allocate_inode(CNodeInfoBase::NODE_INODE, nullptr);
 	CInodeInfo* _inode = dynamic_cast<CInodeInfo*>(inode);
 	_inode->m_fn = fn;
+	fprintf_s(m_log_write_trace, "%lld,CREATE,%d,0,0\n", m_write_count++, _inode->m_fid);
+
 	// 更新inode
-	UpdateInode(_inode);
+	UpdateInode(_inode,"CREATE");
 	LOG_TRACK(L"fs", L",CreateFile,fn=%d,fid=%d", fn.c_str(), inode->m_fid);
 	InterlockedIncrement(&_inode->m_ref_count);
 
@@ -78,7 +87,7 @@ void CF2fsSimulator::FileWrite(FID fid, size_t offset, size_t secs)
 	CIndexPath ipath(inode);
 
 	CNodeInfoBase* direct_node = nullptr;
-	fprintf_s(m_log_write_trace, "%lld,%d,%d,%d", m_write_count++, fid, start_blk, end_blk - start_blk);
+	fprintf_s(m_log_write_trace, "%lld,WRITE,%d,%d,%d\n", m_write_count++, fid, start_blk, end_blk - start_blk);
 	for (; start_blk < end_blk; start_blk++)
 	{
 		// 查找PHY_BLK定位到
@@ -92,12 +101,10 @@ void CF2fsSimulator::FileWrite(FID fid, size_t offset, size_t secs)
 		index = ipath.offset[ipath.level];
 
 		// 确定数据温度
-//		BLK_TEMP temp = 
-		InterlockedIncrement64(&m_health_info.m_total_host_write);
 		CPageInfo* dpage = direct_node->data[index];
 		if (dpage)
 		{	// 数据存在
-			dpage->host_write++;
+//			dpage->host_write++; => 重复计算
 		}
 		else
 		{	// 数据不存在
@@ -116,21 +123,20 @@ void CF2fsSimulator::FileWrite(FID fid, size_t offset, size_t secs)
 		direct_node->data[index] = dpage;
 		direct_node->data_page->dirty = true;
 		dpage->dirty = true;
-		//dpage->temp = get_temperature(inode, start_blk);
-		dpage->host_write++;
-		inode->m_host_write++;
 
-		//dpage->temp = BT_HOT__DATA;
-		m_segments.WriteBlockToSeg(dpage, GetBlockTemp(dpage) );
+		InterlockedIncrement64(&m_health_info.m_total_host_write);
+		dpage->host_write++;
+
+		inode->m_host_write++;
+		inode->m_media_write++;
+
+		m_segments.WriteBlockToSeg(dpage);
 		// 将ipath移动到下一个offset 
 		m_segments.CheckGarbageCollection(this);
 		NextOffset(ipath);
 	}
-//	FileFlush(fid);
-	//m_segments.CheckGarbageCollection();
-
 	// 更新ipath
-	UpdateInode(inode);
+	UpdateInode(inode,"WRITE");
 }
 
 void CF2fsSimulator::FileRead(std::vector<CPageInfoBase*>& blks, FID fid, size_t offset, size_t secs)
@@ -179,9 +185,11 @@ void CF2fsSimulator::FileRead(std::vector<CPageInfoBase*>& blks, FID fid, size_t
 void CF2fsSimulator::FileTruncate(FID fid)
 {
 	// 文件的所有block都无效，然后保存inode
+	fprintf_s(m_log_write_trace, "%lld,TRUNCATE,%d,0,0\n", m_write_count++, fid);
 	CInodeInfo* inode = dynamic_cast<CInodeInfo*>(m_inodes.get_node(fid));
 	JCASSERT(inode);
 	CIndexPath ipath(inode);
+
 
 	CNodeInfoBase* direct_node = nullptr;
 	for (LBLK_T bb = 0; bb < inode->m_blks; /*++bb*/)
@@ -206,17 +214,24 @@ void CF2fsSimulator::FileTruncate(FID fid)
 			direct_node->data[index] = nullptr;
 			direct_node->data_page->dirty = true;
 			direct_node->valid_data--;
+			// 记录truncated的WAF
+			BLK_TEMP temp = dpage->ttemp;
+			JCASSERT(temp < BT_TEMP_NR);
+			m_truncated_host_write[temp] += dpage->host_write;
+			m_truncated_media_write[temp] += dpage->media_write;
+
 			delete dpage;
 		}
 		NextOffset(ipath);
 		bb++;
 	}
 	// 更新ipath
-	UpdateInode(inode);
+	UpdateInode(inode, "TRUNCATE");
 }
 
 void CF2fsSimulator::FileDelete(FID fid)
 {
+	fprintf_s(m_log_write_trace, "%lld,DELETE,%d,0,0\n", m_write_count++, fid);
 	// 删除文件，回收inode
 	LOG_TRACK(L"fs", L",DeleteFile,fid=%d", fid);
 
@@ -227,11 +242,18 @@ void CF2fsSimulator::FileDelete(FID fid)
 
 	InvalidBlock("DELETE_NODE", inode->data_page->phy_blk);
 	// page 在free_inode中删除
+			//统计被回收的inode的WAF
+	CPageInfo * ipage = inode->data_page;
+	BLK_TEMP temp = ipage->ttemp;
+	JCASSERT(temp < BT_TEMP_NR);
+	m_truncated_host_write[temp] += ipage->host_write;
+	m_truncated_media_write[temp] += ipage->media_write;
 	m_inodes.free_inode(fid);
 }
 
 void CF2fsSimulator::FileFlush(FID fid)
 {
+	fprintf_s(m_log_write_trace, "%lld,FLUSH,%d,0,0\n", m_write_count++, fid);
 	return;
 	// 文件的所有block都无效，然后保存inode
 	CInodeInfo* inode = dynamic_cast<CInodeInfo*>(m_inodes.get_node(fid));
@@ -258,7 +280,7 @@ void CF2fsSimulator::FileFlush(FID fid)
 		{
 			if (page->dirty)
 			{
-				m_segments.WriteBlockToSeg(page, GetBlockTemp(page) );
+				m_segments.WriteBlockToSeg(page);
 				direct_node->data_page->dirty = true;
 			}
 		}
@@ -266,7 +288,7 @@ void CF2fsSimulator::FileFlush(FID fid)
 		bb++;
 	}
 	// 更新ipath
-	UpdateInode(inode);
+	UpdateInode(inode,"FLUSH");
 }
 
 void CF2fsSimulator::DumpSegments(const std::wstring& fn, bool sanity_check)
@@ -274,14 +296,14 @@ void CF2fsSimulator::DumpSegments(const std::wstring& fn, bool sanity_check)
 	FILE* log = nullptr;
 	_wfopen_s(&log, fn.c_str(), L"w+");
 	if (log == nullptr) THROW_ERROR(ERR_APP, L"failed on opening file %s", fn.c_str());
-	fprintf_s(log, "seg,blk_nr,invalid,hot_node,hot_data,warm_node,warm_data,codl_node,cold_data\n");
+	fprintf_s(log, "seg,seg_temp,erase_cnt,blk_nr,invalid,hot_node,hot_data,warm_node,warm_data,cold_node,cold_data\n");
+
+	UINT blk_count[BT_TEMP_NR + 1];
 	for (SEG_T ss = 0; ss < m_segments.get_seg_nr(); ++ss)
 	{
-		UINT blk_count[BT_TEMP_NR + 1];
 		memset(blk_count, 0, sizeof(UINT) * (BT_TEMP_NR + 1));
-
 		SEG_INFO<CPageInfo*>& seg = m_segments.get_segment(ss);
-
+//		BLK_TEMP seg_temp;	// 用于计算segment temperature
 		for (BLK_T bb = 0; bb < BLOCK_PER_SEG; ++bb)
 		{
 			CPageInfo * page = seg.blk_map[bb];
@@ -290,9 +312,11 @@ void CF2fsSimulator::DumpSegments(const std::wstring& fn, bool sanity_check)
 				blk_count[BT_TEMP_NR]++;
 				continue;
 			}
-			PHY_BLK src_phy = PhyBlock(ss, bb);
+			BLK_TEMP temp = page->ttemp;
+			JCASSERT(temp < BT_TEMP_NR);
+			blk_count[temp] ++;
 
-			//if (page->offset == INVALID_BLK)
+/*			PHY_BLK src_phy = PhyBlock(ss, bb);
 			if (page->data != nullptr)
 			{	// inode / index node
 				JCASSERT(page->type == CPageInfo::PAGE_NODE);
@@ -331,8 +355,13 @@ void CF2fsSimulator::DumpSegments(const std::wstring& fn, bool sanity_check)
 					}
 				}
 			}
+*/
 		}
-		fprintf_s(log, "%d,512,%d,%d,%d,%d,%d,%d,%d\n", ss, blk_count[BT_TEMP_NR],
+		// 计算segment的类型
+		BLK_TEMP seg_temp = seg.seg_temp;
+		if (seg_temp >= BT_TEMP_NR) seg_temp = BT_TEMP_NR;
+		fprintf_s(log, "%d,%s,%d,512,%d,%d,%d,%d,%d,%d,%d\n", ss, BLK_TEMP_NAME[seg_temp],seg.erase_count,
+			blk_count[BT_TEMP_NR],
 			blk_count[BT_HOT__NODE], blk_count[BT_HOT__DATA],
 			blk_count[BT_WARM_NODE], blk_count[BT_WARM_DATA],
 			blk_count[BT_COLD_NODE], blk_count[BT_COLD_DATA]);
@@ -347,47 +376,10 @@ void CF2fsSimulator::DumpSegmentBlocks(const std::wstring& fn)
 }
 
 
-// 将inode写入segment中
-PHY_BLK CF2fsSimulator::SyncInode(CPageInfo* ipage)
+
+void CF2fsSimulator::UpdateInode(CInodeInfo* inode, const char* caller)
 {
-	// 更新inode
-	CNodeInfoBase* inode = ipage->data;
-
-	bool free_seg = false;
-	if (!ipage->dirty) return ipage->phy_blk;
-	if (inode->m_type == CNodeInfoBase::NODE_INDEX && inode->valid_data == 0)
-	{	// 删除index block
-		CDirectInfo* index_blk = dynamic_cast<CDirectInfo*>(inode);
-		CNodeInfoBase* parent = inode->parent;	JCASSERT(parent);
-		parent->data[ipage->offset] = nullptr;
-		parent->data_page->dirty = true;
-
-//		INVALID_PHY_BLOCK("WRITE_NODE", inode->m_phy_blk);
-		InvalidBlock("WRITE_NODE", inode->data_page->phy_blk);
-		delete inode->data_page;
-		inode->data_page = nullptr;
-		m_inodes.free_inode(ipage->phy_blk);
-		return INVALID_BLK;
-	}
-	else if (inode->m_type == CNodeInfoBase::NODE_INODE)
-	{
-		//ipage->temp = BT_HOT__NODE;
-		m_segments.WriteBlockToSeg(ipage, GetBlockTemp(ipage) );
-		// 更新父节点指针
-		if (inode->parent)
-		{
-			inode->parent->data_page->dirty = true;
-		}
-//		TrackIo(WRITE_NODE, inode->m_phy_blk, inode->m_fid, INVALID_BLK);
-		m_segments.CheckGarbageCollection(this);
-		ipage->dirty = false;
-		return ipage->phy_blk;
-	}
-	else return INVALID_BLK;
-}
-
-void CF2fsSimulator::UpdateInode(CInodeInfo* inode)
-{
+	// 这个更新是否一定是host发起的？
 	// 更新ipath
 	LBLK_T bb = 0;
 	for (size_t ii = 0; (ii < MAX_TABLE_SIZE) && (bb<inode->m_blks); ++ii, bb+=INDEX_SIZE)
@@ -399,12 +391,18 @@ void CF2fsSimulator::UpdateInode(CInodeInfo* inode)
 		if (index_blk == nullptr) THROW_ERROR(ERR_APP, L"index block in page is null, fid=%d, index=%d", inode->m_fid, ii);
 		if (index_blk->data_page != ipage) THROW_ERROR(ERR_APP, L"data unmatch, fid=%d, index=%d, page=%p, page_in_blk=%p",
 			inode->m_fid, ii, ipage, index_blk->data_page);
-		//ipage->temp = BT_HOT__NODE;
 		CDirectInfo* direct_blk = dynamic_cast<CDirectInfo*>(index_blk);
 		JCASSERT(index_blk);
 		if (direct_blk->valid_data == 0)
 		{
 			InvalidBlock("", ipage->phy_blk);
+			//统计被回收的inode的WAF
+			JCASSERT(ipage == index_blk->data_page);
+			BLK_TEMP temp = ipage->ttemp;
+			JCASSERT(temp < BT_TEMP_NR);
+			m_truncated_host_write[temp] += ipage->host_write;
+			m_truncated_media_write[temp] += ipage->media_write;
+
 			m_inodes.free_inode(index_blk->m_fid);
 			inode->data[ii] = nullptr;
 			inode->data_page->dirty = true;
@@ -412,7 +410,10 @@ void CF2fsSimulator::UpdateInode(CInodeInfo* inode)
 		}
 		if (ipage->dirty == false) continue;
 		ipage->host_write++;
-		m_segments.WriteBlockToSeg(ipage, GetBlockTemp(ipage) );
+		m_segments.WriteBlockToSeg(ipage);
+		//<TRACE>记录inode的更新情况。
+		// opid, fid, inode或者index id, 原因，数据更新数量。
+		fprintf_s(m_inode_trace, "%lld,%d,%lld,%s\n", m_write_count, inode->m_fid, ii, caller);
 		inode->data_page->dirty = true;
 	}
 
@@ -420,22 +421,17 @@ void CF2fsSimulator::UpdateInode(CInodeInfo* inode)
 	PHY_BLK old_phy = ipage->phy_blk;
 	if (ipage->dirty)
 	{
-		//ipage->temp = BT_HOT__NODE;
 		ipage->host_write++;
-		m_segments.WriteBlockToSeg(ipage, GetBlockTemp(ipage) );
+		m_segments.WriteBlockToSeg(ipage);
+		//<TRACE>记录inode的更新情况。
+		// opid, fid, inode或者index id, 原因，数据更新数量。
+		fprintf_s(m_inode_trace, "%lld,%d,0,UPDATE\n", m_write_count, inode->m_fid);
 	}
 	LOG_TRACK(L"inode", L",UPDATE,fid=%d,new_phy=%X,old_phy=%X", inode->m_fid, ipage->phy_blk, old_phy);
 }
 
 BLK_TEMP CF2fsSimulator::GetBlockTemp(CPageInfo* page)
 {
-#if (MULTI_HEAD==1)
-	return BT_HOT__DATA;
-#elif (MULTI_HEAD==2)
-	if (page->type == CPageInfo::PAGE_NODE) return BT_HOT__NODE;
-	else if (page->type == CPageInfo::PAGE_DATA) return BT_HOT__DATA;
-	else JCASSERT(0);
-#elif (MULTI_HEAD==4)
 	if (page->type == CPageInfo::PAGE_NODE)
 	{
 		JCASSERT(page->data);
@@ -449,12 +445,20 @@ BLK_TEMP CF2fsSimulator::GetBlockTemp(CPageInfo* page)
 		else return BT_COLD_DATA;
 	}
 	else JCASSERT(0);
-
-#else
-	JCASSERT(0);
-#endif
 	return BT_HOT__DATA;
+}
 
+BLK_TEMP CF2fsSimulator::GetAlgorithmBlockTemp(CPageInfo* page, BLK_TEMP temp)
+{
+	if (m_multihead_cnt == 1)	return BT_HOT__DATA;
+	else if (m_multihead_cnt == 2)
+	{
+		if (temp == BT_COLD_NODE || temp == BT_WARM_NODE || temp == BT_HOT__NODE) return BT_HOT__NODE;
+		else return BT_HOT__DATA;
+	}
+	else if (m_multihead_cnt == 4) return temp;
+	else JCASSERT(0);
+	return BT_HOT__DATA;
 }
 
 #define FLUSH_FILE_MAP(phy)	{\
@@ -573,11 +577,8 @@ void CF2fsSimulator::DumpFileMap_no_merge(FILE* out, FID fid)
 	//	FLUSH_FILE_MAP(INVALID_BLK);
 }
 
-//bool CF2fsSimulator::InvalidBlock(const char* reason, CPageInfo* page)
 bool CF2fsSimulator::InvalidBlock(const char* reason, PHY_BLK phy_blk)
 {
-//	if (!page) return false;
-//	PHY_BLK phy_blk = page->phy_blk;
 	if (phy_blk == INVALID_BLK) return false;
 
 	bool free_seg = m_segments.InvalidBlock(phy_blk);
@@ -669,17 +670,102 @@ void CF2fsSimulator::DumpAllFileMap(const std::wstring& fn)
 	fclose(log);
 }
 
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//template <> void TypedInvalidBlock<CPageInfo*>(CPageInfo*& blk)
-//{
-//	blk = nullptr;
-//}
 
-
-PHY_BLK CF2fsSegmentManager::WriteBlockToSeg(const CF2fsSegmentManager::_BLK_TYPE & lblk, BLK_TEMP temp)
+void CF2fsSimulator::DumpBlockWAF(const std::wstring& fn)
 {
-	JCASSERT(temp < BT_TEMP_NR);
-	CPageInfo* page = const_cast<CPageInfo*>(lblk);
+	FILE* log = nullptr;
+	_wfopen_s(&log, fn.c_str(), L"w+");
+	if (log == nullptr) THROW_ERROR(ERR_APP, L"failed on opening file %s", fn.c_str());
+
+	UINT64 host_write[BT_TEMP_NR + 1];
+	UINT64 media_write[BT_TEMP_NR + 1];
+	UINT64 blk_count[BT_TEMP_NR + 1];
+
+	memset(host_write, 0,	sizeof(UINT64) * (BT_TEMP_NR + 1));
+	memset(media_write,0,	sizeof(UINT64) * (BT_TEMP_NR + 1));
+	memset(blk_count,0,		sizeof(UINT64) * (BT_TEMP_NR + 1));
+
+
+	for (SEG_T ss = 0; ss < m_segments.get_seg_nr(); ++ss)
+	{
+		SEG_INFO<CPageInfo*>& seg = m_segments.get_segment(ss);
+		for (BLK_T bb = 0; bb < BLOCK_PER_SEG; ++bb)
+		{
+			CPageInfo* page = seg.blk_map[bb];
+			if (page == nullptr) {continue;}
+
+			BLK_TEMP temp = page->ttemp;
+			JCASSERT(temp < BT_TEMP_NR);
+			host_write[temp] += page->host_write;
+			media_write[temp] += page->media_write;
+			blk_count[temp] ++;
+		}
+	}
+	fprintf_s(log, "block_temp,host_write,media_write,WAF,blk_num,avg_host_write\n");
+	for (int ii = 0; ii < BT_TEMP_NR; ++ii)
+	{
+		fprintf_s(log, "%s,%lld,%lld,%.2f,%lld,%.2f\n", BLK_TEMP_NAME[ii], host_write[ii], media_write[ii], 
+			(float)(media_write[ii]) / (float)(host_write[ii]), 
+			blk_count[ii], (float)(host_write[ii])/blk_count[ii]);
+	}
+
+	// 分别输出data和node的数据
+	UINT64 data_cnt = blk_count[BT_COLD_DATA] + blk_count[BT_WARM_DATA] + blk_count[BT_HOT__DATA];
+	UINT64 data_host_wr = host_write[BT_COLD_DATA] + host_write[BT_WARM_DATA] + host_write[BT_HOT__DATA];
+	UINT64 data_media_wr = media_write[BT_COLD_DATA] + media_write[BT_WARM_DATA] + media_write[BT_HOT__DATA];
+
+	fprintf_s(log, "%s,%lld,%lld,%.2f,%lld,%.2f\n", "DATA", data_host_wr, data_media_wr,
+		(float)(data_media_wr) / (float)(data_host_wr),
+		data_cnt, (float)(data_host_wr) / data_cnt);
+
+	UINT64 node_cnt = blk_count[BT_COLD_NODE] + blk_count[BT_WARM_NODE] + blk_count[BT_HOT__NODE];
+	UINT64 node_host_wr = host_write[BT_COLD_NODE] + host_write[BT_WARM_NODE] + host_write[BT_HOT__NODE];
+	UINT64 node_media_wr = media_write[BT_COLD_NODE] + media_write[BT_WARM_NODE] + media_write[BT_HOT__NODE];
+
+	fprintf_s(log, "%s,%lld,%lld,%.2f,%lld,%.2f\n", "NODE", node_host_wr, node_media_wr,
+		(float)(node_media_wr) / (float)(node_host_wr),
+		node_cnt, (float)(node_host_wr) / node_cnt);
+
+	fprintf_s(log, "%s,%lld,%lld,%.2f,\n", "TOTAL", m_health_info.m_total_host_write, m_health_info.m_total_media_write,
+		(float)(m_health_info.m_total_media_write)/(float)(m_health_info.m_total_host_write));
+//	fprintf_s(log, "%s,data:%lld,node:%lld,\n", "MEDIA", m_health_info.m_media_write_data, m_health_info.m_media_write_node);
+
+	for (int ii = 0; ii < BT_TEMP_NR; ++ii)
+	{
+		fprintf_s(log, "TRUNC_%s,%lld,%lld,%.2f,%d,%.2f\n", BLK_TEMP_NAME[ii], 
+			m_truncated_host_write[ii], m_truncated_media_write[ii], 
+			(float)(m_truncated_media_write[ii]) / (float)(m_truncated_host_write[ii]), -1, -1.0);
+	}
+	fclose(log);
+}
+
+void CF2fsSimulator::GetConfig(boost::property_tree::wptree& config, const std::wstring& config_name)
+{
+	if (config_name == L"multi_header_num")
+	{
+//		config.put(L"multi_header_num", (int)m_multihead_cnt);
+		config.put(L"multi_header_num", m_multihead_cnt);
+	}
+}
+
+void CF2fsSimulator::SetLogFolder(const std::wstring& fn)
+{
+	__super::SetLogFolder(fn);
+	// 增加 inode host write trace
+	_wfopen_s(&m_inode_trace, (fn + L"\\trace_inode.csv").c_str(), L"w+");
+	if (m_inode_trace == nullptr) THROW_ERROR(ERR_APP, L"failed on creating log file: trace_inode.csv");
+	fprintf_s(m_inode_trace, "op_id,fid,index,reason\n");
+
+}
+
+//PHY_BLK CF2fsSegmentManager::WriteBlockToSeg(const CF2fsSegmentManager::_BLK_TYPE& lblk, BLK_TEMP temp)
+PHY_BLK CF2fsSegmentManager::WriteBlockToSeg(CPageInfo * page, bool by_gc)
+{
+	// 计算page的温度，（实际温度，用于统计）
+	page->ttemp = m_fs->GetBlockTemp(page);
+	BLK_TEMP temp = m_fs->GetAlgorithmBlockTemp(page, page->ttemp);
+
+	// 按照温度（算法温度）给page分配segment。
 
 	SEG_T& cur_seg_id = m_cur_segs[temp];
 	if (cur_seg_id == INVALID_BLK) cur_seg_id = AllocSegment(temp);
@@ -690,16 +776,15 @@ PHY_BLK CF2fsSegmentManager::WriteBlockToSeg(const CF2fsSegmentManager::_BLK_TYP
 	page->media_write++;
 	seg.blk_map[blk_id] = page;
 
-
 	seg.valid_blk_nr++;
 	seg.cur_blk++;
 
-	InterlockedIncrement64(&m_health->m_total_media_write);
-	InterlockedDecrement(&m_health->m_free_blk);
-	InterlockedIncrement(&m_health->m_physical_saturation);
+	InterlockedIncrement64(&m_health_info->m_total_media_write);
+	InterlockedDecrement(&m_health_info->m_free_blk);
+	InterlockedIncrement(&m_health_info->m_physical_saturation);
 
-	if (page->type == CPageInfo::PAGE_NODE) m_health->m_media_write_node++;
-	else m_health->m_media_write_data++;
+	if (page->type == CPageInfo::PAGE_NODE) m_health_info->m_media_write_node++;
+	else m_health_info->m_media_write_data++;
 
 	SEG_T tar_seg = cur_seg_id;
 	BLK_T tar_blk = blk_id;
@@ -708,7 +793,8 @@ PHY_BLK CF2fsSegmentManager::WriteBlockToSeg(const CF2fsSegmentManager::_BLK_TYP
 	page->phy_blk = phy_blk;
 	if (old_blk != INVALID_BLK) InvalidBlock(old_blk);
 
-	page->dirty = false;
+	// 由于WriteBlockToSeg()会在GC中被调用，目前的GC算法针对segment进行GC，GC后并不能清楚dirty标志。
+	if (!by_gc) page->dirty = false;
 
 	if (seg.cur_blk >= BLOCK_PER_SEG)
 	{	// 当前segment已经写满
@@ -733,8 +819,8 @@ void CF2fsSegmentManager::GarbageCollection(CF2fsSimulator* fs)
 	SEG_T free_before_gc = m_free_nr;
 	SEG_T claimed_seg = 0;
 
-	LONG64 media_write_before = m_health->m_total_media_write;
-	LONG64 host_write_before = m_health->m_total_host_write;
+	LONG64 media_write_before = m_health_info->m_total_media_write;
+	LONG64 host_write_before = m_health_info->m_total_host_write;
 	UINT media_write_count = 0;
 	while (m_free_nr < m_gc_hi)
 	{
@@ -749,24 +835,28 @@ void CF2fsSegmentManager::GarbageCollection(CF2fsSimulator* fs)
 		for (BLK_T bb = 0; bb < BLOCK_PER_SEG; ++bb)
 		{
 			CPageInfo* blk = src_seg.blk_map[bb];
-			if (blk == nullptr/* || blk->inode == nullptr*/) continue;
+			if (blk == nullptr) continue;
 			JCASSERT(blk->inode);
-			//PHY_BLK old_phy = PhyBlock(min_seg, bb);
-			WriteBlockToSeg(blk, fs->GetBlockTemp(blk) );
+			// 注意：GC不应该改变block的温度，这里做一个检查
+			BLK_TEMP before_temp = blk->ttemp;
+			WriteBlockToSeg(blk,true);
+			BLK_TEMP after_temp = blk->ttemp;
+			JCASSERT(before_temp == after_temp);
+
 			media_write_count++;
 		}
 		claimed_seg++;
 	}
 	LOG_TRACK(L"gc", L"SUM,free_before=%d,free_after=%d,released_seg=%d,src_nr=%d,host_write=%lld,%lld,media_write=%lld,%lld,delta=%d,media_write=%d",
 		free_before_gc, m_free_nr, m_free_nr - free_before_gc, claimed_seg,
-		host_write_before, m_health->m_total_host_write, media_write_before, m_health->m_total_media_write,
-		(UINT)(m_health->m_total_media_write - media_write_before), media_write_count);
+		host_write_before, m_health_info->m_total_host_write, media_write_before, m_health_info->m_total_media_write,
+		(UINT)(m_health_info->m_total_media_write - media_write_before), media_write_count);
 	if (m_gc_trace)
 	{
 		//fprintf_s(m_gc_trace, "free_before,free_after,reclaimed,src_sge,media_write\n");
 		fprintf_s(m_gc_trace, "%d,%d,%d,%d,%d,%d\n",
 			free_before_gc, m_free_nr, m_free_nr - free_before_gc, claimed_seg,
-			(UINT)(m_health->m_total_media_write - media_write_before), media_write_count);
+			(UINT)(m_health_info->m_total_media_write - media_write_before), media_write_count);
 	}
 
 
@@ -783,7 +873,6 @@ void CF2fsSegmentManager::DumpSegmentBlocks(const std::wstring& fn)
 	FID pre_fid = INVALID_BLK;
 	LBLK_T start_lblk = 0, pre_lblk = 0;
 	BLK_T start_blk = 0;
-
 
 	FILE* log = nullptr;
 	_wfopen_s(&log, fn.c_str(), L"w+");
@@ -825,9 +914,9 @@ void CF2fsSegmentManager::DumpSegmentBlocks(const std::wstring& fn)
 	fclose(log);
 }
 
-bool CF2fsSegmentManager::InitSegmentManager(SEG_T segment_nr, SEG_T gc_lo, SEG_T gc_hi, int init)
+bool CF2fsSegmentManager::InitSegmentManager(CF2fsSimulator* fs, SEG_T segment_nr, SEG_T gc_lo, SEG_T gc_hi, int init)
 {
-	InitSegmentManagerBase(segment_nr, gc_lo, gc_hi, 0);
+	InitSegmentManagerBase(fs, segment_nr, gc_lo, gc_hi, 0);
 	if (m_gc_trace)
 	{
 		// free_before: GG前的free segment，free_after: GC后的free segment, reclaimed_seg: GC释放的segment数量

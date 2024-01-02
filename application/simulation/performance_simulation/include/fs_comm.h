@@ -101,6 +101,10 @@ public:
 	virtual void DumpFileMap(FILE* out, FID fid) = 0;
 	virtual void DumpAllFileMap(const std::wstring& fn) = 0;
 	virtual void SetLogFolder(const std::wstring& fn) = 0;
+	virtual void DumpBlockWAF(const std::wstring& fn) = 0;
+
+	// 获取文件系统的配置
+	virtual void GetConfig(boost::property_tree::wptree& config, const std::wstring& config_name) = 0;
 };
 
 class inode_info;
@@ -124,6 +128,7 @@ public:
 	{
 		if (m_log_invalid_trace) fclose(m_log_invalid_trace);
 		if (m_log_write_trace) fclose(m_log_write_trace);
+		if (m_log_fs_trace) fclose(m_log_fs_trace);
 		if (m_gc_trace) fclose(m_gc_trace);
 	}
 
@@ -143,7 +148,10 @@ protected:
 
 	std::wstring m_log_fn;
 	FILE* m_log_invalid_trace = nullptr;
-	FILE* m_log_write_trace = nullptr;
+	
+	FILE* m_log_write_trace = nullptr;		// 文件：trace_fs.csv
+	// 用于记录文件系统层次的写入
+	FILE* m_log_fs_trace = nullptr;			// 文件: fs_trace.csv;
 	FILE* m_gc_trace = nullptr;
 
 	LBLK_T m_level_to_offset[MAX_INDEX_LEVEL];

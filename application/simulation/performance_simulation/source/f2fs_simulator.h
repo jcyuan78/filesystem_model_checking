@@ -8,6 +8,7 @@
 
 class CPageInfo;
 
+// 实现在磁盘上存储的Node Block，包括Inode, Index Node, Indirect index node等。
 class CNodeInfoBase
 {
 public:
@@ -33,20 +34,27 @@ public:
 	CPageInfo* data[MAX_TABLE_SIZE];
 };
 
+// 用于记录一个实际的inode
 class CInodeInfo : public CNodeInfoBase
 {
 public:
-	CInodeInfo(FID id, CPageInfo* page) : CNodeInfoBase(NODE_INODE, id, page, nullptr) {}
+	CInodeInfo(FID id, CPageInfo* page) : CNodeInfoBase(NODE_INODE, id, page, nullptr) 
+	{
+		m_host_write = 0;
+		m_media_write = 0;
+	}
 public:
 	std::wstring m_fn;
 	size_t m_blks;		// 文件大小：block单位
 	UINT m_ref_count = 0;
 	bool m_delete_on_close;
 	DWORD m_host_write;
+	DWORD m_media_write;
 
-	//size_t m_valid_blk;
-//public:
-//	virtual CPageInfo* GetDataPage(int index) = 0;
+	// 按照逻辑地址，记录每个块的写入次数，host的写入次数以及media的写入次数。
+	std::vector<int> m_host_write_count;
+	std::vector<int> m_total_write_count;
+
 };
 
 class CDirectInfo : public CNodeInfoBase
@@ -54,10 +62,6 @@ class CDirectInfo : public CNodeInfoBase
 public:
 	CDirectInfo(FID id, CPageInfo*page, CNodeInfoBase * parent) : CNodeInfoBase(NODE_INDEX, id, page, parent) {}
 public:
-	//size_t m_valid_blk;
-	//CPageInfo data[INDEX_SIZE];
-//public:
-//	virtual CPageInfo* GetDataPage(int index) = 0;
 };
 
 class CPageInfo : public CPageInfoBase
@@ -66,15 +70,14 @@ public:
 
 public:
 	PHY_BLK phy_blk = INVALID_BLK;	// page所在物理位置
-	BLK_TEMP temp;	// page的温度
+	// 标记page的温度，当page被写入SSD时更新。这个温度不是实际分配到温度，所有算法下都相同。仅用于统计。
+	BLK_TEMP ttemp;
 	//在文件中的位置
 	CInodeInfo* inode = nullptr;
 	LBLK_T offset = INVALID_BLK;
 	// 数据(对于inode 或者 direct node)
 	CNodeInfoBase* data = nullptr;
 	bool dirty = false;
-	// 统计
-	//UINT host_write = 0, media_write = 0;
 	enum PAGE_TYPE {PAGE_DATA, PAGE_NODE} type;
 };
 
@@ -98,32 +101,6 @@ public:
 
 class CInodeManager_;
 
-//
-//class CF2fsSegmentManager : public CSegmentManagerBase<CPageInfo *>
-//{
-//public:
-//	virtual ~CF2fsSegmentManager(void);
-//	typedef CPageInfo* _BLK_TYPE;
-//public:
-//	// 写入data block到segment, file_index 文件id, blk：文件中的相对block，temp温度
-//	void CheckGarbageCollection(void)
-//	{
-//		if (m_free_nr < m_gc_lo) GarbageCollection();
-//	}
-//	virtual PHY_BLK WriteBlockToSeg(const _BLK_TYPE &lblk, BLK_TEMP temp);
-//	virtual void GarbageCollection(void);
-//	void DumpSegmentBlocks(const std::wstring& fn);
-//	virtual bool InitSegmentManager(SEG_T segment_nr, SEG_T gc_lo, SEG_T gc_hi, int init_val=0);
-//
-//	friend class CF2fsSimulator;
-//	FILE* m_gc_trace;
-//protected:
-//
-//protected:
-//	CInodeManager_* m_inodes = nullptr;
-//
-//};
-
 class CInodeManager_
 {
 public:
@@ -134,7 +111,7 @@ public:
 	{
 		CPageInfo* page = new CPageInfo;
 		page->type = CPageInfo::PAGE_NODE;
-		page->temp = BT_HOT__NODE;
+//		page->temp = BT_HOT__NODE;
 
 		CNodeInfoBase* node = nullptr;
 		FID fid = (FID)m_nodes.size();
@@ -200,23 +177,23 @@ public:
 	virtual void FileClose(FID fid);
 	virtual void FileOpen(FID fid, bool delete_on_close = false);
 
-//	virtual DWORD MaxFileSize(void) const;
-//	virtual void FileOpen(FID fid, bool delete_on_close = false);
-//	virtual void FileClose(FID fid);
-//	virtual void GetHealthInfo(FsHealthInfo& info) const
-//	{
-//		memcpy_s(&info, sizeof(FsHealthInfo), &m_health_info, sizeof(FsHealthInfo));
-//	}
 	virtual void DumpSegments(const std::wstring& fn, bool sanity_check);
 	virtual void DumpSegmentBlocks(const std::wstring& fn);
-//	virtual void DumpAllFileMap(const std::wstring& fn);
-	//	virtual void DumpFileMap(FILE* out, FID file_index) { DumpFileMap_no_merge(out, file_index); }
 	virtual void DumpFileMap(FILE* out, FID fid) { DumpFileMap_merge(out, fid); }
-//	virtual void SetLogFolder(const std::wstring& fn);
 
 	virtual void DumpAllFileMap(const std::wstring& fn);
+	virtual void DumpBlockWAF(const std::wstring& fn);
 
+
+	virtual void GetConfig(boost::property_tree::wptree& config, const std::wstring& config_name);
+
+	virtual void SetLogFolder(const std::wstring& fn);
+
+
+	// 计算block的实际温度，不考虑目前使用的算法。
 	BLK_TEMP GetBlockTemp(CPageInfo* page);
+	// 根据当前的算法计算block的温度。
+	BLK_TEMP GetAlgorithmBlockTemp(CPageInfo* page, BLK_TEMP temp);
 
 protected:
 	// 在输出file map时，并连续的物理block
@@ -240,31 +217,28 @@ protected:
 	//PHY_BLK* GetPhyBlockForWrite(index_path& path);
 	// 返回direct node以及ipath所指向的offset
 
-//	PHY_BLK SyncInode(inode_info& inode);
-	PHY_BLK SyncInode(CPageInfo * page);
 	// 检查inode中的所有index block和inode block，如果没有在磁盘上，测保存
-	void UpdateInode(CInodeInfo* inode);
+	void UpdateInode(CInodeInfo* inode, const char* caller="");
 
 
 protected:
 	CInodeManager_ m_inodes;
 	// 模拟磁盘
 	CF2fsSegmentManager m_segments;
-
-	//LBLK_T m_logic_blks;		// 逻辑大小
-	//LBLK_T m_physical_blks;
 	LBLK_T m_level_to_offset[MAX_INDEX_LEVEL];
+	// 
+	int m_multihead_cnt=0;
 
-	//FsHealthInfo m_health_info;
+
 #ifdef _SANITY_CHECK
 	// 用于检查P2L的表格
 #endif
 	// data for log
-	//DWORD m_last_host_write = 0, m_last_media_write = 0;
-//	std::wstring m_log_fn;
-//	FILE* m_log_invalid_trace = nullptr;
-//	FILE* m_log_write_trace = nullptr;
-//	FILE* m_gc_trace = nullptr;
 	size_t m_write_count = 0;
 	SEG_T m_gc_th_low, m_gc_th_hi;
+	// 对于删除文件的写入量统计。
+	UINT64 m_truncated_host_write[BT_TEMP_NR];
+	UINT64 m_truncated_media_write[BT_TEMP_NR];
+
+	FILE* m_inode_trace = nullptr;
 };

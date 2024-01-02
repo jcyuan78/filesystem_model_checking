@@ -77,6 +77,7 @@ public:
 
 	FID allocate_index_block(void);
 	FID get_node_nr(void) const { return (FID)(m_nodes.size()); }
+	virtual void DumpBlockWAF(const std::wstring& fn) {};
 
 public:
 	//void init_node(inode_info& node, int type, FID file_index);
@@ -128,6 +129,10 @@ public:
 	void OffsetToIndex(index_path& path, LBLK_T offset, bool alloc);
 	virtual void DumpAllFileMap(const std::wstring& fn);
 
+	virtual void GetConfig(boost::property_tree::wptree& config, const std::wstring& config_name) {}
+	virtual void DumpBlockWAF(const std::wstring& fn) {}
+
+
 protected:
 	// 在输出file map时，并连续的物理block
 	void DumpFileMap_merge(FILE* out, FID fid);
@@ -167,4 +172,15 @@ protected:
 	DWORD m_last_host_write = 0, m_last_media_write = 0;
 	size_t m_write_count = 0;
 	SEG_T m_gc_th_low, m_gc_th_hi;
+};
+
+
+class ITester
+{
+public:
+	virtual void Config(const boost::property_tree::wptree& pt, const std::wstring& root)=0;
+	virtual int PrepareTest(void)=0;
+	virtual int RunTest(void)=0;
+	virtual int FinishTest(void)=0;
+	virtual void ShowTestFailure(FILE* log) = 0;
 };

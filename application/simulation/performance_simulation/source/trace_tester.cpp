@@ -7,15 +7,9 @@
 #include <stdlib.h>
 #include <Psapi.h>
 
-
 #include "trace_tester.h"
 
 LOCAL_LOGGER_ENABLE(L"test.trace", LOGGER_LEVEL_DEBUGINFO);
-
-
-
-//#define PATH_PREFIX		(44)
-
 
 class FIELD_INFO
 {
@@ -44,7 +38,6 @@ public:
 
 
 CTraceTester::CTraceTester(CLfsInterface* lfs)
-//	: CTesterBase(fs, disk)
 {
 	m_lfs = lfs;
 }
@@ -150,19 +143,12 @@ void CTraceTester::PrepareFiles(void)
 int CTraceTester::PrepareTest(void)
 {
 	DWORD ii = 0;
-	//for (auto it = m_traces.begin(); it != m_traces.end(); it++, ii++)
-	//{
-	//	(*it)->m_tester = this;
-	//	(*it)->m_tid = ii;
-	//}
 	PrepareFiles();
 	return 0;
 }
 
 int CTraceTester::RunTest(void)
 {
-	//HANDLE* threads = new HANDLE[m_traces.size()];
-	//memset(threads, 0, sizeof(HANDLE) * m_traces.size());
 	// 实际上性能模拟不需要多线程，从不同的线程中随机选择一个线程，完成下一步操作即可。
 	// 把所有thread都放入候选集中
 	size_t working_nr = m_traces.size();
@@ -195,9 +181,6 @@ int CTraceTester::RunTest(void)
 		InvokeOperateion(*op, thread->m_tid);
 		SetEvent(m_monitor_event);
 	}
-
-	//WaitForMultipleObjects(m_traces.size(), threads, TRUE, INFINITE);
-	//delete[]threads;
 	return 0;
 }
 
@@ -554,12 +537,6 @@ void CTraceTester::LoadTrace(const std::wstring& fn, TRACE_INFO& trace_info, int
 		if (line == nullptr) break;
 		std::string str_line = line;	// for debug
 
-		//if (trace_info.m_trace_nr >= trace_info.m_trace.size())
-		//{
-		//	size_t new_size = trace_info.m_trace.size() + TRACE_BUFFER;
-		//	trace_info.m_trace.resize(new_size);
-		//}
-		//TRACE_ENTRY& op = trace_info.m_trace.at(trace_info.m_trace_nr++);
 		trace_info.m_trace.emplace_back();
 		TRACE_ENTRY& op = trace_info.m_trace.at(trace_info.m_trace.size() - 1);
 		trace_info.m_trace_nr++;
@@ -584,7 +561,6 @@ void CTraceTester::LoadTrace(const std::wstring& fn, TRACE_INFO& trace_info, int
 				if (field_val[0] == 0) continue;
 				if (path_prefix == 0) path_prefix = CalculatePrefix(field_val);
 				std::string path = field_val + path_prefix;
-				//jcvos::Utf8ToUnicode(op.file_path, path);
 				std::wstring wpath;
 				jcvos::Utf8ToUnicode(wpath, path);
 				op.file_index = NewFileInfo(wpath, op.is_dir);
@@ -617,7 +593,6 @@ void CTraceTester::LoadTrace(const std::wstring& fn, TRACE_INFO& trace_info, int
 				if (op.op_code == OP_CODE::OP_FILE_READ || op.op_code == OP_CODE::OP_FILE_WRITE)
 				{	// length in byte
 					op.length = _atoi64(field_val);
-					//if (trace_info.m_max_buf_size < op.length) trace_info.m_max_buf_size = op.length;
 				}
 				else if (op.op_code == OP_CODE::OP_FILE_CREATE)
 				{	// dir or file
@@ -811,11 +786,6 @@ UINT64 CTraceTester::ReadTest(const FILE_ACCESS_INFO& info, size_t start, size_t
 
 void CTraceTester::ReserveFile(const FILE_ACCESS_INFO& info)
 {
-	//LONG size_lo = (LONG)(info.max_length & 0xFFFFFFFF);
-	//LONG size_hi = (LONG)(info.max_length >> 32);
-	//DWORD p = SetFilePointer(file, size_lo, &size_hi, FILE_BEGIN);
-	//BOOL br = SetEndOfFile(file);
-	//file->SetEndOfFile(info.max_length);
 	m_lfs->SetFileSize(info.fid, ROUND_UP_POWER(info.max_length, SECTOR_SIZE_BIT) );
 }
 
@@ -858,12 +828,16 @@ OP_CODE CTraceTester::StringToOpCode(const char* str)
 void CTraceTester::DumpFileMap(int index)
 {
 	wchar_t fn[32];
+	// 已文件为单位，记录各个文件的尺寸，写入次数等。
 	swprintf_s(fn, L"\\file_map_path_%03d.csv", index);
 	std::wstring path = m_log_folder + fn;
 
 	FILE* log = nullptr;
 	_wfopen_s(&log, path.c_str(), L"w+");
 	if (log == nullptr) THROW_ERROR(ERR_APP, L"failed on opening file %s", path.c_str());
+	// host write: 根据trace计算的write数量，单位block
+	// host_write_fs: 文件系统记录的write数量，单位block
+	// write_times: 写入温度
 	fprintf_s(log, "fn,fid,blk_nr,host_write,write_times,host_write_by_fs,media_write,file_waf\n");
 
 	for (auto it = m_file_access.begin(); it != m_file_access.end(); ++it)
@@ -945,7 +919,6 @@ bool CTraceTester::PrintProgress(INT64 ts)
 		health.m_free_seg/*空余segment*/, health.m_logical_blk_nr/*逻辑块数量*/, health.m_logical_saturation,
 		(float)pmc.WorkingSetSize / (1024.0 * 1024.0));
 	// 输出到log
-//	fprintf_s(m_log_invalid_trace, "Event,LBlock,BlockNr,HostWrite,MediaWrite,MediaWriteNode,WAF,RunningWAF,FreeSeg,FreeBlock\n");
 	fprintf_s(m_log_invalid_trace, "%d,%d,%lld,%lld,%lld,%.2f,%.2f,%d,%d,%d\n",
 		m_op_sn, health.m_blk_nr, health.m_total_host_write, health.m_total_media_write,
 		health.m_media_write_node,
@@ -960,8 +933,6 @@ void CTraceTester::SetLogFolder(const std::wstring& fn)
 	std::wstring log_fn = m_log_folder + L"\\log.csv";
 	_wfopen_s(&m_log_invalid_trace, log_fn.c_str(), L"w+");
 	if (m_log_invalid_trace == nullptr) THROW_ERROR(ERR_APP, L"failed on create log file %s", fn.c_str());
-
-//	m_lfs->SetLogFolder(m_log_folder);
 }
 
 int CTraceTester::StartTest(void)
@@ -1003,11 +974,7 @@ int CTraceTester::StartTest(void)
 
 	}
 	catch (jcvos::CJCException& /*err*/)
-	{
-		// show stack
-		//TEST_LOG(L"\n\n=== result ===\n");
-		//TEST_LOG(L"  Test failed\n [err] test failed with error: %s\n", err.WhatT());
-		//ShowTestFailure(m_log_invalid_trace);
+	{	// show stack
 		wprintf_s(L" Test failed! \n");
 	}
 
@@ -1032,6 +999,9 @@ int CTraceTester::StartTest(void)
 	m_lfs->DumpSegmentBlocks(m_log_folder + fn);
 	swprintf_s(fn, L"\\segments_%03d.csv", 2);
 	m_lfs->DumpSegments(m_log_folder + fn, true);
+
+	swprintf_s(fn, L"\\block_WAF.csv");
+	m_lfs->DumpBlockWAF(m_log_folder + fn);
 
 	wprintf_s(L"Test completed\n");
 	if (m_log_invalid_trace) fclose(m_log_invalid_trace);

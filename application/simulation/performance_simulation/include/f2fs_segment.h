@@ -7,12 +7,7 @@ class CPageInfo;
 class CInodeManager_;
 class CF2fsSimulator;
 
-//template <> void TypedInvalidBlock<CPageInfo*>(CPageInfo*& blk)
-//{
-//	blk = nullptr;
-//}
 
-//template <typename BLOCK_TYPE>
 class CF2fsSegmentManager
 {
 public:
@@ -36,9 +31,10 @@ public:
 		m_free_head++;
 		if (m_free_head >= m_seg_nr) m_free_head = 0;
 		m_free_nr--;
-		InterlockedDecrement(&m_health->m_free_seg);
+		InterlockedDecrement(&m_health_info->m_free_seg);
 
 		m_segments[new_seg].seg_temp = temp;
+		m_segments[new_seg].erase_count++;
 		return new_seg;
 	}
 
@@ -49,14 +45,18 @@ public:
 		if (m_free_tail >= m_seg_nr) m_free_tail = 0;
 		if (m_free_tail == m_free_head) { THROW_ERROR(ERR_APP, L"free buffer full"); }
 		SEG_INFO<CPageInfo *>& seg = m_segments[seg_id];
+		// 保留erase count
+		DWORD erase_cnt = seg.erase_count;
 		memset(&seg, 0, sizeof(SEG_INFO<CPageInfo *>));
+		seg.erase_count = erase_cnt;
+		seg.seg_temp = BT_TEMP_NR;
 
 		seg.valid_blk_nr = 0;
 		seg.cur_blk = 0;
 
 		m_free_segs[m_free_tail] = seg_id;
 		m_free_nr++;
-		InterlockedIncrement(&m_health->m_free_seg);
+		InterlockedIncrement(&m_health_info->m_free_seg);
 	}
 
 	bool InvalidBlock(PHY_BLK phy_blk)
@@ -80,14 +80,15 @@ public:
 			FreeSegment(seg_id);
 			free_seg = true;
 		}
-		InterlockedIncrement(&m_health->m_free_blk);
-		InterlockedDecrement(&m_health->m_physical_saturation);
+		InterlockedIncrement(&m_health_info->m_free_blk);
+		InterlockedDecrement(&m_health_info->m_physical_saturation);
 		return free_seg;
 	}
-	virtual bool InitSegmentManager(SEG_T segment_nr, SEG_T gc_lo, SEG_T gc_hi, int init = 0);
+	virtual bool InitSegmentManager(CF2fsSimulator* fs, SEG_T segment_nr, SEG_T gc_lo, SEG_T gc_hi, int init = 0);
 
-	bool InitSegmentManagerBase(SEG_T segment_nr, SEG_T gc_lo, SEG_T gc_hi, int init_val = 0)
+	bool InitSegmentManagerBase(CF2fsSimulator * fs, SEG_T segment_nr, SEG_T gc_lo, SEG_T gc_hi, int init_val = 0)
 	{
+		m_fs = fs;
 		m_seg_nr = segment_nr;
 		m_segments = new SEG_INFO<CPageInfo *>[m_seg_nr];
 		m_free_segs = new SEG_T[m_seg_nr];
@@ -97,6 +98,7 @@ public:
 		{
 			m_segments[ii].valid_blk_nr = 0;
 			m_segments[ii].cur_blk = 0;
+			m_segments[ii].seg_temp = BT_TEMP_NR;
 			m_free_segs[ii] = (DWORD)ii;
 		}
 		memset(m_cur_segs, 0xFF, sizeof(SEG_T) * BT_TEMP_NR);
@@ -104,7 +106,7 @@ public:
 		m_free_nr = m_seg_nr;
 		m_free_head = 0;
 		m_free_tail = m_free_nr - 1;
-		m_health->m_free_seg = m_free_nr;
+		m_health_info->m_free_seg = m_free_nr;
 
 		m_gc_lo = gc_lo, m_gc_hi = gc_hi;
 		return true;
@@ -112,16 +114,7 @@ public:
 
 
 	// 将src_seg, src_blk中的block，移动到temp相关的当前segment，返回目标(segment,block)
-	PHY_BLK MoveBlock(SEG_T src_seg, BLK_T src_blk, BLK_TEMP temp)
-	{
-		SEG_INFO<CPageInfo *>& seg = m_segments[src_seg];
-		CPageInfo *& lblk = seg.blk_map[src_blk];
-		// 新的segment中写入 
-		PHY_BLK tar = WriteBlockToSeg(lblk, temp);
-		// 无效旧的block
-		InvalidBlock(src_seg, src_blk);
-		return tar;
-	}
+//	PHY_BLK MoveBlock(SEG_T src_seg, BLK_T src_blk, BLK_TEMP temp);
 
 	SEG_T get_seg_nr(void) const { return m_seg_nr; }
 	SEG_T get_free_nr(void) const { return m_free_nr; }
@@ -139,14 +132,17 @@ public:
 		return seg.blk_map[blk_id];
 	}
 
-	void SetHealth(FsHealthInfo* health) { m_health = health; } 
+	void SetHealth(FsHealthInfo* health) { m_health_info = health; } 
 
 	// 写入data block到segment, file_index 文件id, blk：文件中的相对block，temp温度
 	void CheckGarbageCollection(CF2fsSimulator* fs)
 	{
 		if (m_free_nr < m_gc_lo) GarbageCollection(fs);
 	}
-	virtual PHY_BLK WriteBlockToSeg(const _BLK_TYPE & lblk, BLK_TEMP temp);
+//	virtual PHY_BLK WriteBlockToSeg(const _BLK_TYPE & lblk, BLK_TEMP temp);
+	// 将page写入磁盘
+	virtual PHY_BLK WriteBlockToSeg(CPageInfo * page, bool by_gc=false);
+
 	virtual void GarbageCollection(CF2fsSimulator * fs);
 	void DumpSegmentBlocks(const std::wstring& fn);
 
@@ -160,10 +156,12 @@ public:	// 临时措施，需要考虑如何处理GcPool。(1)将GC作为算法器放入segment manage
 	SEG_INFO<CPageInfo *>* m_segments = nullptr;
 
 protected:
+	CF2fsSimulator* m_fs;
+
 	friend class CSingleLogSimulator;
 	SEG_T m_cur_segs[BT_TEMP_NR];
 	SEG_T m_seg_nr = 0, m_free_nr = 0;
-	FsHealthInfo* m_health = nullptr;
+	FsHealthInfo* m_health_info = nullptr;
 	SEG_T m_gc_lo, m_gc_hi;
 private:
 	SEG_T m_free_head = 0, m_free_tail = 0;

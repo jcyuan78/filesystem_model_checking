@@ -44,6 +44,7 @@ protected:
 public:
 	std::wstring m_config_file;
 	std::wstring m_test_id;
+	int m_multihead_cnt=0;
 
 protected:
 	std::wstring m_fn_log, m_fn_lblka, m_fn_lblkb, m_fn_seg;
@@ -59,8 +60,9 @@ CApplication _app;
 #define _class_name_	CApplication
 
 BEGIN_ARGU_DEF_TABLE()
-ARGU_DEF(L"config", 'c', m_config_file, L"configuration file name")
-ARGU_DEF(L"test_id", 't', m_test_id, L"test id for generating log and result")
+ARGU_DEF(L"config",		'c', m_config_file, L"configuration file name")
+ARGU_DEF(L"test_id",	't', m_test_id, L"test id for generating log and result")
+ARGU_DEF(L"multihead",	'm', m_multihead_cnt, L"number of head count for mulithead log")
 //ARGU_DEF(L"target", 't', m_root, L"target folder to test, like D:, D:\\test")
 END_ARGU_DEF_TABLE()
 
@@ -92,24 +94,19 @@ void HeapTest(void);
 
 int CSimulatorApp::Run(void)
 {
-	//HeapTest();
-	//return 0;
 	LOG_STACK_TRACE();
 
 	if (m_test_id.empty()) MakeTestId();
 	GenerateLogFileName();
-	//CSegmentManagerBase* seg_manager = nullptr;
 	// load config file
 	std::string config_fn;
 	jcvos::UnicodeToUtf8(config_fn, m_config_file);
 	boost::property_tree::wptree prop;
 	boost::property_tree::xml_parser::read_xml(config_fn, prop);
 
-	std::string log_config_fn;
-	jcvos::UnicodeToUtf8(log_config_fn, m_test_id + L"\\config.xml");
-	boost::property_tree::xml_parser::write_xml(log_config_fn, prop);
-
 	const boost::property_tree::wptree& test_config = prop.get_child(L"config.test");
+
+	boost::property_tree::wptree& fs_config = prop.get_child(L"config.filesystem");
 
 	const std::wstring& test_type = test_config.get<std::wstring>(L"type");
 	if (test_type == L"ssd_test")
@@ -119,22 +116,26 @@ int CSimulatorApp::Run(void)
 	}
 	else if (test_type == L"lfs_test")
 	{
-		const boost::property_tree::wptree& fs_config = prop.get_child(L"config.filesystem");
 		jcvos::auto_ptr<CLfsInterface> lfs(new CSingleLogSimulator);
 		lfs->SetLogFolder(m_test_id);
 		lfs->Initialzie(fs_config);
 		FsTest(test_config, lfs);
-//		delete lfs;
 	}
 	else if (test_type == L"f2fs_test")
 	{
-		const boost::property_tree::wptree& fs_config = prop.get_child(L"config.filesystem");
+		if (m_multihead_cnt != 0)
+		{
+			fs_config.put(L"multi_header_num", m_multihead_cnt);
+		}
 		jcvos::auto_ptr<CLfsInterface> lfs(new CF2fsSimulator);
 		lfs->SetLogFolder(m_test_id);
 		lfs->Initialzie(fs_config);
 		FsTest(test_config, lfs);
-		//		delete lfs;
 	}
+	// 保存测试的配置结果
+	std::string log_config_fn;
+	jcvos::UnicodeToUtf8(log_config_fn, m_test_id + L"\\config.xml");
+	boost::property_tree::xml_parser::write_xml(log_config_fn, prop);
 	return 0;
 }
 

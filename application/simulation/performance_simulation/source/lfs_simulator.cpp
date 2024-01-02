@@ -40,21 +40,6 @@ void TrackIo(int event, PHY_BLK phy, FID fid, LBLK_T lblk)
 	}
 }
 
-//CLfsBase::CLfsBase(void)
-//{	// 初始化m_level_to_offset
-//	m_level_to_offset[0] = LEVEL1_OFFSET;
-//	m_level_to_offset[1] = m_level_to_offset[0] + (LEVEL2_OFFSET - LEVEL1_OFFSET) * INDEX_SIZE;
-//	m_level_to_offset[2] = m_level_to_offset[1] + (MAX_TABLE_SIZE - LEVEL2_OFFSET) * INDEX_SIZE * INDEX_SIZE;
-//}
-//
-//CLfsBase::~CLfsBase(void)
-//{
-//	if (m_log_invalid_trace) fclose(m_log_invalid_trace);
-//	if (m_log_write_trace) fclose(m_log_write_trace);
-//	if (m_gc_trace) fclose(m_gc_trace);
-//
-//}
-
 
 /// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -168,8 +153,7 @@ void CSingleLogSimulator::FileWrite(FID fid, size_t offset, size_t secs)
 	index_path ipath;
 	InitIndexPath(ipath, inode);
 	inode_info* direct_node = nullptr;
-	//fprintf_s(m_log_write_trace, "index,fid,start_blk,blk_nr\n");
-	fprintf_s(m_log_write_trace, "%lld,%d,%d,%d", m_write_count++, fid, start_blk, end_blk - start_blk);
+	fprintf_s(m_log_write_trace, "%lld,%d,%d,%d\n", m_write_count++, fid, start_blk, end_blk - start_blk);
 	for (; start_blk < end_blk; start_blk++)
 	{
 		// 查找PHY_BLK定位到
@@ -196,14 +180,10 @@ void CSingleLogSimulator::FileWrite(FID fid, size_t offset, size_t secs)
 			new_blk = m_segments.WriteBlockToSeg(lblk, BT_HOT__DATA);
 			// 无效原来的block
 			bool free_seg = false;
-			//= m_segments.InvalidBlock(old_blk);
-			//fprintf(m_log_invalid_trace, "%lld,%d,%d\n", m_write_count++/*index*/, old_blk/*blk_invalid*/);
 			INVALID_PHY_BLOCK("WRITE_DATA", old_blk);
 
 			if (free_seg)
 			{
-				//LOG_TRACK(L"gc", L"FREE_SEG, host_write=%d, media_write=%d, free_segs=%d",
-				//	m_health_info.m_total_host_write - m_last_host_write, m_health_info.m_total_media_write - m_last_media_write, m_health_info.m_free_seg);
 				m_last_host_write = m_health_info.m_total_host_write;
 				m_last_media_write = m_health_info.m_total_media_write;
 			}
@@ -226,12 +206,9 @@ void CSingleLogSimulator::FileWrite(FID fid, size_t offset, size_t secs)
 		}
 		if (m_segments.m_cur_segs[BT_HOT__DATA] == INVALID_BLK)
 		{
-			//LOG_TRACK(L"gc", L"NEW__SEG, host_write=%d, media_write=%d, free_segs=%d",
-			//	m_health_info.m_total_host_write - m_last_host_write, m_health_info.m_total_media_write - m_last_media_write, m_health_info.m_free_seg-1);
 			m_last_host_write = m_health_info.m_total_host_write;
 			m_last_media_write = m_health_info.m_total_media_write;
 		}
-		//fprintf(m_log_invalid_trace, "%lld,%d,%d\n", m_write_count++/*index*/, new_blk/*blk_write*/, old_blk/*blk_invalid*/);
 		TrackIo(WRITE_DATA, new_blk, fid, start_blk);
 		direct_node->index_blk.m_index[index] = new_blk;
 		direct_node->m_dirty = true;
@@ -509,7 +486,6 @@ PHY_BLK CSingleLogSimulator::WriteInode(LFS_BLOCK_INFO & ipage)
 //		m_segments.InvalidBlock(inode.m_phy_blk);
 		INVALID_PHY_BLOCK("WRITE_NODE", inode.m_phy_blk);
 		m_inodes.free_inode(inode.m_phy_blk);
-		//fprintf(m_log_invalid_trace, "%lld,%d,%d\n", m_write_count++/*index*/, -1/*blk_write*/, inode.m_phy_blk/*blk_invalid*/);
 		return INVALID_BLK;
 	}
 	else if (inode.m_type == inode_info::NODE_INODE)
@@ -536,8 +512,6 @@ PHY_BLK CSingleLogSimulator::WriteInode(LFS_BLOCK_INFO & ipage)
 			}
 			ipage.parent->m_dirty = true;
 		}
-		//fprintf(m_log_invalid_trace, "%lld,%d,%d\n", m_write_count++/*index*/, inode.m_phy_blk/*blk_write*/, old_blk/*blk_invalid*/);
-
 		TrackIo(WRITE_NODE, inode.m_phy_blk, inode.m_fid, INVALID_BLK);
 		m_segments.CheckGarbageCollection();
 		inode.m_dirty = false;
@@ -749,15 +723,15 @@ void CLfsBase::SetLogFolder(const std::wstring& fn)
 	fprintf_s(m_log_invalid_trace, "index,reason,invalid,invalid_seg,invalid_blk\n");
 
 	// write trace log:
-	_wfopen_s(&m_log_write_trace, (m_log_fn + L"\\trace_write_blk.csv").c_str(), L"w+");
+	_wfopen_s(&m_log_write_trace, (m_log_fn + L"\\trace_fs.csv").c_str(), L"w+");
 	if (m_log_write_trace == nullptr) THROW_ERROR(ERR_APP, L"failed on creating log file %s", (m_log_fn + L"\\trace_write_blk.csv").c_str());
-	fprintf_s(m_log_write_trace, "index,fid,start_blk,blk_nr\n");
+	fprintf_s(m_log_write_trace, "op_id,op,fid,start_blk,blk_nr\n");
+
+	// file system trace:
 
 	// write trace log:
 	_wfopen_s(&m_gc_trace, (m_log_fn + L"\\trace_gc.csv").c_str(), L"w+");
 	if (m_gc_trace == nullptr) THROW_ERROR(ERR_APP, L"failed on creating log file %s", (m_log_fn + L"\\trace_gc.csv").c_str());
-	//fprintf_s(m_gc_trace, "index,fid,start_blk,blk_nr\n");
-//	m_segments.m_gc_trace = m_gc_trace;
 }
 
 
