@@ -21,16 +21,6 @@ int CMultiThreadTest::PrepareTest(void)
 	EnumerateOp(m_test_state[0]);
 	m_op_sn = 0;
 
-	// create working threads
-	//m_threads = new HANDLE[m_thread_nr];
-	//m_thread_ids = new DWORD[m_thread_nr];
-	//for (size_t ii = 0; ii < m_thread_nr; ++ii)
-	//{
-	//	m_threads[ii] = CreateThread(NULL, 0, _Worker, this, 0, m_thread_ids + ii);
-	//	if (m_threads[ii] == nullptr) THROW_WIN32_ERROR(L"failed on creating thread, id=%lld", ii);
-	//}
-
-//	m_requests = new std::list<OperateRequest*>[m_thread_nr];
 	m_requests = new OperateRequest[m_thread_nr];
 	m_works = new PTP_WORK[m_thread_nr];
 
@@ -96,12 +86,6 @@ int CMultiThreadTest::RunTest(void)
 		}
 
 		// generate new state
-//		op.op_sn = m_op_sn;
-		//err = FsOperate(next_state->m_ref_fs, &op);
-		//if (err)
-		//{
-		//	THROW_ERROR(ERR_USER, L"failed on call operations, err=%d", err);
-		//}
 		// 操作成功，保存操作，搜索下一步。
 		// check max m_cur_depth
 		if (m_cur_depth >= m_test_depth)

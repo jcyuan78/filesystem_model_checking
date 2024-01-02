@@ -19,12 +19,16 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="source\actual_fs.cpp" />
     <ClCompile Include="source\fullfs_app.cpp" />
     <ClCompile Include="source\multithread-tester.cpp" />
     <ClCompile Include="source\pch.cpp" />
+    <ClCompile Include="source\statistic_fs.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="include\actual_fs.h" />
     <ClInclude Include="include\multithread-tester.h" />
+    <ClInclude Include="include\statistic_fs.h" />
     <ClInclude Include="source\pch.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">

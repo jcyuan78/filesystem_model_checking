@@ -7,6 +7,8 @@
 #include "../include/multithread-tester.h"
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/xml_parser.hpp>
+#include "../include/actual_fs.h"
+#include "../include/statistic_fs.h"
 
 #ifdef _DEBUG
 #include <vld.h>
@@ -82,8 +84,6 @@ void CFsTesterApp::CleanUp(void)
 int CFsTesterApp::Run(void)
 {
 	CTesterBase *tester= nullptr;
-	jcvos::auto_interface<CActualFileSystem> fs(jcvos::CDynamicInstance<CActualFileSystem>::Create());
-	fs->SetFileSystem(m_root);
 
 	// loading config
 	std::string str_config_fn;
@@ -93,6 +93,20 @@ int CFsTesterApp::Run(void)
 	else if (str_config_fn.rfind(".json")!=std::string::npos) { boost::property_tree::read_json(str_config_fn, pt_config); }
 
 	const boost::property_tree::wptree& test_config = pt_config.get_child(L"test");
+
+//	bool statistic_only = test_config.get<bool>(L"statistic_only");
+	bool statistic_only = false;
+	jcvos::auto_interface<IFileSystem> fs;
+	if (statistic_only)
+	{
+		fs = jcvos::CDynamicInstance<CStatisticFileSystem>::Create();
+	}
+	else
+	{
+		CActualFileSystem * _fs = (jcvos::CDynamicInstance<CActualFileSystem>::Create());
+		_fs->SetFileSystem(m_root);
+		fs = _fs;
+	}
 
 	const std::wstring& test_type = test_config.get<std::wstring>(L"mode", L"");
 	if		(test_type == L"full") { tester = new CFullTester(fs, nullptr); }

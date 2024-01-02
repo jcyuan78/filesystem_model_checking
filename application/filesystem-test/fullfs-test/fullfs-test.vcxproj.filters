@@ -24,12 +24,24 @@
     <ClCompile Include="source\multithread-tester.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="source\actual_fs.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="source\statistic_fs.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="source\pch.h">
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="include\multithread-tester.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\actual_fs.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\statistic_fs.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>
