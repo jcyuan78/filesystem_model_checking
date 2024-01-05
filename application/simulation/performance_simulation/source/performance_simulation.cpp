@@ -14,6 +14,9 @@
 #include <vld.h>
 #endif
 
+void UnitTest(void);
+
+
 
 class CSimulatorApp
 	: public jcvos::CJCAppSupport<jcvos::AppArguSupport>
@@ -94,6 +97,9 @@ void HeapTest(void);
 
 int CSimulatorApp::Run(void)
 {
+	UnitTest();
+	return 0;
+
 	LOG_STACK_TRACE();
 
 	if (m_test_id.empty()) MakeTestId();
@@ -300,3 +306,143 @@ void HeapTest(void)
 	delete[] segs;
 }
 */
+
+#define SEG_NUM 4096
+#define POOL_SIZE 64
+
+//#define VERIFY_SORTING
+
+struct TESTSEG {
+	DWORD valid_blk_nr;
+};
+
+struct SORT_PERFORMANCE
+{
+	INT64 cycles;
+	double duration;
+};
+
+
+template<typename POOL>
+void CheckSortingResult(TESTSEG* src, POOL& pool)
+{
+	// 检查排序结果
+	TESTSEG* seg0 = pool.Pop();
+	DWORD pre_val = seg0->valid_blk_nr, max_val = 0;
+	if (pre_val > 512) THROW_ERROR(ERR_APP, L"wrong valid blk value, pool[0] (%d)", pre_val);
+	seg0->valid_blk_nr = 0xFFFF;
+
+	// 检查pool内大小
+	wprintf_s(L"target: %d, ", pre_val);
+	size_t ii = 1;
+	for (ii = 1; ii < POOL_SIZE; ++ii)
+	{
+		TESTSEG* seg1 = pool.Pop();
+		if (seg1 == nullptr) continue;
+		max_val = seg1->valid_blk_nr;
+		wprintf_s(L"%d, ", max_val);
+		if (max_val > 512) THROW_ERROR(ERR_APP, L"wrong valid blk value, pool[%lld] (%d)", ii, max_val);
+		if (max_val < pre_val)
+			THROW_ERROR(ERR_APP, L"wrong order: pool[%lld] (%d) > pool[%lld] (%d)", ii - 1, pre_val, ii, max_val);
+		seg1->valid_blk_nr = 0xFFFF;
+		pre_val = max_val;
+	}
+	wprintf_s(L"\n");
+
+	// 检查pool外大小
+//	size_t data_size = pool.get_seg_nr();
+//	for (; ii < data_size; ++ii)
+	for (size_t ii=0; ii<SEG_NUM; ++ii)
+	{
+//		TESTSEG* seg1 = pool.Pop();
+		TESTSEG& seg1 = src[ii];
+		DWORD cur_val = seg1.valid_blk_nr;
+		if (cur_val == 0xFFFF) continue;
+
+		if (cur_val > 512) THROW_ERROR(ERR_APP, L"wrong valid blk value, src[%lld] (%d)", ii, cur_val);
+		if (cur_val < max_val) THROW_ERROR(ERR_APP, L"wrong order out side, src[%ll] (%d), < max (%d)", ii, cur_val, max_val);
+//		seg1->valid_blk_nr = (0xFFFF);
+	}
+	// 检查标记
+	//for (ii = 0; ii < SEG_NUM; ++ii)
+	//{
+	//	if (src[ii].valid_blk_nr != 0xFFFF && src[ii].valid_blk_nr!=0) 
+	//		THROW_ERROR(ERR_APP, L"unmarked value, src[%lld] (%d)", ii, src[ii].valid_blk_nr);
+	//}
+}
+
+void SortingTestQ(GcPoolQuick<POOL_SIZE, TESTSEG> & pool, TESTSEG* src, SORT_PERFORMANCE &performance)
+{
+	{
+		LOG_STACK_TRACE();
+		pool.init();
+
+		for (size_t ii = 0; ii < SEG_NUM; ++ii)
+		{
+			if (src[ii].valid_blk_nr > 0) pool.Push(src + ii);
+		}
+
+		pool.Sort();
+		//for (size_t ii = 0; ii < POOL_SIZE; ++ii)
+		//{
+		//	pool.pop();
+		//}
+		performance.duration = RUNNING_TIME;
+		performance.cycles = pool.sort_count;
+	}
+	CheckSortingResult(src, pool);
+}
+
+void SortingTestH(TESTSEG * src, SORT_PERFORMANCE& performance)
+{
+	LOG_STACK_TRACE();
+
+	//GcPool<POOL_SIZE, TESTSEG> pool(segs);
+	GcPoolHeap<POOL_SIZE, TESTSEG> pool(nullptr);
+	for (SEG_T ss = 0; ss < SEG_NUM; ss++)	{	pool.Push(src+ss);	}
+//	pool.ShowHeap(1);
+	pool.Sort();
+#ifdef VERIFY_SORTING
+	CheckSortingResult(src, pool);
+#else
+	for (size_t ii = 0; ii < POOL_SIZE; ++ii)	{	pool.Pop();	}
+	performance.duration = RUNNING_TIME;
+	performance.cycles = 0;
+#endif
+
+}
+
+void UnitTest(void)
+{
+	SORT_PERFORMANCE total_per;
+	total_per.cycles = 0;
+	total_per.duration = 0;
+	GcPoolQuick<POOL_SIZE, TESTSEG> pool(SEG_NUM);
+	TESTSEG segs[SEG_NUM];
+
+
+	int test_cycle = 10000;
+	for (int tt = 0; tt < test_cycle; ++tt)
+	{
+		srand(100+tt);
+		wprintf_s(L"test cycle: %d \n", tt);
+		// create source
+//		wprintf_s(L"source: ");
+
+		for (size_t ii = 0; ii < SEG_NUM; ++ii)
+		{
+			DWORD vv = rand() & 511;
+			segs[ii].valid_blk_nr = vv;
+			//		wprintf_s(L"%d, ", vv);
+		}
+//		wprintf_s(L"\n");
+
+		SORT_PERFORMANCE per;
+//		SortingTestQ(pool, segs, per);
+		SortingTestH(segs, per);
+		total_per.cycles += per.cycles;
+		total_per.duration += per.duration;
+	}
+	wprintf_s(L"test cycles=%d, avg duration=%f(us), avg sort cnt=%lld\n",
+		test_cycle, total_per.duration / test_cycle, total_per.cycles / test_cycle);
+}

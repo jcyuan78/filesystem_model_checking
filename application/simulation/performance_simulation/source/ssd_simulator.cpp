@@ -194,7 +194,7 @@ void CSingleHeadSM::GarbageCollection(void)
 	LOG_STACK_TRACE();
 #ifdef HEAP_ALGORITHM
 	// °´ÕÕsegmentµÄvalid blk nr¶ÑÅÅÐò
-	GcPool<32, LBLK_T> pool(m_segment.m_segments);
+	GcPool<32, SEG_INFO<LBLK_T> > pool(m_segment.m_segments);
 	for (SEG_T ss = 0; ss < m_segment.get_seg_nr(); ss++)
 	{
 		SEG_INFO<LBLK_T>& seg = m_segment.get_segment(ss);
@@ -409,7 +409,7 @@ void CMultiHeadSM::GarbageCollection(void)
 	LOG_STACK_TRACE();
 #ifdef HEAP_ALGORITHM
 	// °´ÕÕsegmentµÄvalid blk nr¶ÑÅÅÐò
-	GcPool<32, LBLK_T> pool(m_segment.m_segments);
+	GcPool<32, SEG_INFO<LBLK_T> > pool(m_segment.m_segments);
 	for (SEG_T ss = 0; ss < m_segment.get_seg_nr(); ss++)
 	{
 		SEG_INFO<LBLK_T>& seg = m_segment.get_segment(ss);

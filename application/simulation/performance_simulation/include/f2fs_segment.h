@@ -18,6 +18,7 @@ public:
 	{
 		delete[] m_free_segs;
 		delete[] m_segments;
+		delete m_gc_pool;
 	}
 public:
 	// 查找一个空的segment
@@ -72,7 +73,6 @@ public:
 		bool free_seg = false;
 		JCASSERT(seg_id < m_seg_nr);
 		SEG_INFO<CPageInfo *>& seg = m_segments[seg_id];
-//		TypedInvalidBlock<CPageInfo *>(seg.blk_map[blk_id]);
 		seg.blk_map[blk_id] = nullptr;
 		seg.valid_blk_nr--;
 		if (seg.valid_blk_nr == 0 && seg.cur_blk >= BLOCK_PER_SEG)
@@ -85,33 +85,6 @@ public:
 		return free_seg;
 	}
 	virtual bool InitSegmentManager(CF2fsSimulator* fs, SEG_T segment_nr, SEG_T gc_lo, SEG_T gc_hi, int init = 0);
-
-	bool InitSegmentManagerBase(CF2fsSimulator * fs, SEG_T segment_nr, SEG_T gc_lo, SEG_T gc_hi, int init_val = 0)
-	{
-		m_fs = fs;
-		m_seg_nr = segment_nr;
-		m_segments = new SEG_INFO<CPageInfo *>[m_seg_nr];
-		m_free_segs = new SEG_T[m_seg_nr];
-		// 初始化，如果blk_map指向block_id，初始化为0xFF，如果指向指针，初始化为0
-		memset(m_segments, 0, sizeof(SEG_INFO<CPageInfo *>) * m_seg_nr);
-		for (size_t ii = 0; ii < m_seg_nr; ++ii)
-		{
-			m_segments[ii].valid_blk_nr = 0;
-			m_segments[ii].cur_blk = 0;
-			m_segments[ii].seg_temp = BT_TEMP_NR;
-			m_free_segs[ii] = (DWORD)ii;
-		}
-		memset(m_cur_segs, 0xFF, sizeof(SEG_T) * BT_TEMP_NR);
-
-		m_free_nr = m_seg_nr;
-		m_free_head = 0;
-		m_free_tail = m_free_nr - 1;
-		m_health_info->m_free_seg = m_free_nr;
-
-		m_gc_lo = gc_lo, m_gc_hi = gc_hi;
-		return true;
-	}
-
 
 	// 将src_seg, src_blk中的block，移动到temp相关的当前segment，返回目标(segment,block)
 //	PHY_BLK MoveBlock(SEG_T src_seg, BLK_T src_blk, BLK_TEMP temp);
@@ -163,6 +136,9 @@ protected:
 	SEG_T m_seg_nr = 0, m_free_nr = 0;
 	FsHealthInfo* m_health_info = nullptr;
 	SEG_T m_gc_lo, m_gc_hi;
+
+	GcPoolQuick<64, SEG_INFO<CPageInfo*> > *m_gc_pool=nullptr;
+
 private:
 	SEG_T m_free_head = 0, m_free_tail = 0;
 	SEG_T* m_free_segs = nullptr;

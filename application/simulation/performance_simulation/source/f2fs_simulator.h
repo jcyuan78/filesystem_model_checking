@@ -6,7 +6,9 @@
 
 #include "../include/f2fs_segment.h"
 
-class CPageInfo;
+#include "../include/pages.h"
+
+#define MAX_NODE_NUM	10240
 
 // 实现在磁盘上存储的Node Block，包括Inode, Index Node, Indirect index node等。
 class CNodeInfoBase
@@ -16,13 +18,18 @@ public:
 		NODE_FREE, NODE_INODE, NODE_INDEX,
 	};
 
-	CNodeInfoBase(NODE_TYPE type, FID id, CPageInfo * page, CNodeInfoBase * p) 
-		: m_type(type), data_page(page), parent(p), m_fid(id)
+	CNodeInfoBase(void) {}
+
+	void Init(NODE_TYPE type, FID id, CPageInfo* page, CNodeInfoBase* p)
 	{
+		m_type = type;
+		m_fid = id;
+		data_page = page;
+		parent = p;
 		memset(data, 0, MAX_TABLE_SIZE);
-		//m_fid = next_fid++;
+		valid_data = 0;
+		data_nr = MAX_TABLE_SIZE;
 	}
-	virtual ~CNodeInfoBase(void) {}
 
 public:
 	NODE_TYPE m_type;		// 0： inode, 1: direct index, 2: indirect index;
@@ -38,48 +45,33 @@ public:
 class CInodeInfo : public CNodeInfoBase
 {
 public:
-	CInodeInfo(FID id, CPageInfo* page) : CNodeInfoBase(NODE_INODE, id, page, nullptr) 
+	CInodeInfo(void) {}
+	void Init(FID id, CPageInfo* page)
 	{
-		m_host_write = 0;
-		m_media_write = 0;
+		__super::Init(NODE_INODE, id, page, nullptr);
+		m_blks = 0;		// 文件大小：block单位
+		m_ref_count = 0;
+		m_delete_on_close = false;
 	}
 public:
 	std::wstring m_fn;
-	size_t m_blks;		// 文件大小：block单位
+	size_t m_blks=0;		// 文件大小：block单位
 	UINT m_ref_count = 0;
-	bool m_delete_on_close;
-	DWORD m_host_write;
-	DWORD m_media_write;
-
-	// 按照逻辑地址，记录每个块的写入次数，host的写入次数以及media的写入次数。
-	std::vector<int> m_host_write_count;
-	std::vector<int> m_total_write_count;
-
+	bool m_delete_on_close=false;
 };
 
 class CDirectInfo : public CNodeInfoBase
 {
 public:
-	CDirectInfo(FID id, CPageInfo*page, CNodeInfoBase * parent) : CNodeInfoBase(NODE_INDEX, id, page, parent) {}
+	CDirectInfo(void) {}
+	void Init(FID id, CPageInfo* page, CNodeInfoBase* parent)
+	{
+		__super::Init(NODE_INDEX, id, page, parent);
+	}
 public:
 };
 
-class CPageInfo : public CPageInfoBase
-{
-public:
 
-public:
-	PHY_BLK phy_blk = INVALID_BLK;	// page所在物理位置
-	// 标记page的温度，当page被写入SSD时更新。这个温度不是实际分配到温度，所有算法下都相同。仅用于统计。
-	BLK_TEMP ttemp;
-	//在文件中的位置
-	CInodeInfo* inode = nullptr;
-	LBLK_T offset = INVALID_BLK;
-	// 数据(对于inode 或者 direct node)
-	CNodeInfoBase* data = nullptr;
-	bool dirty = false;
-	enum PAGE_TYPE {PAGE_DATA, PAGE_NODE} type;
-};
 
 class CIndexPath
 {
@@ -99,64 +91,31 @@ public:
 	CNodeInfoBase* node[MAX_INDEX_LEVEL];
 };
 
-class CInodeManager_;
-
 class CInodeManager_
 {
 public:
-	CInodeManager_(void) { m_nodes.push_back(nullptr); };
-	~CInodeManager_(void) {};
+	CInodeManager_(void);// { m_nodes.push_back(nullptr); };
+	~CInodeManager_(void);// {};
 public:
-	CNodeInfoBase* allocate_inode(CNodeInfoBase::NODE_TYPE type, CNodeInfoBase* parent)
-	{
-		CPageInfo* page = new CPageInfo;
-		page->type = CPageInfo::PAGE_NODE;
-//		page->temp = BT_HOT__NODE;
+	CNodeInfoBase* allocate_inode(CNodeInfoBase::NODE_TYPE type, CNodeInfoBase* parent, CPageInfo* page);
+	CPageInfo* free_inode(FID nid);
 
-		CNodeInfoBase* node = nullptr;
-		FID fid = (FID)m_nodes.size();
-		if (type == CNodeInfoBase::NODE_INODE)
-		{
-			CInodeInfo* _node = new CInodeInfo(fid, page);
-			node = static_cast<CNodeInfoBase*>(_node);
-			page->inode = _node;
-		}
-		else
-		{
-			CDirectInfo* _node = new CDirectInfo(fid, page, parent);
-			node = static_cast<CNodeInfoBase*>(_node);
-			page->inode = dynamic_cast<CInodeInfo*>(parent); JCASSERT(page->inode);
-		}
-		page->data = node;
-		page->dirty = true;
-		m_nodes.push_back(node);
-		return node;
-	}
-	void free_inode(FID nid)
-	{
-		CNodeInfoBase* node = m_nodes.at(nid);
-		delete node->data_page;
-		delete node;
-		m_nodes.at(nid) = nullptr;
-	}
-	CNodeInfoBase* get_node(FID nid) { return m_nodes.at(nid); }
-
-//	FID allocate_index_block(void);
-	FID get_node_nr(void) const { return (FID)(m_nodes.size()); }
-
-public:
-	//void init_node(inode_info& node, int type, FID file_index);
-//	& get_index_block(FID nid);
+	CNodeInfoBase* get_node(FID nid) { return m_nodes[nid]; }
+	FID get_node_nr(void) const { return (FID)(m_node_nr); }
 
 protected:
-	std::list<FID> m_free_list;
-	//	std::vector<inode_info> m_inodes;
-	//	std::vector<inode_info*> m_node_buffer;
-	std::vector<CNodeInfoBase*> m_nodes;
+	typedef CNodeInfoBase* PNODE;
+	PNODE m_nodes[MAX_NODE_NUM*2];
 	size_t m_node_nr;
-	size_t m_used_nr, m_free_nr;
 
-//	FID next_fid;
+	// 用于node buffer
+	CInodeInfo m_inode_buffer[MAX_NODE_NUM];
+	CInodeInfo* m_free_inodes[MAX_NODE_NUM];
+	size_t m_inode_head;
+
+	CDirectInfo m_dnode_buffer[MAX_NODE_NUM];
+	CDirectInfo* m_free_dnodes[MAX_NODE_NUM];
+	size_t m_dnode_head;
 };
 
 class CF2fsSimulator : public CLfsBase
@@ -241,4 +200,6 @@ protected:
 	UINT64 m_truncated_media_write[BT_TEMP_NR];
 
 	FILE* m_inode_trace = nullptr;
+
+	CPageManager m_pages;
 };

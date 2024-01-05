@@ -21,18 +21,18 @@
   <ItemGroup>
     <ClCompile Include="source\f2fs_simulator.cpp" />
     <ClCompile Include="source\lfs_simulator.cpp" />
+    <ClCompile Include="source\pages.cpp" />
     <ClCompile Include="source\pch.cpp" />
     <ClCompile Include="source\performance_simulation.cpp" />
     <ClCompile Include="source\segment_manager.cpp" />
     <ClCompile Include="source\ssd_simulator.cpp" />
     <ClCompile Include="source\trace_info.cpp" />
     <ClCompile Include="source\trace_tester.cpp" />
-    <ClCompile Include="source\exhaustive_tester.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\f2fs_segment.h" />
     <ClInclude Include="include\fs_comm.h" />
-    <ClInclude Include="source\exhaustive_tester.h" />
+    <ClInclude Include="include\pages.h" />
     <ClInclude Include="source\f2fs_simulator.h" />
     <ClInclude Include="source\lfs_simulator.h" />
     <ClInclude Include="source\pch.h" />

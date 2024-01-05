@@ -65,7 +65,7 @@ PHY_BLK CLfsSegmentManager::WriteBlockToSeg(const LFS_BLOCK_INFO& lblk, BLK_TEMP
 void CLfsSegmentManager::GarbageCollection(void)
 {
 	LOG_STACK_TRACE();
-	GcPool<64, LFS_BLOCK_INFO> pool(m_segments);
+	GcPool<64, SEG_INFO<LFS_BLOCK_INFO> > pool(m_segments);
 	for (SEG_T ss = 0; ss < m_seg_nr; ss++)
 	{
 		SEG_INFO<LFS_BLOCK_INFO>& seg = m_segments[ss];

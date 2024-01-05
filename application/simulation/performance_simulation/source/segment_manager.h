@@ -24,8 +24,6 @@ public:
 
 template <typename BLOCK_TYPE> void TypedInvalidBlock(BLOCK_TYPE& blk);
 
-
-
 class LBLOCK_INFO
 {
 public:
@@ -35,12 +33,11 @@ public:
 };
 
 
-template <int N, typename BLOCK_TYPE >
+template <int N, typename SEG_TYPE >
 class GcPool
 {
 public:
-	//typedef DWORD INDEX_TYPE;
-	GcPool(SEG_INFO<BLOCK_TYPE>* s) : segs(s) {}
+	GcPool(SEG_TYPE* s) : segs(s) {}
 public:
 	// 想大顶堆中放入segment
 	void Push(SEG_T id)
@@ -53,8 +50,8 @@ public:
 		}
 		else
 		{
-			SEG_INFO<BLOCK_TYPE>& new_seg = segs[id];
-			SEG_INFO<BLOCK_TYPE> & max_seg = segs[large_heap[0]] ;
+			SEG_TYPE& new_seg = segs[id];
+			SEG_TYPE & max_seg = segs[large_heap[0]] ;
 			if (new_seg.valid_blk_nr >= max_seg.valid_blk_nr) return;
 			large_heap[0] = id;
 			large_heapify();
@@ -69,8 +66,6 @@ public:
 			small_heap[small_len] = large_heap[ii];
 			small_add(small_len);
 			small_len++;
-			//wprintf_s(L"")
-//			ShowHeap(small_heap, small_len);
 		}
 	}
 	// 从小顶堆中取出最小元素
@@ -95,7 +90,7 @@ public:
 
 		for (int ii = 0; ii < size; ++ii)
 		{
-			SEG_INFO<BLOCK_TYPE>& seg = segs[heap[ii]];
+			SEG_TYPE& seg = segs[heap[ii]];
 			wprintf_s(L"%02d ", seg.valid_blk_nr);
 		}
 		wprintf_s(L"\n");
@@ -110,8 +105,8 @@ protected:
 		while (cur > 0)
 		{	// 比较父节点
 			int pp = (cur - 1) / 2;
-			SEG_INFO<BLOCK_TYPE>& ch = segs[large_heap[cur] ];
-			SEG_INFO<BLOCK_TYPE>& fa = segs[large_heap[pp] ];
+			SEG_TYPE& ch = segs[large_heap[cur] ];
+			SEG_TYPE& fa = segs[large_heap[pp] ];
 			if (ch.valid_blk_nr <= fa.valid_blk_nr) break;
 			// 交换
 			swap(large_heap[cur], large_heap[pp]);
@@ -124,8 +119,8 @@ protected:
 		while (cur > 0)
 		{	// 比较父节点
 			int pp = (cur - 1) / 2;
-			SEG_INFO<BLOCK_TYPE>& ch = segs[small_heap[cur]];
-			SEG_INFO<BLOCK_TYPE>& fa = segs[small_heap[pp]];
+			SEG_TYPE& ch = segs[small_heap[cur]];
+			SEG_TYPE& fa = segs[small_heap[pp]];
 			if (ch.valid_blk_nr >= fa.valid_blk_nr) break;
 			// 交换
 			swap(small_heap[cur], small_heap[pp]);
@@ -169,10 +164,454 @@ protected:
 
 protected:
 	int large_len=0, small_len=0;		// 堆的有效长度
-	SEG_INFO<BLOCK_TYPE> * segs;
+	SEG_TYPE * segs;
 	SEG_T large_heap[N]; //用于选出一定数量的segmeng
 	SEG_T small_heap[N];	// 按小顶堆排序，用于挑选作为GC源
 };
+
+
+/// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// <summary>
+/// 基于指针的Heap排序
+/// </summary>
+/// <typeparam name="BLOCK_TYPE"></typeparam>
+
+template <int N, typename SEG_TYPE >
+class GcPoolHeap
+{
+public:
+	GcPoolHeap(SEG_TYPE* s) /*: segs(s)*/ {}
+public:
+	// 想大顶堆中放入segment
+	void Push(SEG_TYPE* seg)
+	{
+		if (large_len < (N-1) )	{ large_add(seg);	}
+		else if (seg->valid_blk_nr < large_heap[0]->valid_blk_nr) {large_heapify(seg);	}
+	}
+#if 0
+	// 将大顶堆中的数据移入小顶堆
+	void Sort(void)
+	{
+		// 从large heap中从大到小取出，放入small_heap中；
+		small_len = large_len;
+		for (; ;)
+		{
+			large_len--;
+			small_heap[large_len] = large_heap[0];
+			if (large_len <= 0)	break;
+			large_heapify(large_heap[large_len]);
+//			wprintf_s(L"move %d to small: ", small_heap[large_len]->valid_blk_nr);
+//			ShowHeap(1);
+		}
+//		wprintf_s(L"move %d to small\n", small_heap[0]->valid_blk_nr);
+		pop_ptr = 0;
+	}
+	// 从小顶堆中取出最小元素
+	SEG_TYPE * Pop(void)
+	{
+		if (pop_ptr >= small_len) return nullptr;
+		SEG_TYPE* pop = small_heap[pop_ptr++];
+		return pop;
+	}
+#else
+	// 将 large_heap重新按照从小到大排序到small_heap中
+	void Sort(void)
+	{
+		small_len = 0;
+		for (int ii = N - 2; ii >= 0; --ii)
+		{
+			small_heap[small_len] = large_heap[ii];
+			small_add(small_len);
+			small_len++;
+		}
+	}
+	// 从小顶堆中取出最小元素
+	SEG_TYPE* Pop(void)
+	{
+		if (pop_ptr >= small_len) return nullptr;
+
+		SEG_TYPE* pop = small_heap[0];
+		small_len--;
+		small_heap[0] = small_heap[small_len];
+		small_heapify();
+		return pop;
+	}
+#endif
+
+	int Size(void) const { return small_heap; }
+
+	void ShowHeap(int heap_id)
+	{
+		SEG_TYPE** heap;
+		int size;
+		if (heap_id == 0)	heap = small_heap, size = small_len;
+		else heap = large_heap, size = large_len;
+
+		for (int ii = 0; ii < size; ++ii)
+		{
+			SEG_TYPE * seg = heap[ii];
+			wprintf_s(L"%02d ", (seg)?seg->valid_blk_nr:-1);
+		}
+		wprintf_s(L"\n");
+	}
+
+protected:
+
+	inline void swap(SEG_TYPE * & a, SEG_TYPE * & b) { SEG_TYPE* c = a; a = b; b = c; }
+
+	void large_add(SEG_TYPE * key)
+	{
+		int cur = large_len;
+		DWORD key_val = key->valid_blk_nr;
+		while (cur > 0)
+		{	// 比较父节点
+			int pp = (cur - 1) >> 1;
+			if (key_val <= large_heap[pp]->valid_blk_nr) break;
+			// 交换
+			large_heap[cur] = large_heap[pp];
+			cur = pp;
+		}
+		large_heap[cur] = key;
+		large_len++;
+	}
+
+	void small_add(int cur)
+	{
+		while (cur > 0)
+		{	// 比较父节点
+			int pp = (cur - 1) / 2;
+			SEG_TYPE& ch = *small_heap[cur];
+			SEG_TYPE& fa = *small_heap[pp];
+			if (ch.valid_blk_nr >= fa.valid_blk_nr) break;
+			// 交换
+			swap(small_heap[cur], small_heap[pp]);
+			cur = pp;
+		}
+	}
+
+	void large_heapify(SEG_TYPE * key)
+	{
+		DWORD key_val = key->valid_blk_nr;
+		int cur = 0;
+		while (1)
+		{
+			int left = cur * 2 + 1, right = left + 1;
+			int largest = cur;
+			DWORD largest_val = key_val;
+			DWORD left_val;
+			if (left < large_len && (left_val = large_heap[left]->valid_blk_nr) > largest_val)
+			{
+				largest = left; largest_val = left_val;
+			}
+			if (right < large_len && large_heap[right]->valid_blk_nr > largest_val)
+			{
+				largest = right;
+			}
+			if (largest == cur) break;
+			large_heap[cur] = large_heap[largest];		// 此时largest=left或者right，key小于left或者right
+			cur = largest;
+		}
+//		JCASSERT(cur < large_len);
+		large_heap[cur] = key;
+	}
+
+	void small_heapify(void)
+	{
+		int cur = 0;
+		while (1)
+		{
+			int left = cur * 2 + 1, right = left + 1;
+			int largest = cur;
+			if (left < small_len && (*small_heap[left]).valid_blk_nr < (*small_heap[largest]).valid_blk_nr)
+				largest = left;
+			if (right < small_len && (*small_heap[right]).valid_blk_nr < (*small_heap[largest]).valid_blk_nr)
+				largest = right;
+			if (largest == cur) break;
+			swap(small_heap[largest], small_heap[cur]);
+			cur = largest;
+		}
+	}
+
+protected:
+	int large_len = 0, small_len = 0;		// 堆的有效长度
+//	SEG_TYPE* segs;
+	SEG_TYPE* large_heap[N]; //用于选出一定数量的segmeng
+	SEG_TYPE* small_heap[N];	// 按小顶堆排序，用于挑选作为GC源
+	int pop_ptr;
+};
+
+/// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// <summary>
+/// 利用quick排序查找GC对象
+/// </summary>
+/// <typeparam name="BLOCK_TYPE"></typeparam>
+
+
+template <int N, typename SEG_TYPE >
+class GcPoolQuick
+{
+public:
+	typedef SEG_TYPE* PSEG;
+	GcPoolQuick(size_t seg_nr) 
+	{
+		pth = 500;
+		buf_size = seg_nr;
+		buf = new PSEG[seg_nr];
+		memset(buf, 0, sizeof(PSEG) * seg_nr);
+	};
+	void init(void)
+	{
+		low = 0, high = buf_size - 1;
+		sort_count = 0;
+		data_size = 0;
+	}
+
+	void Push(SEG_TYPE* seg)
+	{
+		// 复制seg，完成第一次分类；
+//		DWORD pivot = 12;
+		if (seg->valid_blk_nr >= pth)
+		{
+			buf[high] = seg;
+			high--;
+		}
+		else
+		{
+			buf[low] = seg;
+			low++;
+		}
+		data_size++;
+	}
+
+	void Sort2(SEG_TYPE * segs)
+	{
+/*
+		DWORD pivot = 12;
+
+		// 复制seg，完成第一次分类；
+		size_t left = 0, right = buf_size - 1;
+		for (size_t ii = 0; ii < buf_size; ++ii)
+		{
+			//JCASSERT(left < right);
+			SEG_TYPE* seg = segs + ii;
+			if (seg->valid_blk_nr >= pivot)
+			{
+				buf[right] = seg;
+				right--;
+			}
+			else
+			{
+				buf[left] = seg;
+				left++;
+			}
+		}
+		//		wprintf_s(L"left=%lld, right=%lld\n", left, right);
+		//		out_data();
+
+		data_size = buf_size;
+		if (left >= N)
+		{
+			partial_qsort(0, left - 1);
+		}
+		else
+		{
+			partial_qsort(0, left - 1);
+			// 将高端与左边对其
+			partial_qsort(left, data_size - 1);
+		}
+		pop_ptr = 0;
+*/
+	}
+
+
+	void Sort(void)
+	{
+//		wprintf_s(L"start sorting: low part:%lld, high part:%lld\n", low, high);
+		if (low > 0) partial_qsort(0, low-1);
+		if (low < N )
+		{
+			// 将高端与左边对其
+			if (high >= low)
+			{
+				size_t tt = low;
+				for (size_t ii = high + 1; ii < buf_size; ++ii)		buf[tt++] = buf[ii];
+				data_size = tt;
+			}
+			else data_size = buf_size;
+
+			partial_qsort(low, data_size - 1);
+		}
+		pop_ptr = 0;
+		min_val = buf[0] ? buf[0]->valid_blk_nr : 0;
+		max_val = buf[N - 1] ? buf[N - 1]->valid_blk_nr : 0;
+//		wprintf_s(L"min value=%d, max value=%d\n", buf[0]->valid_blk_nr, buf[N-1]?buf[N-1]->valid_blk_nr:0);
+	}
+	~GcPoolQuick(void)
+	{
+		delete[] buf;
+	}
+
+
+	SEG_TYPE* Pop(void)
+	{
+		if (pop_ptr >= N) return nullptr;
+		SEG_TYPE* seg = buf[pop_ptr++];
+		return seg;
+	}
+	PSEG* get_buf(void)
+	{
+		return buf;
+	}
+	size_t get_seg_nr(void) { return data_size; }
+
+protected:
+	void out_data(size_t start=0, size_t end=0)
+	{
+		if (end == 0) end = buf_size;
+		wprintf_s(L"data (%lld - %lld): ", start, end-1);
+		for (size_t ii = start; ii < end; ++ii)
+		{
+			wprintf_s(L"%d, ", buf[ii]->valid_blk_nr);
+		}
+		wprintf_s(L"\n");
+	}
+
+#if 0
+	void partial_qsort(size_t left, size_t right, DWORD max, DWORD min)
+	{
+
+		if (left < right)
+		{
+			sort_count++;
+			if (left + 1 == right)
+			{
+				if (buf[left]->valid_blk_nr > buf[right]->valid_blk_nr)
+				{
+					SEG_TYPE* p = buf[left];
+					buf[left] = buf[right];
+					buf[right] = p;
+				}
+			}
+			else
+			{
+				//			wprintf_s(L"sort from %lld to %lld\n", left, right);
+				DWORD pivolt = 12;
+				if (pivolt > max || pivolt < min)
+				{
+					pivolt = buf[left]->valid_blk_nr;
+				}
+				size_t pi = partition(left, right, pivolt);
+
+				partial_qsort(left, pi, min, pivolt);
+
+
+				if (pi >= N)
+				{
+				}
+				else
+				{
+//					partial_qsort(left, pi);
+					partial_qsort(pi + 1, right, pivolt, max);
+				}
+				//			out_data(left, hight);
+			}
+		}
+	}
+	size_t partition(size_t left, size_t right, DWORD pivot)
+	{
+		size_t ll = left, rr = right;
+		//		SEG_TYPE* key = buf[left];
+		//		DWORD pivot = 12;
+		while (left < right)
+		{
+			while (buf[right]->valid_blk_nr >= pivot && right > left) right--;
+			while (buf[left]->valid_blk_nr < pivot && right > left) left++;
+			if (right > left)
+			{
+				SEG_TYPE* p = buf[left];
+				buf[left] = buf[right];
+				buf[right] = p;
+			}
+			//			wprintf_s(L"key=%d, left=%lld, right=%lld\n", pivot, left, right);
+			//			out_data(ll, rr+1);
+		}
+		return left;
+	}
+#else
+
+	void partial_qsort(size_t left, size_t right)
+	{
+		if (left < right)
+		{
+			sort_count++;
+			if (left + 1 == right)
+			{
+				if (buf[left]->valid_blk_nr > buf[right]->valid_blk_nr)
+				{
+					SEG_TYPE* p = buf[left];
+					buf[left] = buf[right];
+					buf[right] = p;
+				}
+			}
+			else
+			{
+				//			wprintf_s(L"sort from %lld to %lld\n", left, right);
+				size_t pi = partition(left, right);
+				wprintf_s(L"sorting: %lld (%d) to %lld (%d), pivot: %lld (%d)\n", 
+					left, buf[left]->valid_blk_nr, right, buf[right]->valid_blk_nr, pi, buf[pi]->valid_blk_nr);
+				partial_qsort(left, pi);
+				if (pi < N)
+				{
+					partial_qsort(pi + 1, right);
+				}
+				//			out_data(left, hight);
+			}
+		}
+	}
+	size_t partition(size_t left, size_t right)
+	{
+		size_t ll = left, rr = right;
+		SEG_TYPE* key = buf[left];
+		DWORD pivot = key->valid_blk_nr;
+		while (left < right)
+		{
+			while (buf[right]->valid_blk_nr >= pivot && right > left) right--;
+			if (right > left)
+			{
+				buf[left] = buf[right]; left++;
+				buf[right] = key;
+			}
+			while (buf[left]->valid_blk_nr < pivot && right > left) left++;
+			if (right > left)
+			{
+				buf[right] = buf[left]; right--;
+				buf[left] = key;
+			}
+	//			if (right > left) buf[left] = key;
+	//			wprintf_s(L"key=%d, left=%lld, right=%lld\n", pivot, left, right);
+	//			out_data(ll, rr+1);
+		}
+		return left;
+	}
+
+#endif
+
+protected:
+	PSEG* buf;
+	size_t buf_size, data_size;
+	size_t pop_ptr;
+
+
+public:
+// 用于性能测试
+	size_t low, high;
+	int sort_count=0;		// 调用qsort次数
+	DWORD min_val, max_val;
+	DWORD pth;
+};
+
+
+/// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 template <typename BLOCK_TYPE>
 class CSegmentManagerBase
