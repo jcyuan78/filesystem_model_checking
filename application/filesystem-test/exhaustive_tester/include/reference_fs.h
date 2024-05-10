@@ -76,7 +76,7 @@ public:
 		UINT m_children[MAX_CHILD_NUM];
 		UINT m_parent;		// 父节点id;
 		int m_depth;		// 目录深度
-		int m_write_count;	// 对于文件，写入次数
+		int m_write_count;	// 对于文件，写入次数，版本号
 
 		friend class CReferenceFs;
 	public:
@@ -123,6 +123,11 @@ public:
 		int len = m_files[0].m_encode_size;
 		memset(code, 0, sizeof(code));
 
+#if 1
+		memcpy_s(code, sizeof(DWORD) * S, encode, len);
+//		memset(code + len, 0, sizeof(code)-len);
+
+#else
 		DWORD* ptr = code;
 		size_t dst_len = 0;
 		DWORD mask = 1;
@@ -138,10 +143,11 @@ public:
 			}
 			mask <<= 1;
 		}
+#endif
 		return len;
 	}
 
-	void Encode(DWORD* code, size_t buf_len) const;
+//	void Encode(DWORD* code, size_t buf_len) const;
 	void GetEncodeString(std::string& str) const;
 
 protected:

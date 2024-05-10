@@ -63,19 +63,20 @@ protected:
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // == State heap and hash code
-
+#define CODE_SIZE (MAX_ENCODE_SIZE / 4)
+//#define CODE_SIZE (20)
 struct ENCODE
 {
-	DWORD code[20];
+	DWORD code[CODE_SIZE];
 	bool operator == (const ENCODE& e) const {
-		return memcmp(code, e.code, 20) == 0;
+		return memcmp(code, e.code, CODE_SIZE) == 0;
 	}
 };
 
 inline size_t hash_value(const ENCODE& e)
 {
 	size_t seed = 0;
-	for (int ii = 0; ii < 20; ++ii)	boost::hash_combine(seed, e.code[ii]);
+	for (int ii = 0; ii < CODE_SIZE; ++ii)	boost::hash_combine(seed, e.code[ii]);
 	return seed;
 }
 
@@ -83,7 +84,6 @@ class CStateHeap
 {
 public:
 	//比较state是否已经被检查过，如果是，则返回true，否者添加并返回false；
-	//bool CheckAndInsert(const CFsState* state);
 	bool Check(const CFsState* state);
 	void Insert(const CFsState* state);
 	size_t StateNr(void) const {
@@ -114,21 +114,17 @@ public:
 protected:
 	ERROR_CODE DoFsOperator(CFsState* cur_state, TRACE_ENTRY& op, std::list<CFsState*>::iterator& insert);
 
-	//	int TestCreate(CReferenceFs& ref, const std::wstring & path, const std::wstring & fn, bool isdir);
-	// 返回一个执行后的新的状态
-	//CFsState * TestCreate(CFsState * cur_state, const std::wstring& path, bool isdir);
-
 	ERROR_CODE TestCreateFile(CFsState* cur_state, const std::wstring& path);
 	ERROR_CODE TestCreateDir (CFsState* cur_state, const std::wstring& path);
-	ERROR_CODE TestWriteFile(CFsState * state, const std::wstring& path, FSIZE offset, FSIZE len);
+	ERROR_CODE TestWriteFile(CFsState * cur_state, const std::wstring& path, FSIZE offset, FSIZE len);
+	ERROR_CODE TestDeleteFile(CFsState* cur_state, const std::wstring& path);
 
-	int TestDelete(CFsState* state, CReferenceFs& ref, const std::wstring& path);
+//	int TestDelete(CFsState* state, CReferenceFs& ref, const std::wstring& path);
 	int TestMove(CFsState* state, CReferenceFs& ref, const std::wstring& path_src, const std::wstring& path_dst);
 	//	int TestMount(CLfsInterface* fs, CReferenceFs& ref);
 
 	//	bool TestPower(CLfsInterface* fs, CReferenceFs& ref);
 
-	int Rollback(CReferenceFs& ref, const TRACE_ENTRY* op);
 	//	DWORD AppendChecksum(DWORD cur_checksum, const char* buf, size_t size);
 	ERROR_CODE Verify(CFsState* cur_state);
 
@@ -136,12 +132,8 @@ protected:
 	bool EnumerateOp(CFsState * cur_state, std::list<CFsState*>::iterator & insert);
 
 	// for monitor thread
-	//DWORD Monitor(void);
 	static DWORD WINAPI _RunTest(PVOID p);
 	bool PrintProgress(INT64 ts);
-
-protected:
-
 
 protected:
 	// make fs, mount fs, 和unmount fs是可选项。暂不支持。
@@ -153,12 +145,6 @@ protected:
 protected:
 	// debug and monitor
 	void ShowStack(CFsState* cur_state);
-
-protected:
-	// state 内存管理里
-	//void InitStateBuf(size_t state_nr);
-	//CFsState* get_state(void);
-	//void put_state(CFsState* state);
 
 protected:
 	CStateManager m_states;
@@ -197,7 +183,7 @@ protected:
 	// log support
 	std::wstring m_log_path;
 	FILE* m_log_file = nullptr;
-	wchar_t m_log_buf[1024];
+	char m_log_buf[1024];
 
 
 	// 其他
@@ -247,22 +233,22 @@ protected:
 // ==== help functions ====
 
 #define TEST_LOG_SINGLE(...)  {\
-	swprintf_s(m_log_buf, __VA_ARGS__);	\
-	LOG_DEBUG(m_log_buf);	\
-	if (m_log_file) {fwprintf_s(m_log_file, L"%s\n", m_log_buf); \
+	sprintf_s(m_log_buf, __VA_ARGS__);	\
+	/*LOG_DEBUG(m_log_buf);*/	\
+	if (m_log_file) {fprintf_s(m_log_file, "%s\n", m_log_buf); \
 	fflush(m_log_file);} }
 
 #define TEST_LOG(...)  {\
-	swprintf_s(m_log_buf, __VA_ARGS__);	\
-	LOG_DEBUG(m_log_buf);	\
-	if (m_log_file) {fwprintf_s(m_log_file, m_log_buf); \
+	sprintf_s(m_log_buf, __VA_ARGS__);	\
+	/*LOG_DEBUG(m_log_buf);*/	\
+	if (m_log_file) {fprintf_s(m_log_file, m_log_buf); \
 	}}
 
 #define TEST_ERROR(...) {	\
-	swprintf_s(m_log_buf, __VA_ARGS__); \
-	if (m_log_file) {fwprintf_s(m_log_file, L"[err] %s\n", m_log_buf); fflush(m_log_file);}\
-	THROW_ERROR(ERR_USER, m_log_buf);	}
+	sprintf_s(m_log_buf, __VA_ARGS__); \
+	if (m_log_file) {fprintf_s(m_log_file, "[err] %s\n", m_log_buf); fflush(m_log_file);}\
+	/*THROW_ERROR(ERR_USER, m_log_buf);*/	}
 
 #define TEST_CLOSE_LOG {\
-	if (m_log_file) {fwprintf_s(m_log_file, L"\n"); \
+	if (m_log_file) {fprintf_s(m_log_file, "\n"); \
 	fflush(m_log_file); }}

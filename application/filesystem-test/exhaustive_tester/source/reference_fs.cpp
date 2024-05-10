@@ -17,6 +17,7 @@ OP_CODE StringToOpId(const std::wstring& str)
 	else if (str == L"CreateDir")	id = OP_CODE::OP_DIR_CREATE;
 	//else if (str == L"Append")		id = OP_CODE::APPEND_FILE;
 	else if (str == L"OverWrite")	id = OP_CODE::OP_FILE_WRITE;
+	else if (str == L"Write")		id = OP_CODE::OP_FILE_WRITE;
 	else if (str == L"DeleteFile")	id = OP_CODE::OP_FILE_DELETE;
 	else if (str == L"DeleteDir")	id = OP_CODE::OP_DIR_DELETE;
 	else if (str == L"Move")		id = OP_CODE::OP_MOVE;
@@ -130,27 +131,35 @@ void CReferenceFs::UpdateFile(const std::wstring & path, DWORD checksum, size_t 
 	{
 		THROW_ERROR(ERR_APP, L"[err] file not exist or dir");
 	}
-//	JCASSERT(pp);
-	pp->checksum = checksum;
-	pp->size = boost::numeric_cast<int>(len);
-	pp->m_write_count++;
+	UpdateFile(*pp, checksum, len);
 }
 
 void CReferenceFs::UpdateFile(CRefFile & file, DWORD checksum, size_t len)
 {
 	file.checksum = checksum;
 	file.size = boost::numeric_cast<int>(len);
+	file.m_write_count++;
+	// 更新encode
+	if (file.m_write_count <= 2) file.m_encode[0] = '0' + file.m_write_count;
+	else file.m_encode[0] = '2';
+	file.m_encode[1] = 0;
+	file.m_encode_size = 1;
+
+	UINT parent_id = file.m_parent;
+	CRefFile* parent = &m_files[parent_id];
+	while (1)
+	{
+		parent->UpdateEncode(m_files);
+		parent_id = parent->m_parent;
+		if (parent_id > MAX_FILE_NUM) break;
+		parent = m_files + parent_id;
+	}
 }
 
 const CReferenceFs::CRefFile & CReferenceFs::GetFile(CReferenceFs::CONST_ITERATOR & it) const
 {
 	return *(m_files+it->second);
 }
-
-//bool CReferenceFs::IsDir(const CRefFile & file) const
-//{
-//	return file.isdir();
-//}
 
 CReferenceFs::CRefFile * CReferenceFs::FindFile(const std::wstring & path)
 {
@@ -196,28 +205,6 @@ UINT CReferenceFs::FindFileIndex(const std::wstring & path)
 }
 
 
-void CReferenceFs::Encode(DWORD* code, size_t buf_len) const
-{
-	const char* encode = m_files[0].m_encode;
-	int len = m_files[0].m_encode_size;
-	memset(code, 0, sizeof(DWORD) * buf_len);
-
-	DWORD* ptr = code;
-	*ptr = LOWORD(len);
-	DWORD mask = 0x00010000;
-	for (int ii = 0; ii < len; ++ii)
-	{
-		if (encode[ii] == '1') (*ptr) |= mask;
-		
-		if (mask == 0x80000000)
-		{
-			mask = 1;
-			ptr++;
-		}
-		mask <<= 1;
-	}
-}
-
 void CReferenceFs::GetEncodeString(std::string& str) const
 {
 	str = m_files[0].m_encode;
@@ -225,6 +212,9 @@ void CReferenceFs::GetEncodeString(std::string& str) const
 
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#define ENCODE_TYPE 2
+
 void CReferenceFs::CRefFile::InitFile(UINT parent_id, CRefFile * parent, const std::wstring& path, bool isdir)
 {
 	m_parent = parent_id;
@@ -233,15 +223,25 @@ void CReferenceFs::CRefFile::InitFile(UINT parent_id, CRefFile * parent, const s
 	{
 		checksum = -1;	// 目录标志
 		size = 0;		// 每个dir一定有一个"."文件，用于区分文件的叶节点。
+#if ENCODE_TYPE==1
 		strcpy_s(m_encode, "0011");
 		m_encode_size = 4;
+#else
+		strcpy_s(m_encode, "[]");
+		m_encode_size = 2;
+#endif
 	}
 	else
 	{
 		checksum = 0;
 		size = 0;
+#if ENCODE_TYPE==1
 		strcpy_s(m_encode, "01");
 		m_encode_size = 2;
+#else
+		strcpy_s(m_encode, "0");
+		m_encode_size = 1;
+#endif
 	}
 	m_write_count = 0;
 	if (parent_id == (UINT)(-1)) m_depth = 0;
@@ -259,7 +259,12 @@ void CReferenceFs::CRefFile::UpdateEncode(CRefFile * files)
 	//对子节点排序
 	qsort_s(m_children, size, sizeof(UINT), CRefFile::CompareEncode, files);
 	char* ptr = m_encode;
-	*ptr = '0'; ptr++;
+#if ENCODE_TYPE==1
+	* ptr = '0';
+#else
+	*ptr = '['; 
+#endif
+	ptr++;
 	m_encode_size = 1;
 	for (UINT ii = 0; ii < size; ++ii)
 	{
@@ -272,8 +277,13 @@ void CReferenceFs::CRefFile::UpdateEncode(CRefFile * files)
 		ptr += len;
 	}
 	// 最后添加 .
+#if ENCODE_TYPE==1
 	memcpy_s(ptr, MAX_ENCODE_SIZE - m_encode_size, "011", 4);
 	m_encode_size+=3;
+#else
+	memcpy_s(ptr, MAX_ENCODE_SIZE - m_encode_size, "]", 2);
+	m_encode_size+=1;
+#endif
 }
 
 

@@ -15,6 +15,53 @@ CFsState::~CFsState(void)
 
 void CFsState::OutputState(FILE* log_file)
 {
+	// output ref fs
+	JCASSERT(log_file);
+
+	// 检查Encode
+	ENCODE encode;
+	int len = m_ref_fs.Encode(encode.code);
+	char* str_encode = (char*)(encode.code);
+
+	fprintf_s(log_file, "[REF FS]: encode={%s}\n", str_encode);
+	auto endit = m_ref_fs.End();
+	auto it = m_ref_fs.Begin();
+	for (; it != endit; it++)
+	{
+		const CReferenceFs::CRefFile& ref_file = m_ref_fs.GetFile(it);
+		std::wstring path;
+		m_ref_fs.GetFilePath(ref_file, path);
+		bool dir = m_ref_fs.IsDir(ref_file);
+		DWORD ref_checksum;
+		FSIZE ref_len;
+		m_ref_fs.GetFileInfo(ref_file, ref_checksum, ref_len);
+		fprintf_s(log_file, "<%s> %S : ", dir ? "dir " : "file", path.c_str());
+		if (dir)	fprintf_s(log_file, "children=%d\n", ref_checksum);
+		else		fprintf_s(log_file, "size=%d, checksum=0x%08X\n", ref_len, ref_checksum);
+
+	}
+//	if (m_cur_op == 0) return;	// 当前状态无效
+	// output op
+	TRACE_ENTRY& op = m_op;
+	const char* op_name = NULL;
+	char str_param[128] = "";
+	switch (op.op_code)
+	{
+	case OP_CODE::OP_NOP:			op_name = "none       ";	break;
+	case OP_CODE::OP_FILE_CREATE:	op_name = "create-file";	break;
+	case OP_CODE::OP_DIR_CREATE:	op_name = "create-dir ";	break;
+	case OP_CODE::OP_FILE_DELETE:	op_name = "delete-file";	break;
+	case OP_CODE::OP_DIR_DELETE:	op_name = "delete-dir ";	break;
+	case OP_CODE::OP_MOVE:			op_name = "move       ";	break;
+		//case OP_CODE::APPEND_FILE:	op_name = L"append     ";	break;
+	case OP_CODE::OP_FILE_WRITE:	op_name = "overwrite  ";
+		sprintf_s(str_param, "offset=%d, secs=%d", op.offset, op.length);
+		break;
+	case OP_CODE::OP_DEMOUNT_MOUNT:	op_name = "demnt-mount";	break;
+	default:						op_name = "unknown    ";	break;
+	}
+	fprintf_s(log_file, "op:(%d) [%s], path=%S, param: %s\n", op.op_sn, op_name, op.file_path.c_str(), str_param);
+	fprintf_s(log_file, "[END of REF FS]\n");
 }
 
 void CFsState::DuplicateFrom(CFsState* src_state)
@@ -137,7 +184,6 @@ int CExTester::PrepareTest(const boost::property_tree::wptree& config, IFsSimula
 	{
 		if (it->first != L"operater") continue;
 		const boost::property_tree::wptree& pt_op = it->second;
-		//		wprintf_s(L"name=%s, op=%s, attr=%s\n", it->first.c_str(), pt_op.get_value<std::wstring>().c_str(), pt_op.get<std::wstring>(L"<xmlattr>.name", L"none").c_str());
 		const std::wstring& str_op = pt_op.get<std::wstring>(L"<xmlattr>.name");
 		OP_CODE op_id = StringToOpId(str_op);
 		const std::wstring& str_cond = pt_op.get<std::wstring>(L"<xmlattr>.condition");
@@ -186,11 +232,9 @@ int CExTester::RunTest(void)
 		if (depth > max_depth) {
 			InterlockedExchange(&m_max_depth, depth);
 		}
-
 		// (2) 扩展当前状态，
 		auto it = m_open_list.begin();
 		EnumerateOp(cur_state, it);
-		
 		// (3) 移除当前状态      
 		m_states.put(cur_state);
 	}
@@ -236,7 +280,7 @@ DWORD WINAPI CExTester::_RunTest(PVOID p)
 	{
 		ir = ERR_GENERAL;
 		if (tester->m_log_file) {
-			fwprintf_s(tester->m_log_file, L"[err] test failed with exception (code=%d): %s", ir, err.WhatT());
+			fprintf_s(tester->m_log_file, "[err] test failed with exception (code=%d): %S", ir, err.WhatT());
 		}
 	}
 	catch (const std::exception& err)
@@ -291,7 +335,6 @@ void CExTester::GetTestSummary(boost::property_tree::wptree& pt_sum)
 	sum.add(L"max_memory", m_max_memory_cost);		//MB
 	size_t state = m_closed.size();
 	sum.add(L"state_closed", state);
-//	sum.add(L"state_searched", m_state_searched);
 	sum.add(L"max_depth", m_max_depth);
 	pt_sum.add_child(L"exhaustive_summary", sum);
 }
@@ -343,6 +386,7 @@ bool CExTester::EnumerateOp(CFsState* cur_state, std::list<CFsState*>::iterator&
 					}
 					break;
 
+
 				case OP_CODE::OP_MOVE:
 					break;
 				}
@@ -367,6 +411,13 @@ bool CExTester::EnumerateOp(CFsState* cur_state, std::list<CFsState*>::iterator&
 						DoFsOperator(cur_state, op, insert);
 					}
 					break;
+
+				case OP_CODE::OP_FILE_DELETE:
+					op.op_code = OP_FILE_DELETE;
+					op.file_path = path;
+					DoFsOperator(cur_state, op, insert);
+					break;
+
 				case OP_CODE::OP_MOVE:
 					break;
 				}
@@ -382,6 +433,7 @@ ERROR_CODE CExTester::DoFsOperator(CFsState* cur_state, TRACE_ENTRY& op, std::li
 	// 标准测试流程：
 	// (1) 复制测试状态，
 	CFsState* new_state = m_states.duplicate(cur_state);
+	new_state->m_op = op;
 	
 	// (2) 在新的测试状态上执行测试
 	ERROR_CODE ir = ERR_OK;
@@ -399,12 +451,14 @@ ERROR_CODE CExTester::DoFsOperator(CFsState* cur_state, TRACE_ENTRY& op, std::li
 		break;
 
 	case OP_FILE_DELETE:
+		ir = TestDeleteFile(new_state, op.file_path);
+		break;
+
 //	case OP_FILE_OVERWRITE:
 	case OP_DIR_DELETE:
 	case OP_MOVE:
 		break;
 	}
-	//Test();
 	// (3) 检查测试结果
 	if (ir != ERR_OK)
 	{
@@ -412,12 +466,17 @@ ERROR_CODE CExTester::DoFsOperator(CFsState* cur_state, TRACE_ENTRY& op, std::li
 		THROW_ERROR(ERR_APP, L"run test error, code=%d op=%d, file=%s, ", ir, op.op_code, op.file_path.c_str());
 		return ir;
 	}
+//	new_state->OutputState(m_log_file);
 	if (m_closed.Check(new_state))
 	{
+//		fprintf_s(m_log_file, "state existed => remove\n");
 		m_states.put(new_state);
 		return ERR_OK;
 	}
-	if (new_state) m_open_list.insert(insert, new_state);
+	if (new_state)
+	{
+		m_open_list.insert(insert, new_state);
+	}
 	return ir;
 }
 
@@ -426,7 +485,7 @@ ERROR_CODE CExTester::Verify(CFsState* cur_state)
 	ERROR_CODE err = ERR_OK;
 
 	LOG_STACK_TRACE();
-	TEST_LOG(L"[BEGIN VERIFY]\n");
+	TEST_LOG("[BEGIN VERIFY]\n");
 
 	CReferenceFs& ref = cur_state->m_ref_fs;
 	IFsSimulator* fs = cur_state->m_real_fs;
@@ -436,7 +495,6 @@ ERROR_CODE CExTester::Verify(CFsState* cur_state)
 //	TEST_LOG(L"\t encode=%S\n", str_encode.c_str());
 
 	size_t checked_file = 0, checked_total = 0;
-
 	auto endit = ref.End();
 	for (auto it = ref.Begin(); it != endit; ++it)
 	{
@@ -449,7 +507,6 @@ ERROR_CODE CExTester::Verify(CFsState* cur_state)
 		bool dir = ref.IsDir(ref_file);
 		ref_file.GetEncodeString(str_encode);
 //		TEST_LOG(L"\t<check %s> %s\\, (%S)", dir ? L"dir" : L"file", path.c_str(), str_encode.c_str());
-		//		std::wstring ff = path;
 		DWORD access = 0;
 		DWORD flag = 0;
 		if (dir) { flag |= FILE_FLAG_BACKUP_SEMANTICS; }
@@ -474,7 +531,7 @@ ERROR_CODE CExTester::Verify(CFsState* cur_state)
 			if (ref_len != file_secs)
 			{
 				err = ERR_WRONG_FILE_SIZE;
-				TEST_ERROR(L"file length does not match ref=%d, file=%d", ref_len, file_secs);
+				TEST_ERROR("file length does not match ref=%d, file=%d", ref_len, file_secs);
 				THROW_ERROR(ERR_APP, L"verify file failed, length does not match");
 			}
 
@@ -489,7 +546,6 @@ ERROR_CODE CExTester::Verify(CFsState* cur_state)
 						fid, ss, page->inode, page->offset);
 				}
 			}
-
 
 			//if (file_secs == 0)
 			//{	// 有可能是over write的roll back造成的，忽略比较
@@ -519,10 +575,9 @@ ERROR_CODE CExTester::Verify(CFsState* cur_state)
 		}
 		fs->FileClose(fid);
 //		TEST_LOG(L", closed");
-
 //		TEST_CLOSE_LOG;
 	}
-	TEST_LOG(L"[END VERIFY], total checked=%zd, file checked= %zd\n", checked_total, checked_file);
+	TEST_LOG("[END VERIFY], total checked=%zd, file checked= %zd\n", checked_total, checked_file);
 	return err;
 }
 
@@ -536,7 +591,7 @@ ERROR_CODE CExTester::TestCreateFile(CFsState* cur_state, const std::wstring& pa
 	ERROR_CODE err = ERR_OK;
 	// 检查自己点数量是否超标
 	// create full path name
-	TEST_LOG(L"[OPERATE ](%d) CREATE FILE, path=%s,", m_op_sn++, path.c_str());
+	TEST_LOG("[OPERATE ](%d) CREATE FILE, path=%S,", m_op_sn++, path.c_str());
 
 	std::wstring file_path = path;
 	bool create_result = false;
@@ -545,32 +600,49 @@ ERROR_CODE CExTester::TestCreateFile(CFsState* cur_state, const std::wstring& pa
 	{
 		create_result = true;
 		real_fs->FileClose(fid);
-		TEST_LOG(L", closed");
+		TEST_LOG(", closed");
 	}
 
 	// check if doubled name, update ref fs
 	if (ref.IsExist(path))
 	{	// 文件已经存在，要求返回false
-		TEST_LOG(L" existing file");
+		TEST_LOG(" existing file");
 //		err = OK_ALREADY_EXIST;
 		if (create_result)
 		{
 			err = ERR_CREATE_EXIST;
-			TEST_ERROR(L"create a file which is existed path=%s.", path.c_str());
+			TEST_ERROR("create a file which is existed path=%S.", path.c_str());
 		}
 	}
 	else
 	{	// create file in fs
-		TEST_LOG(L" new file");
+		TEST_LOG(" new file");
 		ref.AddPath(path, false);
 		if (!create_result)
 		{
 			err = ERR_CREATE;
-			TEST_ERROR(L"failed on creating file fn=%s", path.c_str());
+			TEST_ERROR("failed on creating file fn=%S", path.c_str());
 		}
 	}
 	TEST_CLOSE_LOG;
 
+	return err;
+}
+
+ERROR_CODE CExTester::TestDeleteFile(CFsState* cur_state, const std::wstring& path)
+{
+	JCASSERT(cur_state);
+	IFsSimulator* real_fs = cur_state->m_real_fs;
+	JCASSERT(real_fs);
+	CReferenceFs& ref = cur_state->m_ref_fs;
+
+	ERROR_CODE err = ERR_OK;
+	TEST_LOG("[OPERATE ](%d) DELETE FILE, path=%S,", m_op_sn++, path.c_str());
+
+	real_fs->FileDelete(path);
+	ref.RemoveFile(path);
+
+	TEST_CLOSE_LOG;
 	return err;
 }
 
@@ -584,7 +656,7 @@ ERROR_CODE CExTester::TestCreateDir(CFsState* cur_state, const std::wstring& pat
 	ERROR_CODE err = ERR_OK;
 	// 检查自己点数量是否超标
 	// create full path name
-	TEST_LOG(L"[OPERATE ](%d) CREATE DIR_, path=%s,", m_op_sn++, path.c_str());
+	TEST_LOG("[OPERATE ](%d) CREATE DIR_, path=%S,", m_op_sn++, path.c_str());
 
 	std::wstring file_path = path;
 	bool create_result = false;
@@ -598,22 +670,22 @@ ERROR_CODE CExTester::TestCreateDir(CFsState* cur_state, const std::wstring& pat
 	// check if doubled name, update ref fs
 	if (ref.IsExist(path))
 	{	// 文件已经存在，要求返回false
-		TEST_LOG(L" existing dir");
-		err = OK_ALREADY_EXIST;
+		TEST_LOG(" existing dir");
+		//err = OK_ALREADY_EXIST;
 		if (create_result)
 		{
 			err = ERR_CREATE_EXIST;
-			TEST_ERROR(L"create a file which is existed path=%s.", path.c_str());
+			TEST_ERROR("create a file which is existed path=%S.", path.c_str());
 		}
 	}
 	else
 	{	// create file in fs
-		TEST_LOG(L" new dir");
+		TEST_LOG(" new dir");
 		ref.AddPath(path, true);
 		if (!create_result)
 		{
 			err = ERR_CREATE;
-			TEST_ERROR(L"failed on creating file fn=%s", path.c_str());
+			TEST_ERROR("failed on creating file fn=%S", path.c_str());
 		}
 	}
 	TEST_CLOSE_LOG;
@@ -629,7 +701,7 @@ ERROR_CODE CExTester::TestWriteFile(CFsState* cur_state, const std::wstring& pat
 
 	ERROR_CODE err = ERR_OK;
 	//	len &= ~3;		// DWORD对齐
-	TEST_LOG(L"[OPERATE ](%d) WriteFile, path=%s, offset=%d, size=%d", m_op_sn++, path.c_str(), offset, len);
+	TEST_LOG("[OPERATE ](%d) WriteFile, path=%S, offset=%d, size=%d", m_op_sn++, path.c_str(), offset, len);
 
 	//	HANDLE file = CreateFile(path.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, 0);
 	FID fid = real_fs->FileOpen(path);
@@ -676,10 +748,10 @@ ERROR_CODE CExTester::TestWriteFile(CFsState* cur_state, const std::wstring& pat
 	DWORD checksum = fid;
 //	ref_file->m_pre_size = (int)cur_secs;
 	ref.UpdateFile(path, checksum, new_secs);
-	TEST_LOG(L"\t current size=%d, new size=%d", file_secs, new_secs);
+	TEST_LOG("\t current size=%d, new size=%d", file_secs, new_secs);
 	//CloseHandle(file);
 	real_fs->FileClose(fid);
-	TEST_LOG(L", closed");
+	TEST_LOG(", closed");
 
 	TEST_CLOSE_LOG;
 	return err;
