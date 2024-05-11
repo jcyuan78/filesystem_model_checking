@@ -99,17 +99,11 @@ public:
 	virtual int		remount_fs(struct super_block*, int*, char*) { return 0; };
 
 	virtual int		show_options(struct seq_file*, struct dentry*) { return 0; };
-//	virtual int		show_devname(struct seq_file*, struct dentry*) { return 0; };
-//	virtual int		show_path(struct seq_file*, struct dentry*) { return 0; };
-//	virtual int		show_stats(struct seq_file*, struct dentry*) { return 0; };
 #ifdef CONFIQUOTA
 	virtual ssize_t	quota_read(struct super_block*, int, char*, size_t, loff_t);
 	virtual ssize_t	quota_write(struct super_block*, int, const char*, size_t, loff_t);
 	virtual dquot** get_dquots(struct inode*);
 #endif
-	//virtual int	bdev_try_to_free_page(struct super_block*, struct page*, gfp_t);
-//	virtual long	nr_cached_objects(struct super_block*, struct shrink_control*) { return 0; };
-//	virtual long	free_cached_objects(struct super_block*, struct shrink_control*) { return 0; };
 
 public:
 
