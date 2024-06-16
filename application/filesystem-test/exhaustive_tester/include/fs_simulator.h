@@ -59,29 +59,35 @@ struct FsHealthInfo
 	UINT m_blk_nr;	// 总的block数量
 	UINT m_logical_blk_nr;			// 逻辑块总是。makefs时申请的逻辑块数量
 //	UINT m_free_seg;	// free segment：空闲的物理segmeng，用于GC的判断
-//	int m_free_blk;		// 空闲逻辑块数量。不是一个精确数值，初始值为允许的逻辑饱和度。当过量写的时候，可能导致负数。
+	UINT m_free_blk;		// 空闲逻辑块数量。不是一个精确数值，初始值为允许的逻辑饱和度。当过量写的时候，可能导致负数。
 
 	LONG64 m_total_host_write;	// 以块为单位，host的写入总量。（快的大小由根据文件系统调整，一般为4KB）
 	LONG64 m_total_media_write;	// 写入介质的数据总量，以block为单位
-	LONG64 m_media_write_node;
-	LONG64 m_media_write_data;
+	//LONG64 m_media_write_node;
+	//LONG64 m_media_write_data;
 
 	UINT m_logical_saturation;	// 逻辑饱和度。被写过的逻辑块数量，不包括metadata
 	UINT m_physical_saturation;	// 物理饱和度。有效的物理块数量，
 
 	UINT m_node_nr;		// inode, direct node的总数
 	UINT m_used_node;	// 被使用的node总数
+	UINT m_file_num, m_dir_num;		// 文件数量和目录数量
 };
 
 
-struct FsSpaceInfo
+struct FS_INFO
 {
+	FSIZE total_seg, free_seg;
 	FSIZE total_blks;
-	FSIZE used_blks;
+	FSIZE used_blks;	// 逻辑饱和度（有效block数量）
 	FSIZE free_blks;
+	FSIZE physical_blks;	// 物理饱和度
 
-	FSIZE max_file_nr;
-	FSIZE created_files;
+	UINT max_file_nr;	// 最大支持的文件数量
+//	UINT created_files;	// 目前文件系统中由多少各文件，包括目录，根目录
+	UINT dir_nr, file_nr;		// 目录数量和文件数量
+	LONG64 total_host_write;
+	LONG64 total_media_write;
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -103,7 +109,7 @@ public:
 	// 文件系统基本操作
 	virtual FID  FileCreate(const std::wstring& fn) = 0;
 	virtual FID  DirCreate(const std::wstring& fn) = 0;
-	virtual void FileOpen(FID fid, bool delete_on_close = false) = 0;
+//	virtual void FileOpen(FID fid, bool delete_on_close = false) = 0;
 	virtual FID  FileOpen(const std::wstring& fn, bool delete_on_close = false) = 0;
 	virtual void FileClose(FID fid) = 0;
 	// 设置和获取文件大小，以sector为单位。
@@ -119,11 +125,12 @@ public:
 	virtual void FileFlush(FID fid) = 0;
 	// 文件能够支持的最大长度（block单位）
 	virtual DWORD MaxFileSize(void) const = 0;
-	virtual void GetSpaceInfo(FsSpaceInfo& space_info) = 0;
+	virtual void GetFsInfo(FS_INFO& space_info) = 0;
 	
 	// 测试支持
 	// virtual bool CopyFrom(IFsSimulator* src) = 0;
 	virtual void Clone(IFsSimulator*& dst) = 0;
+	virtual void CopyFrom(const IFsSimulator* src) = 0;
 	virtual void GetHealthInfo(FsHealthInfo& info) const = 0;
 
 	virtual void DumpSegments(const std::wstring& fn, bool sanity_check) = 0;

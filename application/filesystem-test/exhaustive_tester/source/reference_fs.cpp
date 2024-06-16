@@ -46,6 +46,7 @@ void CReferenceFs::Initialize(const std::wstring & root_path)
 	m_files[MAX_FILE_NUM - 1].checksum = 0;
 	m_free_list = 1;
 	m_free_num = MAX_FILE_NUM;
+	m_dir_num = 1;		// 根目录
 }
 
 void CReferenceFs::CopyFrom(const CReferenceFs & src)
@@ -54,6 +55,8 @@ void CReferenceFs::CopyFrom(const CReferenceFs & src)
 	memcpy_s(m_files, sizeof(m_files), src.m_files, sizeof(m_files));
 	m_free_list = src.m_free_list;
 	m_free_num = src.m_free_num;
+	m_file_num = src.m_file_num;
+	m_dir_num = src.m_dir_num;
 }
 
 bool CReferenceFs::IsExist(const std::wstring & path)
@@ -77,15 +80,12 @@ bool CReferenceFs::AddPath(const std::wstring & path, bool dir)
 	else parent_fn = L"\\";
 
 	UINT parent_id = FindFileIndex(parent_fn);
-//	CRefFile * parent = FindFile(parent_fn);
 	if (parent_id > MAX_FILE_NUM )
 	{
 		LOG_ERROR(L"[err] the parent (%s) is not exist", parent_fn.c_str());
 		return false;
-
 	}
 	CRefFile * parent = &m_files[parent_id];
-//	JCASSERT(parent);
 	if (!parent->isdir())
 	{
 		LOG_ERROR(L"[err] the parent (%s) is not a dir!", parent_fn.c_str());
@@ -97,12 +97,13 @@ bool CReferenceFs::AddPath(const std::wstring & path, bool dir)
 	// 添加到父节点
 	parent->m_children[parent->size] = obj_id;
 	parent->size++;
+	if (dir) m_dir_num++;
+	else m_file_num++;
 
 	LOG_DEBUG(L"this = 0x%08p", this);
 	m_ref.insert(std::make_pair(path, obj_id));
 
 	// 更新encode
-	//while (parent != nullptr)
 	while (1)
 	{
 		parent->UpdateEncode(m_files);
@@ -175,10 +176,13 @@ void CReferenceFs::RemoveFile(const std::wstring & path)
 	UINT obj_id = FindFileIndex(path);
 	if (obj_id >= MAX_FILE_NUM) THROW_ERROR(ERR_APP, L"[err] file (%s) cannot find for remove", path.c_str());
 	CRefFile * obj = m_files + obj_id;
+	bool isdir = obj->isdir();
 
 	// 从父节点中删除文件
 	CRefFile * parent = &m_files[obj->m_parent];
 	parent->RemoveChild(obj_id);
+	if (isdir) m_dir_num--;
+	else m_file_num--;
 
 	// 更新encode
 	while (1)

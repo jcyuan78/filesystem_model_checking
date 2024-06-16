@@ -24,9 +24,9 @@ typedef void* DATA_BLK;
 //#define SECTOR_PER_BLOCK		(8)
 //#define SECTOR_PER_BLOCK_BIT	(3)
 
-#define BLOCK_PER_SEG			(512)			// 一个segment有多少块
+#define BLOCK_PER_SEG			(64)			// 一个segment有多少块
 #define BITMAP_SIZE				(16)			// 512 blocks / 32 bit
-#define SEG_NUM					(4096)
+#define SEG_NUM					(512)
 #define MAX_PAGE_NUM (SEG_NUM * BLOCK_PER_SEG)
 
 #define PAGE_NEXT_FREE	data_index
@@ -49,9 +49,7 @@ public:
 protected:
 	CPageInfo m_pages[MAX_PAGE_NUM];
 	INDEX m_free_ptr, m_used_nr;
-//	INDEX m_free_pages[MAX_PAGE_NUM];
 	UINT m_page_nr;
-//	UINT m_head_free;
 };
 
 // segment info：一个segment的信息
@@ -151,9 +149,6 @@ public:
 	}
 
 protected:
-
-	//inline void swap(SEG_TYPE*& a, SEG_TYPE*& b) { SEG_TYPE* c = a; a = b; b = c; }
-
 	void large_add(SEG_TYPE* key)
 	{
 		int cur = large_len;
@@ -169,20 +164,6 @@ protected:
 		large_heap[cur] = key;
 		large_len++;
 	}
-
-	//void small_add(int cur)
-	//{
-	//	while (cur > 0)
-	//	{	// 比较父节点
-	//		int pp = (cur - 1) / 2;
-	//		SEG_TYPE& ch = *small_heap[cur];
-	//		SEG_TYPE& fa = *small_heap[pp];
-	//		if (ch.valid_blk_nr >= fa.valid_blk_nr) break;
-	//		// 交换
-	//		swap(small_heap[cur], small_heap[pp]);
-	//		cur = pp;
-	//	}
-	//}
 
 	void large_heapify(SEG_TYPE* key)
 	{
@@ -210,23 +191,6 @@ protected:
 		large_heap[cur] = key;
 	}
 
-	//void small_heapify(void)
-	//{
-	//	int cur = 0;
-	//	while (1)
-	//	{
-	//		int left = cur * 2 + 1, right = left + 1;
-	//		int largest = cur;
-	//		if (left < small_len && (*small_heap[left]).valid_blk_nr < (*small_heap[largest]).valid_blk_nr)
-	//			largest = left;
-	//		if (right < small_len && (*small_heap[right]).valid_blk_nr < (*small_heap[largest]).valid_blk_nr)
-	//			largest = right;
-	//		if (largest == cur) break;
-	//		swap(small_heap[largest], small_heap[cur]);
-	//		cur = largest;
-	//	}
-	//}
-
 protected:
 	int large_len = 0, small_len = 0;		// 堆的有效长度
 	SEG_TYPE* large_heap[N]; //用于选出一定数量的segmeng
@@ -244,7 +208,6 @@ protected:
 class CF2fsSegmentManager
 {
 public:
-//	typedef CPageInfo* _BLK_TYPE;
 
 	CF2fsSegmentManager(void) { }
 	virtual ~CF2fsSegmentManager(void)
@@ -258,17 +221,10 @@ public:
 	// 查找一个空的segment
 	SEG_T AllocSegment(BLK_TEMP temp)
 	{
-		//if ((m_free_head == m_free_tail) || m_free_nr == 0)
 		if (m_free_nr == 0 || m_free_ptr == INVALID_BLK) { THROW_ERROR(ERR_APP, L"no enough free segment"); }
-//		SEG_T new_seg = m_free_segs[m_free_head];
 		SEG_T new_seg = m_free_ptr;
 		m_free_ptr = m_segments[new_seg].SEG_NEXT_FREE;
 		m_free_nr--;
-
-//		m_free_head++;
-//		if (m_free_head >= m_seg_nr) m_free_head = 0;
-//		m_free_nr--;
-//		InterlockedDecrement(&m_health_info->m_free_seg);
 
 		m_segments[new_seg].valid_blk_nr = 0;
 		m_segments[new_seg].seg_temp = temp;
@@ -279,9 +235,6 @@ public:
 	// 回收一个segment
 	void FreeSegment(SEG_T seg_id)
 	{
-//		m_free_tail++;
-//		if (m_free_tail >= m_seg_nr) m_free_tail = 0;
-//		if (m_free_tail == m_free_head) { THROW_ERROR(ERR_APP, L"free buffer full"); }
 		SEG_INFO& seg = m_segments[seg_id];
 
 		// 保留erase count
@@ -289,16 +242,13 @@ public:
 		memset(&seg, 0, sizeof(SEG_INFO));
 		seg.erase_count = erase_cnt;
 		seg.seg_temp = BT_TEMP_NR;
-//		seg.valid_blk_nr = 0;
 		seg.cur_blk = 0;
 
 		// 将seg放入free list中；
 		seg.SEG_NEXT_FREE = m_free_ptr;
 		m_free_ptr = seg_id;
 
-	//	m_free_segs[m_free_tail] = seg_id;
 		m_free_nr++;
-	//	InterlockedIncrement(&m_health_info->m_free_seg);
 	}
 
 	bool InvalidBlock(PHY_BLK phy_blk)
@@ -336,7 +286,6 @@ public:
 	{
 		if (m_free_nr < m_gc_lo) GarbageCollection(fs);
 	}
-//	virtual PHY_BLK WriteBlockToSeg(const _BLK_TYPE & lblk, BLK_TEMP temp);
 	// 将page写入磁盘
 	virtual PHY_BLK WriteBlockToSeg(CPageAllocator::INDEX page, bool by_gc=false);
 
@@ -348,16 +297,10 @@ public:
 	FILE* m_gc_trace;
 #endif
 
-protected:
-//	CInodeManager_* m_inodes = nullptr;
-
 public:	// 临时措施，需要考虑如何处理GcPool。(1)将GC作为算法器放入segment management中，(2)提供获取GcPool的接口
-	//SEG_INFO<CPageInfo *>* m_segments = nullptr;
 	SEG_INFO m_segments[SEG_NUM];
 protected:
 	// free
-	//SEG_T m_free_segs[SEG_NUM];
-	//SEG_T m_free_head = 0, m_free_tail = 0;
 	SEG_T m_free_nr, m_free_ptr;
 
 protected:

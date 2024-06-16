@@ -11,12 +11,17 @@
 #define INDEX_SIZE				(128)
 #define MAX_TABLE_SIZE			(128)
 
+#define NR_DENTRY_IN_BLOCK		(4)
+#define FN_SLOT_LEN				(4)
+#define MAX_DENTRY_LEVEL		(4)
+
+#define ROOT_FID				(0)
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // == inode and index node  ==
 // 用于记录一个实际的inode
 struct INODE
 {
-//	wchar_t fn[MAX_FILENAME_LEN];	// 文件名
 	UINT blk_num;		// 文件占用的块数
 	UINT file_size;		// 文件长度，字节单位
 	UINT ref_count;		
@@ -29,11 +34,10 @@ struct INDEX_NODE
 	CPageAllocator::INDEX index_table[MAX_TABLE_SIZE];
 };
 
-#define NODE_NEXT_FREE m_nid
 struct NODE_INFO
 {
 public:
-	enum NODE_TYPE { NODE_FREE, NODE_INODE, NODE_INDEX, } m_type;
+//	enum NODE_TYPE { NODE_FREE, NODE_INODE, NODE_INDEX, } m_type;
 	NID m_nid;
 	NID m_parent_node;
 	UINT valid_data;
@@ -41,6 +45,32 @@ public:
 	union {
 		INODE inode;
 		INDEX_NODE index;
+	};
+};
+
+struct DENTRY
+{
+	FID ino;
+	WORD hash;
+	WORD name_len;
+	BYTE file_type;
+};
+
+struct DENTRY_BLOCK
+{
+	DWORD bitmap;
+	char filenames[NR_DENTRY_IN_BLOCK][FN_SLOT_LEN];
+	DENTRY dentries[NR_DENTRY_IN_BLOCK];
+};
+
+#define NODE_NEXT_FREE node.m_nid
+struct BLOCK_DATA
+{
+	enum BLOCK_TYPE {BLOCK_FREE, BLOCK_INODE, BLOCK_INDEX, BLOCK_DENTRY} m_type;
+	union
+	{
+		NODE_INFO node;
+		DENTRY_BLOCK dentry;
 	};
 };
 
@@ -52,18 +82,20 @@ public:
 	typedef UINT _INDEX;
 public:
 	CBufferManager(void) {}
-	void Init(void) {
+	// 返回 root的 NODE
+	BLOCK_TYPE * Init(void) {
 		// 构建free list
 		for (UINT ii = 1; ii < MAX_NODE_NUM; ++ii)
 		{
-			//m_free_blk[ii] = ii;
 			m_data_buffer[ii].NODE_NEXT_FREE = ii + 1;
+			m_data_buffer[ii].m_type = BLOCK_DATA::BLOCK_FREE;
 		}
 		m_data_buffer[MAX_NODE_NUM - 1].NODE_NEXT_FREE = INVALID_BLK;
 		m_data_buffer[0].NODE_NEXT_FREE = 0;	// 保留第0号node
 		m_free_ptr = 1;
 		m_used_nr = 1;
-//		m_free_head = 1;
+		// FID = 0表示root
+		return m_data_buffer + 0;
 	}
 	_INDEX get_block(void)
 	{
@@ -71,14 +103,11 @@ public:
 		_INDEX index = m_free_ptr;
 		m_free_ptr = m_data_buffer[index].NODE_NEXT_FREE;
 		m_used_nr++;
-//		UINT index = m_free_blk[m_free_head++];
 		return index;
 	}
 	void put_block(_INDEX index)
 	{
-//		if (m_free_head <= 1) THROW_ERROR(ERR_APP, L"free block does not match");
-//		m_free_head--;
-//		m_free_blk[m_free_head] = index;
+		m_data_buffer[index].m_type = BLOCK_DATA::BLOCK_FREE;
 		m_data_buffer[index].NODE_NEXT_FREE = (NID)m_free_ptr;
 		m_free_ptr = index;
 		m_used_nr--;
@@ -86,7 +115,6 @@ public:
 public:
 	BLOCK_TYPE m_data_buffer[MAX_NODE_NUM];
 protected:
-	//UINT m_free_blk[MAX_NODE_NUM];
 	_INDEX m_free_ptr;
 	UINT m_used_nr;
 };
@@ -128,14 +156,14 @@ public:
 	virtual FID  DirCreate(const std::wstring& fn);
 
 	virtual void SetFileSize(FID fid, FSIZE secs) {}
-	virtual void FileWrite(FID fid, FSIZE offset, FSIZE secs);
+	virtual void FileWrite(FID fid, FSIZE offset, FSIZE len);
 	virtual void FileRead(std::vector<CPageInfo*>& blks, FID fid, FSIZE offset, FSIZE secs);
 	// 可以truncate部分文件
 	virtual void FileTruncate(FID fid, FSIZE offset, FSIZE secs);
 	virtual void FileDelete(const std::wstring & fn);
 	virtual void FileFlush(FID fid);
 	virtual void FileClose(FID fid);
-	virtual void FileOpen(FID fid, bool delete_on_close = false);
+	//virtual void FileOpen(FID fid, bool delete_on_close = false);
 	virtual FSIZE GetFileSize(FID fid);
 	virtual FID  FileOpen(const std::wstring& fn, bool delete_on_close = false);
 
@@ -144,6 +172,8 @@ public:
 	virtual bool Reset(void) { return false; }
 
 	virtual void Clone(IFsSimulator*& dst);
+	virtual void CopyFrom(const IFsSimulator* src);
+
 
 	virtual void DumpSegments(const std::wstring& fn, bool sanity_check);
 	virtual void DumpSegmentBlocks(const std::wstring& fn);
@@ -153,10 +183,11 @@ public:
 	virtual void DumpBlockWAF(const std::wstring& fn);
 
 	virtual void GetConfig(boost::property_tree::wptree& config, const std::wstring& config_name);
-	virtual DWORD MaxFileSize(void) const { return 10000; }
+	// 返回最大支持文件大小的block数量
+	virtual DWORD MaxFileSize(void) const { return MAX_TABLE_SIZE* MAX_TABLE_SIZE-10; }
 
 //	virtual void SetLogFolder(const std::wstring& fn);
-	virtual void GetSpaceInfo(FsSpaceInfo& space_info);
+	virtual void GetFsInfo(FS_INFO& space_info);
 	virtual void GetHealthInfo(FsHealthInfo& info) const {};
 
 #ifdef ENABLE_FS_TRACE
@@ -168,7 +199,28 @@ public:
 protected:
 	friend class CF2fsSegmentManager;
 
-	void FileRemove(FID fid);
+	NODE_INFO * FileOpenInternal(const char* fn);
+	// 在父目录中查找文件fn, 找到返回fid，找不到返回invalid_blk
+	FID FindFile(NODE_INFO& parent, const char* fn);
+
+	// pages: out 读取到的page_id，调用者申请内存
+	void FileReadInternal(CPageAllocator::INDEX *pages, NODE_INFO & inode, FSIZE start_blk, FSIZE end_blk);
+	void FileWriteInternal(NODE_INFO& inode, FSIZE start_blk, FSIZE end_blk, CPageAllocator::INDEX * pages);
+
+	inline WORD FileNameHash(const char* fn)
+	{
+		size_t seed = 0;
+		const char* p = fn;
+		while (*p != 0) {
+			boost::hash_combine(seed, *p); p++;
+		}
+		return ( (WORD)(seed & 0xFFFF) );
+	}
+
+	void AddChild(NODE_INFO* parent, const char* fn, FID inode);
+	void RemoveChild(NODE_INFO* parent, WORD hash, FID fid);
+	FID InternalCreatreFile(const std::wstring& fn, bool is_dir);
+	void FileRemove(NODE_INFO * inode);
 	// 计算block的实际温度，不考虑目前使用的算法。
 	BLK_TEMP GetBlockTemp(CPageInfo* page);
 	// 根据当前的算法计算block的温度。
@@ -185,14 +237,17 @@ protected:
 	// 在输出file map时，并连续的物理block
 	void DumpFileMap_merge(FILE* out, FID fid);
 
-	void InitInode(NODE_INFO* node, NID nid, CPageAllocator::INDEX page_id, CPageInfo * page)
+	void InitInode(BLOCK_DATA* block, NID nid, NID parent, CPageAllocator::INDEX page_id, CPageInfo * page)
 	{
-		memset(node, 0xFF, sizeof(NODE_INFO));
+		memset(block, 0xFF, sizeof(BLOCK_DATA));
+		block->m_type = BLOCK_DATA::BLOCK_INODE;
+
+		NODE_INFO* node = &(block->node);
 		node->m_nid = nid;
-		node->m_type = NODE_INFO::NODE_INODE;
 		node->valid_data = 0;
 		node->page_id = page_id;
-//		node->m_parent_node = INVALID_BLK;
+		node->m_parent_node = parent;
+
 		node->inode.blk_num = 0;
 		node->inode.file_size = 0;
 		node->inode.ref_count = 0;
@@ -203,11 +258,13 @@ protected:
 		page->dirty = true;
 	}
 
-	void InitIndexNode(NODE_INFO* node, NID nid, NID parent, CPageAllocator::INDEX page_id, CPageInfo * page)
+	void InitIndexNode(BLOCK_DATA* block, NID nid, NID parent, CPageAllocator::INDEX page_id, CPageInfo * page)
 	{
-		memset(node, 0xFF, sizeof(NODE_INFO));
+		memset(block, 0xFF, sizeof(BLOCK_DATA));
+		block->m_type = BLOCK_DATA::BLOCK_INDEX;
+
+		NODE_INFO* node = &(block->node);
 		node->m_nid = nid;
-		node->m_type = NODE_INFO::NODE_INDEX;
 		node->m_parent_node = parent;
 		node->valid_data = 0;
 		node->page_id = page_id;
@@ -217,12 +274,32 @@ protected:
 		page->dirty = true;
 	}
 
+	void InitDentry(BLOCK_DATA* block)
+	{
+		memset(block, 0xFF, sizeof(BLOCK_DATA));
+		block->m_type = BLOCK_DATA::BLOCK_DENTRY;
+		DENTRY_BLOCK& entries = block->dentry;
+		entries.bitmap = 0;
+
+	}
+
+	BLOCK_DATA* AllocateDentryBlock(CPageAllocator::INDEX & page_id);
+
 	inline NODE_INFO& get_inode(FID fid)
+	{
+		if (fid >= MAX_NODE_NUM) THROW_ERROR(ERR_APP, L"invalid fid number: %d", fid);
+		BLOCK_DATA & block = m_block_buf.m_data_buffer[fid];
+		if (block.m_type != BLOCK_DATA::BLOCK_INDEX && block.m_type != BLOCK_DATA::BLOCK_INODE) {
+			THROW_ERROR(ERR_APP, L"block[%d] is not a node block", fid);
+		}
+		return block.node;
+	}
+
+	inline BLOCK_DATA& get_block(FID fid)
 	{
 		if (fid >= MAX_NODE_NUM) THROW_ERROR(ERR_APP, L"invalid fid number: %d", fid);
 		return m_block_buf.m_data_buffer[fid];
 	}
-
 
 	// 文件系统状态变量（Clone时，需要复制的变量）
 protected:
@@ -233,22 +310,16 @@ protected:
 protected:
 	// 文件系统数据
 	CPageAllocator m_pages;
-//	CInodeManager_ m_inodes;
-	CBufferManager<NODE_INFO> m_block_buf;
+	typedef CBufferManager<BLOCK_DATA>	BLOCK_BUF_TYPE;
+	BLOCK_BUF_TYPE m_block_buf;
 
 protected:
-	std::map<std::wstring, FID> m_path_map;
-//	LBLK_T m_level_to_offset[MAX_INDEX_LEVEL];
 	int m_multihead_cnt = 0;
 	UINT m_node_blks = 0;	//使用的inode或index node的数量
 
 	// data for log
-	size_t m_write_count = 0;
-//	SEG_T m_gc_th_low, m_gc_th_hi;
+//	size_t m_write_count = 0;
 	// 对于删除文件的写入量统计。
-	//UINT64 m_truncated_host_write[BT_TEMP_NR];
-	//UINT64 m_truncated_media_write[BT_TEMP_NR];
-
 
 protected:
 	// log和统计信息
@@ -262,7 +333,7 @@ protected:
 	FILE* m_inode_trace = nullptr;
 #endif
 
-	UINT m_file_num = 0;						// 总的有效文件数量；
-	int m_free_blks = 0;
+	//UINT m_file_num = 0;						// 总的有效文件数量；
+	//int m_free_blks = 0;
 };
 

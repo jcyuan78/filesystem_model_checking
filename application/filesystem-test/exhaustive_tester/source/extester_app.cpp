@@ -99,22 +99,13 @@ int CExhaustiveTesterApp::Run(void)
 	if (m_searching_depth != 0)	{	test_config.put(L"depth", m_searching_depth);	}
 
 	const std::wstring& test_type = test_config.get<std::wstring>(L"type");
-//	else if (test_type == L"f2fs_test")
-	{
-//		CF2fsSimulator* fs = jcvos::CDynamicInstance<CF2fsSimulator>::Create();
-		jcvos::auto_ptr<CF2fsSimulator> lfs(new CF2fsSimulator);
-//		lfs->SetLogFolder(m_test_id);
-		lfs->Initialzie(fs_config, m_test_id);
-//		FsTest(test_config, lfs);
-		CExTester tester;
-		tester.PrepareTest(test_config, lfs, m_test_id );
-		tester.StartTest();
+	jcvos::auto_ptr<CF2fsSimulator> lfs(new CF2fsSimulator);
+	lfs->Initialzie(fs_config, m_test_id);
+	CExTester tester;
+	tester.PrepareTest(test_config, lfs, m_test_id );
+	tester.StartTest();
 
-
-		tester.GetTestSummary(m_test_summary);
-
-//		RELEASE(fs);
-	}
+	tester.GetTestSummary(m_test_summary);
 	// 保存测试的配置结果
 	std::string str_log_fn;
 	jcvos::UnicodeToUtf8(str_log_fn, m_test_id + L"\\config.xml");
@@ -123,6 +114,4 @@ int CExhaustiveTesterApp::Run(void)
 	jcvos::UnicodeToUtf8(str_log_fn, m_test_id + L"\\summary.json");
 	boost::property_tree::json_parser::write_json(str_log_fn, m_test_summary);
 	return 0;
-
-
 }

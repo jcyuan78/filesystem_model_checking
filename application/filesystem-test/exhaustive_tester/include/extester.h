@@ -34,6 +34,8 @@ public:
 	CReferenceFs m_ref_fs;
 	IFsSimulator* m_real_fs = nullptr;
 	TRACE_ENTRY m_op;		// 上一个操作如何执行到这一步
+	CFsState* m_parent = nullptr;
+	UINT m_ref=0;			// 被参考的子节点数量。
 	int m_depth;			// 搜索深度
 
 public:
@@ -58,7 +60,8 @@ public:
 	void put(CFsState* &state);
 	CFsState* duplicate(CFsState* state);
 protected:
-	//std::vector<
+	CFsState* m_free_list=nullptr;		// 被回收的 note 存放在这里
+	size_t m_free_nr=0;
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -134,6 +137,7 @@ protected:
 	// for monitor thread
 	static DWORD WINAPI _RunTest(PVOID p);
 	bool PrintProgress(INT64 ts);
+	bool OutputTrace(CFsState* state);
 
 protected:
 	// make fs, mount fs, 和unmount fs是可选项。暂不支持。
@@ -149,6 +153,7 @@ protected:
 protected:
 	CStateManager m_states;
 	std::list<CFsState*> m_open_list;
+	std::list<CFsState*> m_closed_list;		// 用于回溯找trace
 	CStateHeap m_closed;
 
 protected:
@@ -175,19 +180,24 @@ protected:
 	DWORD m_test_thread_id;
 	HANDLE m_test_thread;
 	HANDLE m_test_event;
+	CFsState* m_cur_state = nullptr;
 
 	float m_max_memory_cost = 0;		// 最大内存使用量
 	LONG m_max_depth = 0;
 
+	// 文件系统性能（所有状态节点中最大的）
+	UINT m_total_item_num = 0, m_file_num=0;			// 总文件,目录数量 , 
+	UINT m_logical_blks = 0, m_physical_blks = 0, m_total_blks, m_free_blks = -1;	// 逻辑饱和度，物理饱和度，空闲块
+	LONG64 m_host_write=0, m_media_write=0;
 
 	// log support
 	std::wstring m_log_path;
 	FILE* m_log_file = nullptr;
 	char m_log_buf[1024];
 
-
 	// 其他
 	IFsSimulator* m_fs_factory = nullptr;		// 这里的fs作为文件系统初始状态，以及的factory，用于创建文件测试用的文件系统。
+
 
 /*
 	// 参数，选项

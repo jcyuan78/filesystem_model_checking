@@ -8,7 +8,7 @@ typedef UINT FSIZE;
 
 
 #define	MAX_DEPTH		(500)
-#define MAX_PATH_SIZE	(31)
+#define MAX_PATH_SIZE	(63)
 #define MAX_FILE_NUM	(256)
 #define MAX_CHILD_NUM	(64)
 
@@ -64,8 +64,7 @@ public:
 	class CRefFile
 	{
 	protected:
-		FSIZE size;			// 对于文件，size表示文件大小，对于目录，size表示子项的数量
-//		int m_pre_size;		// 修改文件前的大小。
+		FSIZE size;				// 对于文件，size表示文件大小，对于目录，size表示子项的数量
 		UINT checksum;			// 对于文件，文件的checksum；对于目录，-1; 等文件无效时，checksum作为free链表指针使用；
 
 		wchar_t m_fn[MAX_PATH_SIZE+1];
@@ -75,7 +74,7 @@ public:
 		// 构造树结构。这个树结构需要复制，这里只能使用index代替指针
 		UINT m_children[MAX_CHILD_NUM];
 		UINT m_parent;		// 父节点id;
-		int m_depth;		// 目录深度
+		UINT m_depth;		// 目录深度
 		int m_write_count;	// 对于文件，写入次数，版本号
 
 		friend class CReferenceFs;
@@ -125,7 +124,6 @@ public:
 
 #if 1
 		memcpy_s(code, sizeof(DWORD) * S, encode, len);
-//		memset(code + len, 0, sizeof(code)-len);
 
 #else
 		DWORD* ptr = code;
@@ -157,6 +155,7 @@ public:
 	CONST_ITERATOR Begin() const { return m_ref.begin(); }
 	CONST_ITERATOR End() const { return m_ref.end(); }
 	const CRefFile & GetFile(CONST_ITERATOR & it) const;
+	UINT m_file_num=0, m_dir_num=0; // 文件数量和目录数量
 
 protected:
 	// 对于文件，UINT64存放length | checksum, 对于dir，存放子目录数量

@@ -31,11 +31,11 @@ PHY_BLK CF2fsSegmentManager::WriteBlockToSeg(CPageAllocator::INDEX _pp, bool by_
 	seg.cur_blk++;
 
 	InterlockedIncrement64(&m_health_info->m_total_media_write);
-	InterlockedDecrement((UINT*)(&m_fs->m_free_blks));
+	InterlockedDecrement(&m_health_info->m_free_blk);
 	InterlockedIncrement(&m_health_info->m_physical_saturation);
 
-	if (page->type == CPageInfo::PAGE_NODE) m_health_info->m_media_write_node++;
-	else m_health_info->m_media_write_data++;
+	//if (page->type == CPageInfo::PAGE_NODE) m_health_info->m_media_write_node++;
+	//else m_health_info->m_media_write_data++;
 
 	SEG_T tar_seg = cur_seg_id;
 	BLK_T tar_blk = blk_id;
@@ -97,7 +97,7 @@ void CF2fsSegmentManager::GarbageCollection(CF2fsSimulator* fs)
 			CPageAllocator::INDEX _pblk = src_seg->blk_map[bb];
 			CPageInfo* blk = m_pages->page(_pblk);
 			if (blk == nullptr) continue;
-			JCASSERT(blk->inode);
+//			JCASSERT(blk->inode);	inode 0 被用于root，不用检查
 			// 注意：GC不应该改变block的温度，这里做一个检查
 			BLK_TEMP before_temp = blk->ttemp;
 			WriteBlockToSeg(_pblk, true);
@@ -193,7 +193,7 @@ bool CF2fsSegmentManager::InvalidBlock(SEG_T seg_id, BLK_T blk_id)
 		FreeSegment(seg_id);
 		free_seg = true;
 	}
-	InterlockedIncrement((UINT*)(&m_fs->m_free_blks));
+	InterlockedIncrement(&m_health_info->m_free_blk);
 	InterlockedDecrement(&m_health_info->m_physical_saturation);
 	return free_seg;
 }
