@@ -7,7 +7,7 @@
 #include <boost/property_tree/json_parser.hpp>
 
 #ifdef _DEBUG
-#include <vld.h>
+//#include <vld.h>
 #endif
 
 LOCAL_LOGGER_ENABLE(L"simulation.app", LOGGER_LEVEL_DEBUGINFO);
@@ -23,6 +23,7 @@ ARGU_DEF(L"config", 'c', m_config_file, L"configuration file name")
 ARGU_DEF(L"test_id", 't', m_test_id, L"test id for generating log and result")
 ARGU_DEF(L"multihead", 'm', m_multihead_cnt, L"number of head count for mulithead log")
 ARGU_DEF(L"depth", 'd', m_searching_depth, L"max depth for searching")
+ARGU_DEF(L"thread", 'r', m_thread_num, L"thread number for searching")
 //ARGU_DEF(L"target", 't', m_root, L"target folder to test, like D:, D:\\test")
 END_ARGU_DEF_TABLE()
 
@@ -97,6 +98,7 @@ int CExhaustiveTesterApp::Run(void)
 	// 参数覆盖配置文件
 	if (m_multihead_cnt != 0)	{	fs_config.put(L"multi_header_num", m_multihead_cnt);	}
 	if (m_searching_depth != 0)	{	test_config.put(L"depth", m_searching_depth);	}
+	if (m_thread_num > 0)		{	test_config.put(L"thread_num", m_thread_num); }
 
 	const std::wstring& test_type = test_config.get<std::wstring>(L"type");
 	jcvos::auto_ptr<CF2fsSimulator> lfs(new CF2fsSimulator);

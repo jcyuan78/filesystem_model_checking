@@ -1,8 +1,10 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma once
 #include "fs_simulator.h"
+#include "config.h"
 
 class CF2fsSimulator;
+class CPageInfo;
 
 //#define ENABLE_FS_TRACE
 
@@ -13,87 +15,64 @@ class CF2fsSimulator;
 
 typedef DWORD SEG_T;
 typedef DWORD BLK_T;
-typedef DWORD FID;
-typedef DWORD NID;		// node id
+//typedef WORD NID;		// node id
 typedef void* DATA_BLK;
 
-//#define MAX_TABLE_SIZE			128
-#define MAX_FILENAME_LEN		8
-#define MAX_NODE_NUM			4096
+class CStorage;
+class CPageAllocator;
 
-//#define SECTOR_PER_BLOCK		(8)
-//#define SECTOR_PER_BLOCK_BIT	(3)
-
-#define BLOCK_PER_SEG			(64)			// 一个segment有多少块
-#define BITMAP_SIZE				(16)			// 512 blocks / 32 bit
-#define SEG_NUM					(512)
-#define MAX_PAGE_NUM (SEG_NUM * BLOCK_PER_SEG)
-
-#define PAGE_NEXT_FREE	data_index
-
-class CPageAllocator
-{
-public:
-	typedef UINT INDEX;
-	CPageAllocator(void);
-	~CPageAllocator(void);
-
-public:
-	void Init(size_t page_nr);
-	INDEX get_page(void);
-	void put_page(INDEX index);
-
-	inline CPageInfo* page(INDEX index) {
-		return (index>=m_page_nr)?nullptr:(m_pages + index); }
-
-protected:
-	CPageInfo m_pages[MAX_PAGE_NUM];
-	INDEX m_free_ptr, m_used_nr;
-	UINT m_page_nr;
-};
 
 // segment info：一个segment的信息
-#define SEG_NEXT_FREE	valid_blk_nr
-class SEG_INFO
+#define SEG_NEXT_FREE	cur_blk
+struct SEG_INFO
 {
 public:
-	CPageAllocator::INDEX blk_map[BLOCK_PER_SEG];
+	// block存放在storage中，
 	DWORD valid_bmp[BITMAP_SIZE];
-	DWORD valid_blk_nr;		// 当segment free的时候，作为free链表的指针使用。
+	DWORD valid_blk_nr;		// 当segment free的时候，作为free链表的指针使用。valid_blk_nr == INVALID_BLK 表示block为free，可以再分配
 	DWORD cur_blk;			// 可以分配的下一个block, 0:表示这个segment未被使用，BLOCK_PER_SEG：表示已经填满，其他：当前segment
+							// 当block free时， cur_blk表示free指针
 	BLK_TEMP seg_temp;		// 指示segment的温度，用于GC和
-	DWORD erase_count;
 };
 
-inline void BlockToSeg(SEG_T& seg_id, BLK_T& blk_id, PHY_BLK phy_blk)
+struct SIT_BLOCK
 {
-	if (phy_blk == INVALID_BLK)
-	{
-		seg_id = INVALID_BLK;
-		blk_id = INVALID_BLK;
-	}
-	else
-	{
-		seg_id = phy_blk / BLOCK_PER_SEG;
-		blk_id = phy_blk % BLOCK_PER_SEG;
-	}
-}
+	SEG_INFO sit_entries[SIT_ENTRY_PER_BLK];
+};
 
-inline PHY_BLK PhyBlock(SEG_T seg_id, BLK_T blk_id)
+struct SUMMARY
 {
-	return seg_id * BLOCK_PER_SEG + blk_id;
-}
+	NID nid;
+	WORD offset;
+};
 
-inline DWORD OffsetToBlock(LBLK_T& start_blk, LBLK_T& end_blk, UINT start_lba, UINT secs)
+struct SUMMARY_BLOCK
+{
+	SUMMARY entries[SUMMARY_PER_BLK];
+};
+
+class SegmentInfo
+{
+public:
+	DWORD valid_bmp[BITMAP_SIZE];
+	UINT valid_blk_nr;		// 当segment free的时候，作为free链表的指针使用。valid_blk_nr == INVALID_BLK 表示block为free，可以再分配
+	DWORD cur_blk;			// 可以分配的下一个block, 0:表示这个segment未被使用，BLOCK_PER_SEG：表示已经填满，其他：当前segment
+	// 当block free时， cur_blk表示free指针
+	BLK_TEMP seg_temp;		// 指示segment的温度，用于GC和
+	SEG_T	seg_id;			// segment的编号，仅用于fs
+	NID		nids[BLOCK_PER_SEG];
+	WORD	offset[BLOCK_PER_SEG];
+};
+
+inline DWORD OffsetToBlock(LBLK_T& start_blk, LBLK_T& end_blk, FSIZE start_lba, FSIZE secs)
 {
 	// lba => block
-	UINT end_lba = start_lba + secs;
+	FSIZE end_pos = start_lba + secs;
 	start_blk = (LBLK_T)(start_lba / BLOCK_SIZE);
-	end_blk = (LBLK_T)ROUND_UP_DIV(end_lba, BLOCK_SIZE);
+	end_blk = (LBLK_T)ROUND_UP_DIV(end_pos, BLOCK_SIZE);
 	DWORD blk_nr = end_blk - start_blk;
 	return blk_nr;
 }
-
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // == segment manager ==
@@ -198,87 +177,40 @@ protected:
 	int pop_ptr;
 };
 
-
-
-
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// == segment manager ==
-
-
+// == segment manager : 内存中的segment管理 ==
 class CF2fsSegmentManager
 {
 public:
+	CF2fsSegmentManager(CF2fsSimulator* fs);
+	~CF2fsSegmentManager(void)	{}
+	void CopyFrom(const CF2fsSegmentManager& src);
+	bool InitSegmentManager(SEG_T segment_nr, SEG_T gc_lo, SEG_T gc_hi);
+	void Reset(void);
 
-	CF2fsSegmentManager(void) { }
-	virtual ~CF2fsSegmentManager(void)
-	{
-		//delete[] m_free_segs;
-		//delete[] m_segments;
-	}
-	void CopyFrom(const CF2fsSegmentManager& src, CF2fsSimulator * fs);
-	
+public:
+	// 将必要的数据保存到Storage
+	void Sync(void);
+	// 从storage中读取 
+	bool Load(void);
+
 public:
 	// 查找一个空的segment
-	SEG_T AllocSegment(BLK_TEMP temp)
-	{
-		if (m_free_nr == 0 || m_free_ptr == INVALID_BLK) { THROW_ERROR(ERR_APP, L"no enough free segment"); }
-		SEG_T new_seg = m_free_ptr;
-		m_free_ptr = m_segments[new_seg].SEG_NEXT_FREE;
-		m_free_nr--;
-
-		m_segments[new_seg].valid_blk_nr = 0;
-		m_segments[new_seg].seg_temp = temp;
-		m_segments[new_seg].erase_count++;
-		return new_seg;
-	}
+	SEG_T AllocSegment(BLK_TEMP temp);
 
 	// 回收一个segment
-	void FreeSegment(SEG_T seg_id)
-	{
-		SEG_INFO& seg = m_segments[seg_id];
-
-		// 保留erase count
-		DWORD erase_cnt = seg.erase_count;
-		memset(&seg, 0, sizeof(SEG_INFO));
-		seg.erase_count = erase_cnt;
-		seg.seg_temp = BT_TEMP_NR;
-		seg.cur_blk = 0;
-
-		// 将seg放入free list中；
-		seg.SEG_NEXT_FREE = m_free_ptr;
-		m_free_ptr = seg_id;
-
-		m_free_nr++;
-	}
-
-	bool InvalidBlock(PHY_BLK phy_blk)
-	{
-		if (phy_blk == INVALID_BLK) return false;
-		SEG_T seg_id; BLK_T blk_id;
-		BlockToSeg(seg_id, blk_id, phy_blk);
-		return InvalidBlock(seg_id, blk_id);
-	}
-
+	void FreeSegment(SEG_T seg_id);
+	bool InvalidBlock(PHY_BLK phy_blk);
 	bool InvalidBlock(SEG_T seg_id, BLK_T blk_id);
 
-	virtual bool InitSegmentManager(CF2fsSimulator* fs, SEG_T segment_nr, SEG_T gc_lo, SEG_T gc_hi/*, int init = 0*/);
-
 	// 将src_seg, src_blk中的block，移动到temp相关的当前segment，返回目标(segment,block)
-
-	SEG_T get_seg_nr(void) const { return m_seg_nr; }
+	SEG_T get_seg_nr(void) const { return MAIN_SEG_NR; }
 	SEG_T get_free_nr(void) const { return m_free_nr; }
-	const SEG_INFO& get_segment(SEG_T id) const
-	{
-		JCASSERT(id < m_seg_nr);
-		return m_segments[id];
-	}
 
-	CPageAllocator::INDEX get_block(PHY_BLK phy_blk)
+	const SegmentInfo& get_segment(SEG_T id) const
 	{
-		SEG_T seg_id; BLK_T blk_id;
-		BlockToSeg(seg_id, blk_id, phy_blk);
-		SEG_INFO& seg = m_segments[seg_id];
-		return seg.blk_map[blk_id];
+		JCASSERT(id < MAIN_SEG_NR);
+		return m_segments[id];
 	}
 
 	// 写入data block到segment, file_index 文件id, blk：文件中的相对block，temp温度
@@ -287,9 +219,9 @@ public:
 		if (m_free_nr < m_gc_lo) GarbageCollection(fs);
 	}
 	// 将page写入磁盘
-	virtual PHY_BLK WriteBlockToSeg(CPageAllocator::INDEX page, bool by_gc=false);
+	PHY_BLK WriteBlockToSeg(CPageInfo * page, bool by_gc=false);
 
-	virtual void GarbageCollection(CF2fsSimulator * fs);
+	void GarbageCollection(CF2fsSimulator * fs);
 	void DumpSegmentBlocks(const std::wstring& fn);
 
 	friend class CF2fsSimulator;
@@ -297,20 +229,60 @@ public:
 	FILE* m_gc_trace;
 #endif
 
+	// 一下两段数据是需要保存的
 public:	// 临时措施，需要考虑如何处理GcPool。(1)将GC作为算法器放入segment management中，(2)提供获取GcPool的接口
-	SEG_INFO m_segments[SEG_NUM];
+//	SEG_INFO m_segments[MAIN_SEG_NR];
+	SegmentInfo m_segments[MAIN_SEG_NR];
 protected:
+//	SIT_BLOCK m_sit[SIT_ENTRY_PER_BLK];
+	SEG_T m_cur_segs[BT_TEMP_NR];
+	SEG_T m_gc_lo, m_gc_hi;
+
+protected:
+	void build_free_link(void);
 	// free
 	SEG_T m_free_nr, m_free_ptr;
 
+public:
+	inline static UINT seg_to_lba(SEG_T seg, SEG_T blk)
+	{
+		return ((MAIN_SEG_OFFSET + seg) * BLOCK_PER_SEG + blk);
+	}
+
+	inline static void BlockToSeg(SEG_T& seg_id, BLK_T& blk_id, PHY_BLK phy_blk)
+	{
+		if (phy_blk == INVALID_BLK)	{seg_id = INVALID_BLK;				blk_id = INVALID_BLK;	}
+		else						{seg_id = phy_blk / BLOCK_PER_SEG;	blk_id = phy_blk % BLOCK_PER_SEG;	}
+	}
+
+	inline static PHY_BLK PhyBlock(SEG_T seg_id, BLK_T blk_id)
+	{
+		return seg_id * BLOCK_PER_SEG + blk_id;
+	}
+
+	inline static UINT phyblk_to_lba(PHY_BLK phy_blk)
+	{
+		return phy_blk + MAIN_SEG_OFFSET * BLOCK_PER_SEG;
+	}
+
+	// SIT entry的dirty标志，一个bit表示一个SIT entry。一个DWORD表示一个SIT block。
+	DWORD m_dirty_map[SIT_BLK_NR];
+
 protected:
 	CF2fsSimulator* m_fs;
+	CStorage* m_storage;
+	// system cache manager
 	CPageAllocator* m_pages;
 
-	SEG_T m_cur_segs[BT_TEMP_NR];
-	SEG_T m_seg_nr = 0;
-	SEG_T m_gc_lo, m_gc_hi;
-
-private:
+protected:
 	FsHealthInfo* m_health_info = nullptr;
+
+
+	// for debug
+public:
+#ifdef GC_TRACE
+	std::vector<GC_TRACE> gc_trace;
+#endif
 };
+
+const char* BLK_TEMP_NAME[];

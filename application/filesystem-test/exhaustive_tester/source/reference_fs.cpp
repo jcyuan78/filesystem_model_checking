@@ -23,6 +23,7 @@ OP_CODE StringToOpId(const std::wstring& str)
 	else if (str == L"Move")		id = OP_CODE::OP_MOVE;
 	else if (str == L"Mount")		id = OP_CODE::OP_DEMOUNT_MOUNT;
 	else if (str == L"PowerCycle")	id = OP_CODE::OP_POWER_OFF_RECOVER;
+	else if (str == L"Verify")		id = OP_CODE::OP_FILE_VERIFY;
 	else							id = OP_CODE::OP_NOP;
 	return id;
 }
@@ -31,11 +32,11 @@ OP_CODE StringToOpId(const std::wstring& str)
 //== Reference file system ==
 
 
-void CReferenceFs::Initialize(const std::wstring & root_path)
+void CReferenceFs::Initialize(const std::string & root_path)
 {
 	memset(m_files, 0, sizeof(m_files));
 	// add root
-	m_files[0].InitFile(-1, nullptr, root_path, true);
+	m_files[0].InitFile(-1, nullptr, root_path, true, 0);
 	m_ref.insert(std::make_pair(m_files[0].m_fn, 0));
 
 	for (UINT32 ii = 1; ii < MAX_FILE_NUM; ++ii)
@@ -59,13 +60,13 @@ void CReferenceFs::CopyFrom(const CReferenceFs & src)
 	m_dir_num = src.m_dir_num;
 }
 
-bool CReferenceFs::IsExist(const std::wstring & path)
+bool CReferenceFs::IsExist(const std::string & path)
 {
 	auto it= m_ref.find(path);
 	return (it != m_ref.end());
 }
 
-bool CReferenceFs::AddPath(const std::wstring & path, bool dir)
+bool CReferenceFs::AddPath(const std::string & path, bool dir, UINT fid )
 {
 	if (m_free_num <= 0) return false;
 	// find a free object;
@@ -74,10 +75,10 @@ bool CReferenceFs::AddPath(const std::wstring & path, bool dir)
 	m_free_list = obj->checksum;
 
 	// 查找父节点
-	size_t pos = path.find_last_of(L"\\");
-	std::wstring parent_fn;
-	if (pos >0 ) parent_fn =std::wstring(path.c_str(), pos);
-	else parent_fn = L"\\";
+	size_t pos = path.find_last_of("\\");
+	std::string parent_fn;
+	if (pos >0 ) parent_fn =std::string(path.c_str(), pos);
+	else parent_fn = "\\";
 
 	UINT parent_id = FindFileIndex(parent_fn);
 	if (parent_id > MAX_FILE_NUM )
@@ -92,7 +93,7 @@ bool CReferenceFs::AddPath(const std::wstring & path, bool dir)
 		return false;
 	}
 	// 初始化file obj
-	obj->InitFile(parent_id, parent, path, dir);
+	obj->InitFile(parent_id, parent, path, dir, fid);
 
 	// 添加到父节点
 	parent->m_children[parent->size] = obj_id;
@@ -120,12 +121,12 @@ void CReferenceFs::GetFileInfo(const CRefFile & file, DWORD & checksum, FSIZE & 
 	len = file.size;
 }
 
-void CReferenceFs::GetFilePath(const CRefFile & file, std::wstring & path) const
+void CReferenceFs::GetFilePath(const CRefFile & file, std::string & path) const
 {
 	path = file.m_fn;
 }
 
-void CReferenceFs::UpdateFile(const std::wstring & path, DWORD checksum, size_t len)
+void CReferenceFs::UpdateFile(const std::string & path, DWORD checksum, size_t len)
 {
 	CRefFile * pp = FindFile(path);
 	if (pp == nullptr || pp->isdir() )
@@ -162,14 +163,14 @@ const CReferenceFs::CRefFile & CReferenceFs::GetFile(CReferenceFs::CONST_ITERATO
 	return *(m_files+it->second);
 }
 
-CReferenceFs::CRefFile * CReferenceFs::FindFile(const std::wstring & path)
+CReferenceFs::CRefFile * CReferenceFs::FindFile(const std::string & path)
 {
 	auto it = m_ref.find(path);
 	if (it == m_ref.end()) return NULL;
 	return m_files + it->second;
 }
 
-void CReferenceFs::RemoveFile(const std::wstring & path)
+void CReferenceFs::RemoveFile(const std::string & path)
 {
 //	LOG_DEBUG(L"this = 0x%08p", this);
 	LOG_DEBUG(L"remove dir/file %s", path.c_str());
@@ -201,7 +202,7 @@ void CReferenceFs::RemoveFile(const std::wstring & path)
 	size_t erased = m_ref.erase(path);
 }
 
-UINT CReferenceFs::FindFileIndex(const std::wstring & path)
+UINT CReferenceFs::FindFileIndex(const std::string & path)
 {
 	auto it = m_ref.find(path);
 	if (it == m_ref.end()) return -1;
@@ -219,10 +220,11 @@ void CReferenceFs::GetEncodeString(std::string& str) const
 
 #define ENCODE_TYPE 2
 
-void CReferenceFs::CRefFile::InitFile(UINT parent_id, CRefFile * parent, const std::wstring& path, bool isdir)
+void CReferenceFs::CRefFile::InitFile(UINT parent_id, CRefFile * parent, const std::string& path, bool isdir, UINT fid)
 {
 	m_parent = parent_id;
-	wcscpy_s(m_fn, path.c_str());
+	this->fid = fid;
+	strcpy_s(m_fn, path.c_str());
 	if (isdir)
 	{
 		checksum = -1;	// 目录标志

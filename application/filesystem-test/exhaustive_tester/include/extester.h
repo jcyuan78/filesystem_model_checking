@@ -23,6 +23,8 @@ enum ERROR_CODE
 	ERR_READ_FILE,		// 读文件时出错
 	ERR_WRONG_FILE_SIZE,	// 
 	ERR_WRONG_FILE_DATA,
+	ERR_UNKNOWN,
+	ERR_PENDING,		// 测试还在进行中
 };
 
 class CFsState
@@ -39,7 +41,7 @@ public:
 	int m_depth;			// 搜索深度
 
 public:
-	void Initialize(const std::wstring& root_path, IFsSimulator * fs)
+	void Initialize(const std::string& root_path, IFsSimulator * fs)
 	{
 		m_ref_fs.Initialize(root_path);
 		m_real_fs = fs;
@@ -59,6 +61,7 @@ public:
 	CFsState* get(void);
 	void put(CFsState* &state);
 	CFsState* duplicate(CFsState* state);
+
 protected:
 	CFsState* m_free_list=nullptr;		// 被回收的 note 存放在这里
 	size_t m_free_nr=0;
@@ -97,6 +100,33 @@ protected:
 	boost::unordered_set<ENCODE> m_fs_state;
 };
 
+class CExTester;
+
+#define MAX_WORK_NR		64
+//#define MAX_THREAD_NR	8
+
+// 不同类型的多线程处理方式，只能定义一个
+//#define SINGLE_THREAD
+//#define MULTI_THREAD
+// 线程队列处理：允许线程数量少于最大op数量
+#define THREAD_QUEUE
+// 线程池方式处理：预先准备足够的线程
+//#define THREAD_POOL
+
+
+struct WORK_CONTEXT
+{
+	CExTester* tester;
+	CFsState* state;
+	CFsState* src_state;
+	ERROR_CODE ir;
+	HANDLE hevent;
+	HANDLE hstart;	//用于触发开始条件
+	HANDLE hthread;	//线程句柄，用于自定义工作线程
+	DWORD tid;
+	PTP_WORK work_item;
+};
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // ==== Exhaustive Tester
 class CExTester // : public ITester
@@ -116,35 +146,55 @@ public:
 
 protected:
 	ERROR_CODE DoFsOperator(CFsState* cur_state, TRACE_ENTRY& op, std::list<CFsState*>::iterator& insert);
+	ERROR_CODE FsOperatorCore(CFsState* state, TRACE_ENTRY& op);
+	bool DoFsOperator_Pool(CFsState* cur_state, TRACE_ENTRY& op, WORK_CONTEXT * context);
+	bool DoFsOperator_Thread(CFsState* cur_state, TRACE_ENTRY& op, WORK_CONTEXT* context);
+	bool DoFsOperator_Queue(CFsState* cur_state, TRACE_ENTRY& op, WORK_CONTEXT* context);
+	static VOID CALLBACK FsOperator_Callback(WORK_CONTEXT* context);
+	static VOID CALLBACK FsOperator_Pool(PTP_CALLBACK_INSTANCE instance, PVOID context, PTP_WORK work);
+	static DWORD WINAPI FsOperator_Thread(PVOID context);
+	static DWORD WINAPI _FsOperator_Queue(PVOID context)
+	{
+		CExTester* tester = (CExTester*)context;
+		return tester->FsOperator_Queue();
+	}
+	DWORD FsOperator_Queue(void);
 
-	ERROR_CODE TestCreateFile(CFsState* cur_state, const std::wstring& path);
-	ERROR_CODE TestCreateDir (CFsState* cur_state, const std::wstring& path);
-	ERROR_CODE TestWriteFile(CFsState * cur_state, const std::wstring& path, FSIZE offset, FSIZE len);
-	ERROR_CODE TestDeleteFile(CFsState* cur_state, const std::wstring& path);
+	void RunTrace(IFsSimulator* fs, const std::string& fn);
+
+
+//	void FsOperator_Thread(work)
+
+	ERROR_CODE TestCreateFile(CFsState* cur_state, const std::string& path);
+	ERROR_CODE TestCreateDir (CFsState* cur_state, const std::string& path);
+	ERROR_CODE TestWriteFile(CFsState * cur_state, const std::string& path, FSIZE offset, FSIZE len);
+	ERROR_CODE TestDeleteFile(CFsState* cur_state, const std::string& path);
+	ERROR_CODE TestMount(CFsState * cur_state);
+	ERROR_CODE TestPowerOutage(CFsState* cur_state);
 
 //	int TestDelete(CFsState* state, CReferenceFs& ref, const std::wstring& path);
 	int TestMove(CFsState* state, CReferenceFs& ref, const std::wstring& path_src, const std::wstring& path_dst);
-	//	int TestMount(CLfsInterface* fs, CReferenceFs& ref);
-
-	//	bool TestPower(CLfsInterface* fs, CReferenceFs& ref);
 
 	//	DWORD AppendChecksum(DWORD cur_checksum, const char* buf, size_t size);
 	ERROR_CODE Verify(CFsState* cur_state);
 
 	// 针对每个子项，枚举所有可能的操作。
 	bool EnumerateOp(CFsState * cur_state, std::list<CFsState*>::iterator & insert);
+	bool EnumerateOp_Thread(CFsState* cur_state, std::list<CFsState*>::iterator& insert);
 
 	// for monitor thread
 	static DWORD WINAPI _RunTest(PVOID p);
 	bool PrintProgress(INT64 ts);
 	bool OutputTrace(CFsState* state);
+	void UpdateFsParam(IFsSimulator* fs);
 
 protected:
 	// make fs, mount fs, 和unmount fs是可选项。暂不支持。
 	// make fs仅用于初始化。mount fs用于初始化和测试。测试中允许增加mount和unmount操作
-	int MakeFs(void) { return 0; }
-	int MountFs(void) { return 0; }
-	int UnmountFs(void) { return 0; }
+	//int MakeFs(void) { return 0; }
+	//int MountFs(void) { return 0; }
+	//int UnmountFs(void) { return 0; }
+	void TraceTestVerify(IFsSimulator* fs, const std::string &fn);
 
 protected:
 	// debug and monitor
@@ -186,6 +236,7 @@ protected:
 	LONG m_max_depth = 0;
 
 	// 文件系统性能（所有状态节点中最大的）
+	FS_INFO m_max_fs_info;
 	UINT m_total_item_num = 0, m_file_num=0;			// 总文件,目录数量 , 
 	UINT m_logical_blks = 0, m_physical_blks = 0, m_total_blks, m_free_blks = -1;	// 逻辑饱和度，物理饱和度，空闲块
 	LONG64 m_host_write=0, m_media_write=0;
@@ -194,11 +245,23 @@ protected:
 	std::wstring m_log_path;
 	FILE* m_log_file = nullptr;
 	char m_log_buf[1024];
+	FILE* m_log_performance;
 
 	// 其他
 	IFsSimulator* m_fs_factory = nullptr;		// 这里的fs作为文件系统初始状态，以及的factory，用于创建文件测试用的文件系统。
 
+	//用于多线程
+	TP_CALLBACK_ENVIRON m_tp_environ;
+	WORK_CONTEXT m_works[MAX_WORK_NR];
+	HANDLE m_work_events[MAX_WORK_NR];
+	UINT m_max_work = 0;
 
+	std::list<WORK_CONTEXT*> m_sub_q;
+	HANDLE m_sub_doorbell, m_cmp_doorbell;
+	std::list<WORK_CONTEXT*> m_cmp_q;
+	CRITICAL_SECTION m_sub_crit, m_cmp_crit;
+	HANDLE *m_thread_list;
+	UINT m_thread_num;	// 1: single thread
 /*
 	// 参数，选项
 protected:
@@ -243,22 +306,29 @@ protected:
 // ==== help functions ====
 
 #define TEST_LOG_SINGLE(...)  {\
-	sprintf_s(m_log_buf, __VA_ARGS__);	\
+	/*sprintf_s(m_log_buf, __VA_ARGS__);*/	\
 	/*LOG_DEBUG(m_log_buf);*/	\
-	if (m_log_file) {fprintf_s(m_log_file, "%s\n", m_log_buf); \
+	if (m_log_file) {fprintf_s(m_log_file, __VA_ARGS__); \
+	fprintf_s(m_log_file, "\n"); \
 	fflush(m_log_file);} }
 
 #define TEST_LOG(...)  {\
-	sprintf_s(m_log_buf, __VA_ARGS__);	\
+	/*sprintf_s(m_log_buf, __VA_ARGS__);*/	\
 	/*LOG_DEBUG(m_log_buf);*/	\
-	if (m_log_file) {fprintf_s(m_log_file, m_log_buf); \
+	if (m_log_file) {fprintf_s(m_log_file, __VA_ARGS__); \
 	}}
 
 #define TEST_ERROR(...) {	\
 	sprintf_s(m_log_buf, __VA_ARGS__); \
-	if (m_log_file) {fprintf_s(m_log_file, "[err] %s\n", m_log_buf); fflush(m_log_file);}\
+	if (m_log_file) {fprintf_s(m_log_file, "[err] ");\
+		fprintf_s(m_log_file, __VA_ARGS__); \
+		fprintf_s(m_log_file, "\n");\
+	fflush(m_log_file);}\
 	/*THROW_ERROR(ERR_USER, m_log_buf);*/	}
 
 #define TEST_CLOSE_LOG {\
 	if (m_log_file) {fprintf_s(m_log_file, "\n"); \
 	fflush(m_log_file); }}
+
+
+template <size_t N> void Op2String(char(&str)[N], TRACE_ENTRY& op);

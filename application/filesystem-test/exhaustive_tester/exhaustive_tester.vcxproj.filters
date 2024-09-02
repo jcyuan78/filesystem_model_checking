@@ -36,6 +36,18 @@
     <ClInclude Include="include\reference_fs.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="include\storage.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\blocks.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\config.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\pages.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="source\extester_app.cpp">
@@ -57,6 +69,12 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="source\reference_fs.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="source\storage.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="source\trace_tester.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

@@ -22,6 +22,7 @@ enum OP_CODE
 	OP_FILE_OPEN, OP_FILE_DELETE, OP_FILE_OVERWRITE,
 	OP_DIR_CREATE, OP_DIR_DELETE, OP_MOVE,
 	OP_DEMOUNT_MOUNT, OP_POWER_OFF_RECOVER,
+	OP_FILE_VERIFY,
 	OP_MARK_TRACE_BEGIN,
 };
 
@@ -31,8 +32,7 @@ public:
 	UINT64 ts;
 	OP_CODE op_code = OP_CODE::OP_NOP;
 	DWORD thread_id;
-//	size_t file_index;		// index不是id，是file access info中的索引
-	std::wstring file_path;
+	std::string file_path;
 	UINT64 duration = 0;	// 操作所用的时间
 	UINT op_sn;
 	union {
@@ -66,8 +66,9 @@ public:
 	protected:
 		FSIZE size;				// 对于文件，size表示文件大小，对于目录，size表示子项的数量
 		UINT checksum;			// 对于文件，文件的checksum；对于目录，-1; 等文件无效时，checksum作为free链表指针使用；
+		UINT fid;
 
-		wchar_t m_fn[MAX_PATH_SIZE+1];
+		char m_fn[MAX_PATH_SIZE+1];
 		// 树的同构编码
 		char m_encode[MAX_ENCODE_SIZE];
 		int m_encode_size;
@@ -79,7 +80,7 @@ public:
 
 		friend class CReferenceFs;
 	public:
-		void InitFile(UINT parent_id, CRefFile * parent, const std::wstring& path, bool isdir);
+		void InitFile(UINT parent_id, CRefFile * parent, const std::string& path, bool isdir, UINT fid);
 		void RemoveChild(UINT fid);
 		void UpdateEncode(CRefFile* files);
 		static int CompareEncode(void*, const void* e1, const void* e2);
@@ -88,19 +89,20 @@ public:
 		inline int depth(void) const { return m_depth; }
 		inline int write_count(void) const { return m_write_count; }
 		inline UINT child_num(void) const { return size; }
+		inline UINT get_fid(void) const { return fid; }
 	};
 public:
-	typedef std::map<std::wstring, UINT>::iterator ITERATOR;
-	typedef std::map<std::wstring, UINT>::const_iterator CONST_ITERATOR;
+	typedef std::map<std::string, UINT>::iterator ITERATOR;
+	typedef std::map<std::string, UINT>::const_iterator CONST_ITERATOR;
 
 public:
-	void Initialize(const std::wstring & root_path = L"\\");
+	void Initialize(const std::string & root_path = "\\");
 	void CopyFrom(const CReferenceFs & src);
-	bool IsExist(const std::wstring & path);		// 判断路径是否存在
-	bool AddPath(const std::wstring & path, bool dir);		// 添加一个路径
+	bool IsExist(const std::string & path);		// 判断路径是否存在
+	bool AddPath(const std::string & path, bool dir, UINT fid);		// 添加一个路径
 	void GetFileInfo(const CRefFile & file, DWORD & checksum, FSIZE &len) const;
-	void GetFilePath(const CRefFile& file, std::wstring & path) const;
-	void UpdateFile(const std::wstring & path, DWORD checksum, size_t len);
+	void GetFilePath(const CRefFile& file, std::string & path) const;
+	void UpdateFile(const std::string & path, DWORD checksum, size_t len);
 	void UpdateFile(CRefFile & file, DWORD checksum, size_t len);
 	int GetDirDepth(const CRefFile& dir) const {
 		return dir.m_depth;
@@ -111,8 +113,8 @@ public:
 	//void AddRoot(void);
 
 	inline bool IsDir(const CRefFile& file) const { return file.isdir(); }
-	CRefFile * FindFile(const std::wstring & path);
-	void RemoveFile(const std::wstring & path);
+	CRefFile * FindFile(const std::string & path);
+	void RemoveFile(const std::string & path);
 
 	// 对树进行同构编码，用于判断树的同构性
 	template <size_t S>
@@ -149,7 +151,7 @@ public:
 	void GetEncodeString(std::string& str) const;
 
 protected:
-	UINT FindFileIndex(const std::wstring & path);
+	UINT FindFileIndex(const std::string & path);
 
 public:
 	CONST_ITERATOR Begin() const { return m_ref.begin(); }
@@ -160,7 +162,7 @@ public:
 protected:
 	// 对于文件，UINT64存放length | checksum, 对于dir，存放子目录数量
 	//	map中存方ref file的index
-	std::map<std::wstring, UINT> m_ref;
+	std::map<std::string, UINT> m_ref;
 	CRefFile m_files[MAX_FILE_NUM];
 	// 利用m_files本身构建一个free list。free list的checksum指向其下一个对象。m_free_list指向其头部。
 	UINT m_free_list;

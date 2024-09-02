@@ -36,6 +36,7 @@ public:
 	std::wstring m_test_id;
 	int m_multihead_cnt = 0;
 	int m_searching_depth = 0;
+	UINT m_thread_num = 0;
 
 protected:
 	std::wstring m_fn_log, m_fn_lblka, m_fn_lblkb, m_fn_seg;

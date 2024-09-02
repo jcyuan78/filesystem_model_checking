@@ -5,18 +5,22 @@
 #include <boost/property_tree/ptree.hpp>
 #include <vector>
 #include "reference_fs.h"
+#include "config.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // == pages  ==
-#define INVALID_BLK		0xFFFFFFFF
-#define BLOCK_SIZE				(512)			// 块的大小
+#define INVALID_BLK		(0xFFFFFFFF)
+#define NID_IN_USE		(0xFFFFFFF0)
+#define INVALID_FID		(0xFFFF)
+#define BLOCK_SIZE		(512)			// 块的大小
 
 //typedef UINT FSIZE;
 
-typedef DWORD FID;
+//typedef DWORD FID;
 typedef DWORD NID;		// node id
 typedef DWORD PHY_BLK;
 typedef DWORD LBLK_T;
+typedef UINT	PAGE_INDEX;
 
 enum BLK_TEMP
 {
@@ -26,29 +30,12 @@ enum BLK_TEMP
 	BT_TEMP_NR
 };
 
-
-class CPageInfo
+struct FILE_DATA
 {
-public:
-	void Init();
-
-public:
-	PHY_BLK phy_blk = INVALID_BLK;	// page所在物理位置
-	// 标记page的温度，当page被写入SSD时更新。这个温度不是实际分配到温度，所有算法下都相同。仅用于统计。
-	BLK_TEMP ttemp;
-	//在文件中的位置
-	NID	inode;
-	LBLK_T offset = INVALID_BLK;
-	// 数据(对于inode 或者 direct node)
-	UINT data_index;	// 指向数据缓存的索引号
-	bool dirty = false;
-	enum PAGE_TYPE { PAGE_DATA, PAGE_NODE } type;
-public:
-	// 用于性能统计
-	UINT host_write = 0;
-	UINT media_write = 0;
+	NID		fid;
+	UINT	offset;
+	UINT	ver;
 };
-
 
 /// <summary>
 /// 描述文件系统的运行状态。通过特殊（$health）文件读取
@@ -69,7 +56,7 @@ struct FsHealthInfo
 	UINT m_logical_saturation;	// 逻辑饱和度。被写过的逻辑块数量，不包括metadata
 	UINT m_physical_saturation;	// 物理饱和度。有效的物理块数量，
 
-	UINT m_node_nr;		// inode, direct node的总数
+	UINT m_node_nr;		// nid, direct node的总数
 	UINT m_used_node;	// 被使用的node总数
 	UINT m_file_num, m_dir_num;		// 文件数量和目录数量
 };
@@ -88,6 +75,19 @@ struct FS_INFO
 	UINT dir_nr, file_nr;		// 目录数量和文件数量
 	LONG64 total_host_write;
 	LONG64 total_media_write;
+
+	UINT total_page_nr;
+	UINT free_page_nr;
+	UINT total_data_nr;
+	UINT free_data_nr;
+};
+
+struct GC_TRACE
+{
+	NID fid;
+	UINT offset;
+	PHY_BLK org_phy;
+	PHY_BLK new_phy;
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -107,22 +107,22 @@ public:
 	virtual bool Reset(void) = 0;
 
 	// 文件系统基本操作
-	virtual FID  FileCreate(const std::wstring& fn) = 0;
-	virtual FID  DirCreate(const std::wstring& fn) = 0;
-//	virtual void FileOpen(FID fid, bool delete_on_close = false) = 0;
-	virtual FID  FileOpen(const std::wstring& fn, bool delete_on_close = false) = 0;
-	virtual void FileClose(FID fid) = 0;
+//	virtual NID  FileCreate(const std::wstring& fn) = 0;
+	virtual NID  FileCreate(const std::string& fn) = 0;
+	virtual NID  DirCreate(const std::string& fn) = 0;
+	virtual NID  FileOpen(const std::string& fn, bool delete_on_close = false) = 0;
+	virtual void FileClose(NID fid) = 0;
 	// 设置和获取文件大小，以sector为单位。
-	virtual void SetFileSize(FID fid, FSIZE secs) = 0;
-	virtual FSIZE GetFileSize(FID fid) = 0;
+	virtual void SetFileSize(NID fid, FSIZE secs) = 0;
+	virtual FSIZE GetFileSize(NID fid) = 0;
 
-	virtual void FileWrite(FID fid, FSIZE offset, FSIZE secs) = 0;
-	virtual void FileRead(std::vector<CPageInfo*>& blks, FID fid, FSIZE offset, FSIZE secs) = 0;
-	virtual void FileTruncate(FID fid, FSIZE offset, FSIZE secs) = 0;
-//	virtual void FileDelete(FID fid) = 0;
+	virtual void FileWrite(NID fid, FSIZE offset, FSIZE secs) = 0;
+	// 返回读取到的 page数量
+	virtual size_t FileRead(FILE_DATA blks[], NID fid, FSIZE offset, FSIZE secs) = 0;
+	virtual void FileTruncate(NID fid, FSIZE offset, FSIZE secs) = 0;
 	// delete 根据文件名删除文件。FileRemove()根据ID，删除文件相关内容，但是不删除path map
-	virtual void FileDelete(const std::wstring & fn) = 0;		
-	virtual void FileFlush(FID fid) = 0;
+	virtual void FileDelete(const std::string & fn) = 0;		
+	virtual void FileFlush(NID fid) = 0;
 	// 文件能够支持的最大长度（block单位）
 	virtual DWORD MaxFileSize(void) const = 0;
 	virtual void GetFsInfo(FS_INFO& space_info) = 0;
@@ -133,12 +133,15 @@ public:
 	virtual void CopyFrom(const IFsSimulator* src) = 0;
 	virtual void GetHealthInfo(FsHealthInfo& info) const = 0;
 
+	// for debug
 	virtual void DumpSegments(const std::wstring& fn, bool sanity_check) = 0;
 	virtual void DumpSegmentBlocks(const std::wstring& fn) = 0;
-	virtual void DumpFileMap(FILE* out, FID fid) = 0;
+	virtual void DumpFileMap(FILE* out, NID fid) = 0;
 	virtual void DumpAllFileMap(const std::wstring& fn) = 0;
-//	virtual void SetLogFolder(const std::wstring& fn) = 0;
 	virtual void DumpBlockWAF(const std::wstring& fn) = 0;
+	virtual size_t DumpFileIndex(NID index[], size_t buf_size, NID fid) = 0;
+
+	virtual void GetGcTrace(std::vector<GC_TRACE>&) = 0;
 
 
 };

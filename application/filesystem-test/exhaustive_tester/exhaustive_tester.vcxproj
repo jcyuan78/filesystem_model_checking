@@ -94,6 +94,9 @@
     <Import Project="..\..\build_app.props" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">
+    <TargetName>$(ProjectName)_1</TargetName>
+  </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
@@ -151,11 +154,15 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="include\config.h" />
     <ClInclude Include="include\extester.h" />
     <ClInclude Include="include\f2fs_segment.h" />
     <ClInclude Include="include\f2fs_simulator.h" />
     <ClInclude Include="include\fs_simulator.h" />
+    <ClInclude Include="include\blocks.h" />
+    <ClInclude Include="include\pages.h" />
     <ClInclude Include="include\reference_fs.h" />
+    <ClInclude Include="include\storage.h" />
     <ClInclude Include="source\extester_app.h" />
     <ClInclude Include="source\pch.h" />
   </ItemGroup>
@@ -167,6 +174,8 @@
     <ClCompile Include="source\pages.cpp" />
     <ClCompile Include="source\pch.cpp" />
     <ClCompile Include="source\reference_fs.cpp" />
+    <ClCompile Include="source\storage.cpp" />
+    <ClCompile Include="source\trace_tester.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

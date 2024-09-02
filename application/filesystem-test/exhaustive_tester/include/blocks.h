@@ -1,0 +1,140 @@
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// node.h ：定义各种node 类型的数据结构
+#pragma once
+
+#include "config.h"
+#include "fs_simulator.h"
+#include "f2fs_segment.h"
+
+// == nid and index node  ==
+// 用于记录一个实际的inode
+struct INODE
+{
+	UINT blk_num;		// 文件占用的块数
+	UINT file_size;		// 文件长度，字节单位
+	UINT ref_count;
+	UINT nlink;			// 文件连接数
+//	bool delete_on_close;
+	NID index[INDEX_TABLE_SIZE];		// 磁盘数据，
+//	PAGE_INDEX index_buf[INDEX_TABLE_SIZE];	// page缓存
+	//		index[]		index_buf[]
+	//		null		null			：在文件中，这个index block不存在。不需要回写
+	//		null		valid			：这个index block新建，还未存盘。需要回写
+	//		valid		null			：这个index block未被读取。不需要回写
+	//		valid		valid			：这个index block已经被读取。是否修改，是否回写要看page->dirty
+};
+
+struct INDEX_NODE
+{
+//	PAGE_INDEX index_table[INDEX_TABLE_SIZE];
+	PHY_BLK index[INDEX_SIZE];
+};
+
+// 包含 nid 和 index node
+struct NODE_INFO
+{
+public:
+	NID m_nid;				// 表示这个node的id
+	NID m_ino;				// 表示这个node的所在的inode
+	UINT valid_data;
+	PAGE_INDEX page_id;		// 这个node对应的page的id
+	union {
+		INODE inode;
+		INDEX_NODE index;
+	};
+};
+
+// == dentry ==
+// dentry的数据结构，以及块在dentry中测存储
+
+struct DENTRY
+{
+	NID ino;
+	WORD hash;
+	WORD name_len;
+	BYTE file_type;
+};
+
+struct DENTRY_BLOCK
+{
+	DWORD bitmap;
+	char filenames[DENTRY_PER_BLOCK][FN_SLOT_LEN];
+	DENTRY dentries[DENTRY_PER_BLOCK];
+};
+
+// == metadata blocks ==
+struct NAT_BLOCK
+{
+	PHY_BLK nat[NAT_ENTRY_PER_BLK];
+};
+
+
+#define NODE_NEXT_FREE node.m_nid
+
+struct BLOCK_DATA
+{
+	enum BLOCK_TYPE { BLOCK_FREE, BLOCK_INODE, BLOCK_INDEX, BLOCK_DENTRY, BLOCK_SIT, BLOCK_NAT, BLOCK_FILE_DATA } m_type;
+	union
+	{
+		NODE_INFO		node;
+		DENTRY_BLOCK	dentry;
+		SIT_BLOCK		sit;
+		NAT_BLOCK		nat;
+		SUMMARY_BLOCK	ssa;
+		FILE_DATA		file;
+	};
+};
+
+
+// 管理Buffer，模拟文件系统的页缓存。
+template <typename BLOCK_TYPE>
+class _CBufferManager
+{
+public:
+	typedef UINT _INDEX;
+public:
+	_CBufferManager(void) {}
+	// 返回 root的 NODE
+	BLOCK_TYPE* Init(void) {
+		// 构建free list
+		for (UINT ii = 1; ii < BLOCK_BUF_SIZE; ++ii)
+		{
+			m_data_buffer[ii].NODE_NEXT_FREE = ii + 1;
+			m_data_buffer[ii].m_type = BLOCK_DATA::BLOCK_FREE;
+		}
+		m_data_buffer[BLOCK_BUF_SIZE - 1].NODE_NEXT_FREE = INVALID_BLK;
+		m_data_buffer[0].NODE_NEXT_FREE = 0;	// 保留第0号node
+		m_free_ptr = 1;
+		m_used_nr = 1;
+		// FID = 0表示root
+		return m_data_buffer + 0;
+	}
+	_INDEX get_block(void)
+	{
+		if (m_used_nr >= BLOCK_BUF_SIZE) THROW_ERROR(ERR_APP, L"no free block buffer");
+		_INDEX index = m_free_ptr;
+		m_free_ptr = m_data_buffer[index].NODE_NEXT_FREE;
+		m_used_nr++;
+		return index;
+	}
+	void put_block(_INDEX index)
+	{
+		m_data_buffer[index].m_type = BLOCK_DATA::BLOCK_FREE;
+		m_data_buffer[index].NODE_NEXT_FREE = (NID)m_free_ptr;
+		m_free_ptr = index;
+		m_used_nr--;
+	}
+	BLOCK_TYPE& get_block_data(_INDEX blk)
+	{
+		if (blk >= BLOCK_BUF_SIZE) THROW_ERROR(ERR_APP, L"invalid blk number: %d", blk);
+		return m_data_buffer[blk];
+	}
+public:
+	BLOCK_TYPE m_data_buffer[BLOCK_BUF_SIZE];
+protected:
+	friend class CPageAllocator;
+	_INDEX m_free_ptr;
+	UINT m_used_nr;
+};
+
+typedef _CBufferManager<BLOCK_DATA>	CBufferManager;
