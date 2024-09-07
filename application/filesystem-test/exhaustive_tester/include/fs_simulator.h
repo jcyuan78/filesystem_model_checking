@@ -76,6 +76,8 @@ struct FS_INFO
 	LONG64 total_host_write;
 	LONG64 total_media_write;
 
+	UINT max_opened_file;	// 最大打开的文件数量
+
 	UINT total_page_nr;
 	UINT free_page_nr;
 	UINT total_data_nr;

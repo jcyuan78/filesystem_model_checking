@@ -14,6 +14,8 @@ typedef UINT FSIZE;
 
 #define MAX_ENCODE_SIZE (MAX_FILE_NUM *2)
 
+#define INVALID_BLK		(0xFFFFFFFF)
+
 enum OP_CODE
 {
 	OP_NOP, OP_NO_EFFECT,
@@ -33,6 +35,7 @@ public:
 	OP_CODE op_code = OP_CODE::OP_NOP;
 	DWORD thread_id;
 	std::string file_path;
+	UINT fid;				// 对于已经打开的文件，传递文件号
 	UINT64 duration = 0;	// 操作所用的时间
 	UINT op_sn;
 	union {
@@ -77,19 +80,26 @@ public:
 		UINT m_parent;		// 父节点id;
 		UINT m_depth;		// 目录深度
 		int m_write_count;	// 对于文件，写入次数，版本号
+		bool m_is_open;		// 这个文件是否被打开
 
 		friend class CReferenceFs;
+
 	public:
 		void InitFile(UINT parent_id, CRefFile * parent, const std::string& path, bool isdir, UINT fid);
 		void RemoveChild(UINT fid);
 		void UpdateEncode(CRefFile* files);
 		static int CompareEncode(void*, const void* e1, const void* e2);
-		void GetEncodeString(std::string& str) const { str = m_encode; }
+//		void GetEncodeString(std::string& str) const { str = m_encode; }
+		void GetEncodeString(char* str, size_t len) const {
+			memcpy_s(str, len, m_encode, m_encode_size);
+			str[m_encode_size] = 0;
+		}
 		inline bool isdir(void) const { return checksum == (UINT)(-1); }
 		inline int depth(void) const { return m_depth; }
 		inline int write_count(void) const { return m_write_count; }
 		inline UINT child_num(void) const { return size; }
 		inline UINT get_fid(void) const { return fid; }
+		inline bool is_open(void) const { return m_is_open; }
 	};
 public:
 	typedef std::map<std::string, UINT>::iterator ITERATOR;
@@ -99,7 +109,7 @@ public:
 	void Initialize(const std::string & root_path = "\\");
 	void CopyFrom(const CReferenceFs & src);
 	bool IsExist(const std::string & path);		// 判断路径是否存在
-	bool AddPath(const std::string & path, bool dir, UINT fid);		// 添加一个路径
+	CRefFile * AddPath(const std::string & path, bool dir, UINT fid);		// 添加一个路径
 	void GetFileInfo(const CRefFile & file, DWORD & checksum, FSIZE &len) const;
 	void GetFilePath(const CRefFile& file, std::string & path) const;
 	void UpdateFile(const std::string & path, DWORD checksum, size_t len);
@@ -111,44 +121,32 @@ public:
 		return (MAX_FILE_NUM - m_free_num);
 	}
 	//void AddRoot(void);
+	void OpenFile(CRefFile& file);
+	void CloseFile(CRefFile& file);
+	UINT OpenedFileNr(void) const { return m_opened; }
+	void Demount(void);
 
 	inline bool IsDir(const CRefFile& file) const { return file.isdir(); }
 	CRefFile * FindFile(const std::string & path);
 	void RemoveFile(const std::string & path);
 
 	// 对树进行同构编码，用于判断树的同构性
+#if 0
 	template <size_t S>
 	int Encode(DWORD(&code)[S]) const
 	{
 		const char* encode = m_files[0].m_encode;
 		int len = m_files[0].m_encode_size;
 		memset(code, 0, sizeof(code));
-
-#if 1
 		memcpy_s(code, sizeof(DWORD) * S, encode, len);
-
-#else
-		DWORD* ptr = code;
-		size_t dst_len = 0;
-		DWORD mask = 1;
-		for (int ii = 0; ii < len; ++ii)
-		{
-			if (encode[ii] == '1') (*ptr) |= mask;
-			if (mask == 0x80000000)
-			{
-				mask = 1;
-				ptr++;
-				dst_len++;
-				if (dst_len >= S) THROW_ERROR(ERR_APP, L"[err] buffer is too short, (%d)", S);
-			}
-			mask <<= 1;
-		}
-#endif
 		return len;
 	}
+#else
+	size_t Encode(char* code, size_t buf_len) const;
+#endif
 
 //	void Encode(DWORD* code, size_t buf_len) const;
-	void GetEncodeString(std::string& str) const;
+	//void GetEncodeString(std::string& str) const;
 
 protected:
 	UINT FindFileIndex(const std::string & path);
@@ -167,4 +165,6 @@ protected:
 	// 利用m_files本身构建一个free list。free list的checksum指向其下一个对象。m_free_list指向其头部。
 	UINT m_free_list;
 	size_t m_free_num;
+	UINT m_opened =0;		// 打开的文件数量
+	UINT m_reset_count = 0;	// 重置次数
 };

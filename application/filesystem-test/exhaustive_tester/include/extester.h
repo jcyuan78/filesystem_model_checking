@@ -71,6 +71,7 @@ protected:
 // == State heap and hash code
 #define CODE_SIZE (MAX_ENCODE_SIZE / 4)
 //#define CODE_SIZE (20)
+#if 0
 struct ENCODE
 {
 	DWORD code[CODE_SIZE];
@@ -78,6 +79,15 @@ struct ENCODE
 		return memcmp(code, e.code, CODE_SIZE) == 0;
 	}
 };
+#else
+struct ENCODE
+{
+	char code[MAX_ENCODE_SIZE];
+	bool operator == (const ENCODE& e) const {
+		return memcmp(code, e.code, MAX_ENCODE_SIZE) == 0;
+	}
+};
+#endif
 
 inline size_t hash_value(const ENCODE& e)
 {
@@ -139,7 +149,7 @@ public:
 	virtual int StartTest(void);
 	virtual int PrepareTest(const boost::property_tree::wptree & config, IFsSimulator * fs, const std::wstring& log_path);
 	int PreTest(void);
-	int RunTest(void);
+	ERROR_CODE RunTest(void);
 	void FinishTest(void);
 	virtual void ShowTestFailure(FILE* log);
 	virtual void GetTestSummary(boost::property_tree::wptree& sum);
@@ -160,7 +170,7 @@ protected:
 	}
 	DWORD FsOperator_Queue(void);
 
-	void RunTrace(IFsSimulator* fs, const std::string& fn);
+	ERROR_CODE RunTrace(IFsSimulator* fs, const std::string& fn);
 
 
 //	void FsOperator_Thread(work)
@@ -168,6 +178,9 @@ protected:
 	ERROR_CODE TestCreateFile(CFsState* cur_state, const std::string& path);
 	ERROR_CODE TestCreateDir (CFsState* cur_state, const std::string& path);
 	ERROR_CODE TestWriteFile(CFsState * cur_state, const std::string& path, FSIZE offset, FSIZE len);
+	ERROR_CODE TestWriteFileV2(CFsState * cur_state, NID fid, FSIZE offset, FSIZE len, const std::string &path);
+	ERROR_CODE TestOpenFile(CFsState* cur_state, const std::string& path);
+	ERROR_CODE TestCloseFile(CFsState* cur_state, NID fid, const std::string & path);
 	ERROR_CODE TestDeleteFile(CFsState* cur_state, const std::string& path);
 	ERROR_CODE TestMount(CFsState * cur_state);
 	ERROR_CODE TestPowerOutage(CFsState* cur_state);
@@ -180,7 +193,10 @@ protected:
 
 	// 针对每个子项，枚举所有可能的操作。
 	bool EnumerateOp(CFsState * cur_state, std::list<CFsState*>::iterator & insert);
-	bool EnumerateOp_Thread(CFsState* cur_state, std::list<CFsState*>::iterator& insert);
+	// 枚举子操作时，将Open和Write分开，实现可以同时打开多个文件。
+	ERROR_CODE EnumerateOpV2(CFsState* cur_state, std::list<CFsState*>::iterator& insert);
+
+	ERROR_CODE EnumerateOp_Thread(CFsState* cur_state, std::list<CFsState*>::iterator& insert);
 
 	// for monitor thread
 	static DWORD WINAPI _RunTest(PVOID p);
@@ -240,6 +256,8 @@ protected:
 	UINT m_total_item_num = 0, m_file_num=0;			// 总文件,目录数量 , 
 	UINT m_logical_blks = 0, m_physical_blks = 0, m_total_blks, m_free_blks = -1;	// 逻辑饱和度，物理饱和度，空闲块
 	LONG64 m_host_write=0, m_media_write=0;
+	// 文件系统参数，用于限制测试范围
+	UINT m_max_opened_file_nr;
 
 	// log support
 	std::wstring m_log_path;
@@ -262,6 +280,8 @@ protected:
 	CRITICAL_SECTION m_sub_crit, m_cmp_crit;
 	HANDLE *m_thread_list;
 	UINT m_thread_num;	// 1: single thread
+
+
 /*
 	// 参数，选项
 protected:
@@ -332,3 +352,6 @@ protected:
 
 
 template <size_t N> void Op2String(char(&str)[N], TRACE_ENTRY& op);
+
+void GenerateFn(char* fn, size_t len);
+

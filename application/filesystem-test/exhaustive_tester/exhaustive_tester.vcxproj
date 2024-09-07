@@ -169,12 +169,15 @@
   <ItemGroup>
     <ClCompile Include="source\extester.cpp" />
     <ClCompile Include="source\extester_app.cpp" />
+    <ClCompile Include="source\extester_multithread.cpp" />
+    <ClCompile Include="source\extester_obsolete.cpp" />
     <ClCompile Include="source\f2fs_segment.cpp" />
     <ClCompile Include="source\f2fs_simulator.cpp" />
     <ClCompile Include="source\pages.cpp" />
     <ClCompile Include="source\pch.cpp" />
     <ClCompile Include="source\reference_fs.cpp" />
     <ClCompile Include="source\storage.cpp" />
+    <ClCompile Include="source\test_state.cpp" />
     <ClCompile Include="source\trace_tester.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

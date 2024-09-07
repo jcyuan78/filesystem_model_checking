@@ -77,5 +77,14 @@
     <ClCompile Include="source\trace_tester.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="source\test_state.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="source\extester_multithread.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="source\extester_obsolete.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>

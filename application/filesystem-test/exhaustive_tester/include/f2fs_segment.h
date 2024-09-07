@@ -29,7 +29,8 @@ struct SEG_INFO
 public:
 	// block存放在storage中，
 	DWORD valid_bmp[BITMAP_SIZE];
-	DWORD valid_blk_nr;		// 当segment free的时候，作为free链表的指针使用。valid_blk_nr == INVALID_BLK 表示block为free，可以再分配
+	// 当segment free的时候，作为free链表的指针使用。valid_blk_nr == INVALID_BLK 表示block为free，可以再分配
+	DWORD valid_blk_nr;		
 	DWORD cur_blk;			// 可以分配的下一个block, 0:表示这个segment未被使用，BLOCK_PER_SEG：表示已经填满，其他：当前segment
 							// 当block free时， cur_blk表示free指针
 	BLK_TEMP seg_temp;		// 指示segment的温度，用于GC和
@@ -51,6 +52,9 @@ struct SUMMARY_BLOCK
 	SUMMARY entries[SUMMARY_PER_BLK];
 };
 
+// Segment Info的内存数据结构：
+//	free segment的表示：valid_blk_nr == 0；
+//	free link: cur_blk
 class SegmentInfo
 {
 public:
@@ -59,7 +63,7 @@ public:
 	DWORD cur_blk;			// 可以分配的下一个block, 0:表示这个segment未被使用，BLOCK_PER_SEG：表示已经填满，其他：当前segment
 	// 当block free时， cur_blk表示free指针
 	BLK_TEMP seg_temp;		// 指示segment的温度，用于GC和
-	SEG_T	seg_id;			// segment的编号，仅用于fs
+//	SEG_T	seg_id;			// segment的编号，仅用于fs。可以用 SegmentInfo的指针来计算。
 	NID		nids[BLOCK_PER_SEG];
 	WORD	offset[BLOCK_PER_SEG];
 };
@@ -223,6 +227,7 @@ public:
 
 	void GarbageCollection(CF2fsSimulator * fs);
 	void DumpSegmentBlocks(const std::wstring& fn);
+	inline SEG_T SegId(SegmentInfo* seg) const {return (SEG_T)(seg - m_segments);}
 
 	friend class CF2fsSimulator;
 #ifdef ENABLE_FS_TRACE

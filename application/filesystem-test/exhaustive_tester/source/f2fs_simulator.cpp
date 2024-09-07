@@ -1148,6 +1148,7 @@ void CF2fsSimulator::GetFsInfo(FS_INFO& space_info)
 	space_info.total_data_nr = m_pages.total_data_nr();
 	space_info.free_page_nr  = m_pages.free_page_nr();
 	space_info.free_data_nr  = m_pages.free_data_nr();
+	space_info.max_opened_file = MAX_OPEN_FILE;
 }
 
 BLK_TEMP CF2fsSimulator::GetBlockTemp(CPageInfo* page)

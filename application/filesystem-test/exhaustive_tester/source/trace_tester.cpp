@@ -14,7 +14,10 @@ const char* OpName(OP_CODE op_code)
 	case OP_CODE::OP_DIR_DELETE:	return "DeleteDir";		break;
 	case OP_CODE::OP_MOVE:			return "Move";			break;
 	case OP_CODE::OP_FILE_WRITE:	return "OverWrite";		break;
+	case OP_CODE::OP_FILE_OPEN:		return "OpenFile";		break;
+	case OP_CODE::OP_FILE_CLOSE:	return "CloseFile";		break;
 	case OP_CODE::OP_DEMOUNT_MOUNT:	return "Mount";			break;
+	case OP_CODE::OP_POWER_OFF_RECOVER:	return "Power";		break;
 	default:						return "unknown    ";	break;
 	}
 }
@@ -26,23 +29,26 @@ void Op2String(char(&str)[N], TRACE_ENTRY& op)
 	char str_param[128] = "";
 	switch (op.op_code)
 	{
-	case OP_CODE::OP_NOP:			op_name = "none       ";	break;
-	case OP_CODE::OP_FILE_CREATE:	op_name = "create-file";	break;
-	case OP_CODE::OP_DIR_CREATE:	op_name = "create-dir ";	break;
-	case OP_CODE::OP_FILE_DELETE:	op_name = "delete-file";	break;
-	case OP_CODE::OP_DIR_DELETE:	op_name = "delete-dir ";	break;
-	case OP_CODE::OP_MOVE:			op_name = "move       ";	break;
-	case OP_CODE::OP_FILE_WRITE:	op_name = "overwrite  ";
+	case OP_CODE::OP_NOP:				op_name = "none       ";	break;
+	case OP_CODE::OP_FILE_CREATE:		op_name = "create-file";	break;
+	case OP_CODE::OP_DIR_CREATE:		op_name = "create-dir ";	break;
+	case OP_CODE::OP_FILE_DELETE:		op_name = "delete-file";	break;
+	case OP_CODE::OP_DIR_DELETE:		op_name = "delete-dir ";	break;
+	case OP_CODE::OP_MOVE:				op_name = "move       ";	break;
+	case OP_CODE::OP_FILE_WRITE:		op_name = "overwrite  ";
 		sprintf_s(str_param, "offset=%d, secs=%d", op.offset, op.length);
 		break;
-	case OP_CODE::OP_DEMOUNT_MOUNT:	op_name = "demnt-mount";	break;
-	default:						op_name = "unknown    ";	break;
+	case OP_CODE::OP_FILE_OPEN:			op_name = "open-file  ";	break;
+	case OP_CODE::OP_FILE_CLOSE:		op_name = "close-file ";	break;
+	case OP_CODE::OP_DEMOUNT_MOUNT:		op_name = "demnt-mount";	break;
+	case OP_CODE::OP_POWER_OFF_RECOVER:	op_name = "power-off-on";	break;
+	default:							op_name = "unknown    ";	break;
 	}
 	sprintf_s(str, "op:(%d) [%s], path=%s, param: %s", op.op_sn, op_name, op.file_path.c_str(), str_param);
 }
 
 
-void CExTester::RunTrace(IFsSimulator* src_fs, const std::string& fn)
+ERROR_CODE CExTester::RunTrace(IFsSimulator* src_fs, const std::string& fn)
 {
 	boost::property_tree::ptree trace;
 	boost::property_tree::read_json(fn, trace);
@@ -53,6 +59,8 @@ void CExTester::RunTrace(IFsSimulator* src_fs, const std::string& fn)
 	src_fs->Clone(fs);
 	state.Initialize("\\", fs);
 	state.m_ref = 1;
+
+	ERROR_CODE ir = ERR_OK;
 
 	for (auto it = ops.begin(); it != ops.end(); ++it)
 	{
@@ -72,43 +80,50 @@ void CExTester::RunTrace(IFsSimulator* src_fs, const std::string& fn)
 		{
 		case OP_CODE::OP_NOP:			break;
 		case OP_CODE::OP_FILE_CREATE:
-			TestCreateFile(&state, op.file_path);
-			//fid = fs->FileCreate(operate.file_path);
-			//fs->FileClose(fid);
+			ir = TestCreateFile(&state, op.file_path);
 			break;
 		case OP_CODE::OP_DIR_CREATE:
-			TestCreateDir(&state, op.file_path);
-//			fid = fs->DirCreate(op.file_path);
+			ir = TestCreateDir(&state, op.file_path);
 			break;
 		case OP_CODE::OP_FILE_DELETE:
-			TestDeleteFile(&state, op.file_path);
+			ir = TestDeleteFile(&state, op.file_path);
 			printf_s("Delete File: %s\n", op.file_path.c_str());
-			//fs->FileDelete(op.file_path);
 			break;
 		case OP_CODE::OP_DIR_DELETE:
 			break;
 		case OP_CODE::OP_MOVE:			break;
-		case OP_CODE::OP_FILE_WRITE:
-			TestWriteFile(&state, op.file_path, op.offset, op.length);
-			printf_s("Write file: %s, start blk=%d, blks=%d\n", op.file_path.c_str(), op.offset / BLOCK_SIZE, op.length / BLOCK_SIZE);
-			//fid = fs->FileOpen(op.file_path);
-			//fs->FileWrite(fid, op.offset, op.length);
-			//fs->FileClose(fid);
+		case OP_CODE::OP_FILE_WRITE: {
+			CReferenceFs::CRefFile* ref_file = state.m_ref_fs.FindFile(op.file_path);
+			NID fid = ref_file->get_fid();
+			ir = TestWriteFileV2(&state, fid, op.offset, op.length, op.file_path);
+
+			//			TestWriteFile(&state, op.file_path, op.offset, op.length);
+			//			printf_s("Write file: %s, start blk=%d, blks=%d\n", op.file_path.c_str(), op.offset / BLOCK_SIZE, op.length / BLOCK_SIZE);
+			break; }
+		case OP_CODE::OP_FILE_OPEN:			
+			ir =TestOpenFile(&state, op.file_path);
 			break;
+
+		case OP_CODE::OP_FILE_CLOSE: {
+			CReferenceFs::CRefFile* ref_file = state.m_ref_fs.FindFile(op.file_path);
+			NID fid = ref_file->get_fid();
+			ir = TestCloseFile(&state, fid, op.file_path);
+			break; }
+
 		case OP_CODE::OP_DEMOUNT_MOUNT:
-			TestMount(&state);
-			//fs->Unmount();
-			//fs->Reset();
-			//fs->Mount();
+			ir =TestMount(&state);
+			break;
+		case OP_CODE::OP_POWER_OFF_RECOVER:	
+			ir = TestPowerOutage(&state);
 			break;
 
 		case OP_CODE::OP_FILE_VERIFY: 
-			Verify(&state);
+			ir = Verify(&state);
 			 break;
 		default:						break;
 		}
 
-		Verify(&state);
+		ir = Verify(&state);
 		FS_INFO fs_info;
 		fs->GetFsInfo(fs_info);
 		printf_s("fs: dir=%d, files=%d, logic=%d, phisic=%d, total_blk=%d, free_blk=%d, total_seg=%d, free_seg=%d\n",
@@ -118,9 +133,7 @@ void CExTester::RunTrace(IFsSimulator* src_fs, const std::string& fn)
 		printf_s("\n");
 
 	}
-
-
-
+	return ir;
 }
 
 void CExTester::TraceTestVerify(IFsSimulator* fs, const std::string& fn)
@@ -163,30 +176,33 @@ bool CExTester::OutputTrace(CFsState* state)
 			std::string path;
 			ref.GetFilePath(ref_file, path);
 			bool dir = ref.IsDir(ref_file);
-			std::string str_encode;
-			ref_file.GetEncodeString(str_encode);
-
+//			std::string str_encode;
+//			ref_file.GetEncodeString(str_encode);
+			char str_encode[MAX_ENCODE_SIZE];
+			ref_file.GetEncodeString(str_encode, MAX_ENCODE_SIZE);
 			FSIZE ref_len = 0;
 			if (!dir)
 			{
 				DWORD ref_checksum;
 				ref.GetFileInfo(ref_file, ref_checksum, ref_len);
 			}
-
-			NID index[INDEX_TABLE_SIZE];		// 磁盘数据，
-			size_t nr = fs->DumpFileIndex(index, INDEX_TABLE_SIZE, ref_file.get_fid());
 			static const size_t str_size = (INDEX_TABLE_SIZE * 10);
 			char str_index[str_size];
+#if 0
+			NID index[INDEX_TABLE_SIZE];		// 磁盘数据，
+			size_t nr = fs->DumpFileIndex(index, INDEX_TABLE_SIZE, ref_file.get_fid());
 			size_t ptr = 0;
 			for (size_t ii = 0; ii < INDEX_TABLE_SIZE; ++ii)
 			{
 				if (index[ii] == INVALID_BLK) break;
 				ptr += sprintf_s(str_index+ptr, str_size-ptr, "%03X ", index[ii]);
 			}
-
+#else
+			str_index[0] = 0;
+#endif
 
 			TEST_LOG("\t\t<check %s> (fid=%02d) %s [%s], (%s), size=%d\n",
-				dir ? "dir " : "file", ref_file.get_fid(), path.c_str(), str_index, str_encode.c_str(), ref_len);
+				dir ? "dir " : "file", ref_file.get_fid(), path.c_str(), str_index, str_encode, ref_len);
 
 			std::vector<GC_TRACE> gc;
 			fs->GetGcTrace(gc);
@@ -218,11 +234,11 @@ bool CExTester::OutputTrace(CFsState* state)
 		boost::property_tree::ptree prop_op;
 		prop_op.add<std::string>("op_name", OpName(op.op_code));
 		prop_op.add<std::string>("path", op.file_path);
-		if (op.op_code == OP_FILE_OVERWRITE || op.op_code == OP_FILE_WRITE)
-		{
+//		if (op.op_code == OP_FILE_OVERWRITE || op.op_code == OP_FILE_WRITE)
+//		{
 			prop_op.add("offset", op.offset);
 			prop_op.add("length", op.length);
-		}
+//		}
 		//		prop_trace.add_child("op", prop_op);
 		prop_op_array.push_back(std::make_pair("", prop_op));
 	}
