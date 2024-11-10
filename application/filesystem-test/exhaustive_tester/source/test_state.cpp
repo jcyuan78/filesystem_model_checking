@@ -105,8 +105,7 @@ void CStateManager::put(CFsState*& state)
 		UINT ref = InterlockedDecrement(&state->m_ref);
 		if (ref != 0) break;
 		CFsState* pp = state->m_parent;
-		//		delete state;
-				// 放入free list
+		// 放入free list
 		state->m_parent = m_free_list;
 		m_free_list = state;
 		m_free_nr++;
@@ -133,7 +132,9 @@ bool CStateHeap::Check(const CFsState* state)
 	ENCODE encode;
 	size_t len = fs.Encode(encode.code, MAX_ENCODE_SIZE);
 	auto it = m_fs_state.find(encode);
-	return it != m_fs_state.end();
+	bool exist = (it != m_fs_state.end());
+	LOG_DEBUG(L"fs encode=%S, exist=%d", encode.code, exist);
+	return exist;
 }
 
 

@@ -63,7 +63,6 @@ public:
 	DWORD cur_blk;			// 可以分配的下一个block, 0:表示这个segment未被使用，BLOCK_PER_SEG：表示已经填满，其他：当前segment
 	// 当block free时， cur_blk表示free指针
 	BLK_TEMP seg_temp;		// 指示segment的温度，用于GC和
-//	SEG_T	seg_id;			// segment的编号，仅用于fs。可以用 SegmentInfo的指针来计算。
 	NID		nids[BLOCK_PER_SEG];
 	WORD	offset[BLOCK_PER_SEG];
 };
@@ -194,7 +193,8 @@ public:
 
 public:
 	// 将必要的数据保存到Storage
-	void Sync(void);
+	void SyncSIT(void);
+	void SyncSSA(void);
 	// 从storage中读取 
 	bool Load(void);
 
@@ -217,6 +217,9 @@ public:
 		return m_segments[id];
 	}
 
+	void GetBlockInfo(NID& nid, WORD& offset, PHY_BLK phy_blk);
+	void SetBlockInfo(NID nid, WORD offset, PHY_BLK phy_blk);
+
 	// 写入data block到segment, file_index 文件id, blk：文件中的相对block，temp温度
 	void CheckGarbageCollection(CF2fsSimulator* fs)
 	{
@@ -225,8 +228,7 @@ public:
 	// 将page写入磁盘
 	PHY_BLK WriteBlockToSeg(CPageInfo * page, bool by_gc=false);
 
-	void GarbageCollection(CF2fsSimulator * fs);
-	void DumpSegmentBlocks(const std::wstring& fn);
+	ERROR_CODE GarbageCollection(CF2fsSimulator * fs);
 	inline SEG_T SegId(SegmentInfo* seg) const {return (SEG_T)(seg - m_segments);}
 
 	friend class CF2fsSimulator;
@@ -234,14 +236,18 @@ public:
 	FILE* m_gc_trace;
 #endif
 
+public:
+	bool is_dirty(SEG_T seg_id);
+	void set_dirty(SEG_T seg_id);
+
 	// 一下两段数据是需要保存的
-public:	// 临时措施，需要考虑如何处理GcPool。(1)将GC作为算法器放入segment management中，(2)提供获取GcPool的接口
-//	SEG_INFO m_segments[MAIN_SEG_NR];
+protected:	// 临时措施，需要考虑如何处理GcPool。(1)将GC作为算法器放入segment management中，(2)提供获取GcPool的接口
 	SegmentInfo m_segments[MAIN_SEG_NR];
 protected:
-//	SIT_BLOCK m_sit[SIT_ENTRY_PER_BLK];
 	SEG_T m_cur_segs[BT_TEMP_NR];
 	SEG_T m_gc_lo, m_gc_hi;
+	// SIT entry的dirty标志，一个bit表示一个SIT entry。一个DWORD表示一个SIT block。
+	DWORD m_dirty_map[SIT_BLK_NR];
 
 protected:
 	void build_free_link(void);
@@ -270,8 +276,23 @@ public:
 		return phy_blk + MAIN_SEG_OFFSET * BLOCK_PER_SEG;
 	}
 
-	// SIT entry的dirty标志，一个bit表示一个SIT entry。一个DWORD表示一个SIT block。
-	DWORD m_dirty_map[SIT_BLK_NR];
+	inline static void set_bitmap(DWORD* bmp, BLK_T blk)
+	{
+		DWORD mask = (1 << blk);
+		bmp[0] = bmp[0] | mask;
+	}
+
+	inline static void clear_bitmap(DWORD* bmp, BLK_T blk)
+	{
+		DWORD mask = (1 << blk);
+		bmp[0] = bmp[0] & (~mask);
+	}
+
+	inline static DWORD test_bitmap(const DWORD* bmp, BLK_T blk)
+	{
+		DWORD mask = (1 << blk);
+		return bmp[0] & mask;
+	}
 
 protected:
 	CF2fsSimulator* m_fs;
@@ -285,6 +306,7 @@ protected:
 
 	// for debug
 public:
+	void DumpSegmentBlocks(const std::wstring& fn);
 #ifdef GC_TRACE
 	std::vector<GC_TRACE> gc_trace;
 #endif

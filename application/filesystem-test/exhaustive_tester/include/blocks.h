@@ -7,16 +7,18 @@
 #include "f2fs_segment.h"
 
 // == nid and index node  ==
+enum F2FS_FILE_TYPE {
+	F2FS_FILE_REG, F2FS_FILE_DIR, F2FS_FILE_UNKNOWN,
+};
 // 用于记录一个实际的inode
 struct INODE
 {
-	UINT blk_num;		// 文件占用的块数
-	UINT file_size;		// 文件长度，字节单位
+	UINT blk_num;		// 文件占用的有效块数。可能小于文件长度，排除空洞。
+	UINT file_size;		// 文件长度，字节单位。文件实际块数通过file_size计算获得。
+	F2FS_FILE_TYPE file_type;
 	UINT ref_count;
 	UINT nlink;			// 文件连接数
-//	bool delete_on_close;
 	NID index[INDEX_TABLE_SIZE];		// 磁盘数据，
-//	PAGE_INDEX index_buf[INDEX_TABLE_SIZE];	// page缓存
 	//		index[]		index_buf[]
 	//		null		null			：在文件中，这个index block不存在。不需要回写
 	//		null		valid			：这个index block新建，还未存盘。需要回写
@@ -26,7 +28,7 @@ struct INODE
 
 struct INDEX_NODE
 {
-//	PAGE_INDEX index_table[INDEX_TABLE_SIZE];
+	UINT valid_data;
 	PHY_BLK index[INDEX_SIZE];
 };
 
@@ -36,7 +38,7 @@ struct NODE_INFO
 public:
 	NID m_nid;				// 表示这个node的id
 	NID m_ino;				// 表示这个node的所在的inode
-	UINT valid_data;
+//	UINT valid_data;		// 子结构中，有多少有效的block
 	PAGE_INDEX page_id;		// 这个node对应的page的id
 	union {
 		INODE inode;

@@ -9,23 +9,7 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-enum ERROR_CODE
-{
-	ERR_OK = 0,
-	ERR_GENERAL,
-	OK_ALREADY_EXIST,	// 文件或者目录已经存在，但是结果返回true
-	ERR_CREATE_EXIST,	// 对于已经存在的文件，重复创建。
-	ERR_CREATE,			// 文件或者目录不存在，但是创建失败
-	ERR_OPEN_FILE,		// 试图打开一个已经存在的文件是出错
-	ERR_GET_INFOMATION,	// 获取File Informaiton时出错
-	ERR_DELETE_FILE,	// 删除文件时出错
-	ERR_DELETE_DIR,		// 删除目录时出错
-	ERR_READ_FILE,		// 读文件时出错
-	ERR_WRONG_FILE_SIZE,	// 
-	ERR_WRONG_FILE_DATA,
-	ERR_UNKNOWN,
-	ERR_PENDING,		// 测试还在进行中
-};
+
 
 class CFsState
 {
@@ -148,11 +132,23 @@ public:
 public:
 	virtual int StartTest(void);
 	virtual int PrepareTest(const boost::property_tree::wptree & config, IFsSimulator * fs, const std::wstring& log_path);
-	int PreTest(void);
-	ERROR_CODE RunTest(void);
-	void FinishTest(void);
-	virtual void ShowTestFailure(FILE* log);
+	// 上层程序调用StopTest来强制终止目前测测试。
+	virtual void StopTest(void);
 	virtual void GetTestSummary(boost::property_tree::wptree& sum);
+
+	// 多态化
+protected:
+	virtual int PreTest(void);
+	virtual ERROR_CODE RunTest(void);
+	virtual void FinishTest(void);
+
+	// 公共方法
+protected:
+	// 根据现在的状态，枚举所有可能的操作，结果放入ops中
+	size_t GenerateOps(CFsState* cur_state, std::vector<TRACE_ENTRY> &ops);
+
+protected:
+	virtual void ShowTestFailure(FILE* log);
 
 protected:
 	ERROR_CODE DoFsOperator(CFsState* cur_state, TRACE_ENTRY& op, std::list<CFsState*>::iterator& insert);
@@ -170,7 +166,7 @@ protected:
 	}
 	DWORD FsOperator_Queue(void);
 
-	ERROR_CODE RunTrace(IFsSimulator* fs, const std::string& fn);
+//	ERROR_CODE RunTrace(IFsSimulator* fs, const std::string& fn);
 
 
 //	void FsOperator_Thread(work)
@@ -182,34 +178,38 @@ protected:
 	ERROR_CODE TestOpenFile(CFsState* cur_state, const std::string& path);
 	ERROR_CODE TestCloseFile(CFsState* cur_state, NID fid, const std::string & path);
 	ERROR_CODE TestDeleteFile(CFsState* cur_state, const std::string& path);
+	ERROR_CODE TestDeleteDir(CFsState* cur_state, const std::string& path);
 	ERROR_CODE TestMount(CFsState * cur_state);
-	ERROR_CODE TestPowerOutage(CFsState* cur_state);
+	ERROR_CODE TestPowerOutage(CFsState* cur_state, UINT rollback);
 
 //	int TestDelete(CFsState* state, CReferenceFs& ref, const std::wstring& path);
 	int TestMove(CFsState* state, CReferenceFs& ref, const std::wstring& path_src, const std::wstring& path_dst);
 
 	//	DWORD AppendChecksum(DWORD cur_checksum, const char* buf, size_t size);
+	ERROR_CODE VerifyForPower(CFsState* cur_state);
 	ERROR_CODE Verify(CFsState* cur_state);
 
-	// 针对每个子项，枚举所有可能的操作。
-	bool EnumerateOp(CFsState * cur_state, std::list<CFsState*>::iterator & insert);
-	// 枚举子操作时，将Open和Write分开，实现可以同时打开多个文件。
-	ERROR_CODE EnumerateOpV2(CFsState* cur_state, std::list<CFsState*>::iterator& insert);
+	ERROR_CODE VerifyState(CReferenceFs& ref_fs, IFsSimulator* real_fs);
 
-	ERROR_CODE EnumerateOp_Thread(CFsState* cur_state, std::list<CFsState*>::iterator& insert);
+	// 针对每个子项，枚举所有可能的操作。
+	//bool EnumerateOp(CFsState * cur_state, std::list<CFsState*>::iterator & insert);
+	// 枚举子操作时，将Open和Write分开，实现可以同时打开多个文件。
+	ERROR_CODE EnumerateOpV2(std::vector<TRACE_ENTRY>& ops, CFsState* cur_state, std::list<CFsState*>::iterator& insert);
+
+	ERROR_CODE EnumerateOp_Thread(std::vector<TRACE_ENTRY>& ops, CFsState* cur_state, std::list<CFsState*>::iterator& insert);
+	ERROR_CODE EnumerateOp_Thread_V2(std::vector<TRACE_ENTRY>& ops, CFsState* cur_state, 
+		std::list<CFsState*>::iterator& insert);
 
 	// for monitor thread
 	static DWORD WINAPI _RunTest(PVOID p);
 	bool PrintProgress(INT64 ts);
 	bool OutputTrace(CFsState* state);
+	bool OutputTrace_Thread(CFsState* state, ERROR_CODE ir, const std::string & err);
 	void UpdateFsParam(IFsSimulator* fs);
 
 protected:
 	// make fs, mount fs, 和unmount fs是可选项。暂不支持。
 	// make fs仅用于初始化。mount fs用于初始化和测试。测试中允许增加mount和unmount操作
-	//int MakeFs(void) { return 0; }
-	//int MountFs(void) { return 0; }
-	//int UnmountFs(void) { return 0; }
 	void TraceTestVerify(IFsSimulator* fs, const std::string &fn);
 
 protected:
@@ -232,6 +232,7 @@ protected:
 	int m_clear_temp;						// 测试完以后是否清除所有临时文件
 	int m_test_depth;						// 最大测试深度
 	size_t m_volume_size;					// 文件系统大小
+	int m_branch;							// 统计测试时，抽选的分支数量
 
 	std::vector<OP_CODE> m_file_op_set;		// 对于文件，允许的操作
 	std::vector<OP_CODE> m_dir_op_set;		// 对于目录，允许的操作
@@ -246,7 +247,12 @@ protected:
 	DWORD m_test_thread_id;
 	HANDLE m_test_thread;
 	HANDLE m_test_event;
+	// 正在扩展的状态，这个状态即不再open list也不在 closed list中。当遇到错误时，需要回收这个状态。
 	CFsState* m_cur_state = nullptr;
+	// 记录当前测试的最大深度，当测试终止时，会输出这个状态的trace。
+	CFsState* m_max_depth_state = nullptr;
+	// 控制测试停止，到该变量设置为1时，测试停止。
+	LONG m_stop_test = 0;
 
 	float m_max_memory_cost = 0;		// 最大内存使用量
 	LONG m_max_depth = 0;
@@ -280,61 +286,62 @@ protected:
 	CRITICAL_SECTION m_sub_crit, m_cmp_crit;
 	HANDLE *m_thread_list;
 	UINT m_thread_num;	// 1: single thread
+	CRITICAL_SECTION m_trace_crit;
+};
 
-
-/*
-	// 参数，选项
-protected:
-	//	bool m_need_mount = false;
-	bool m_support_trunk = true;
-
-
-	CStateHeap m_states;
-	size_t m_state_searched = 0;
-	size_t m_max_depth = 0;
+class CExStatisticTester : public CExTester
+{
+public:
+	CExStatisticTester(void);
+	virtual ~CExStatisticTester(void);
 
 protected:
-	int m_cur_depth;						// 当前测试的深度
 
-	CFsState* m_test_state_buf;
-	std::list<CFsState*> m_free_list;
-	std::list<CFsState*> m_open_list;
-	size_t m_state_buf_size;
-
-	// from test base
-	CLfsInterface* m_fs;
-	std::wstring m_root;	// 测试的根目录。所有测试再次目录下进行
-
-	// 用于监控文件操作是否超时
-	long m_running;
-	DWORD m_message_interval = 30;
-	HANDLE m_monitor_thread;
-	HANDLE m_monitor_event;
-
-	HANDLE m_fsinfo_file = nullptr;		// 文件系统的特殊文件，用于读取file system的一些状态
-
+	// 多态化
+	virtual int PrepareTest(const boost::property_tree::wptree& config, IFsSimulator* fs, const std::wstring& log_path);
+	virtual int PreTest(void);
+	virtual ERROR_CODE RunTest(void);
+	virtual void FinishTest(void);
 
 protected:
-	// 测试汇总结果
+	// 选择一个可执行的操作执行
+	static DWORD WINAPI _OneTest(void);
+	ERROR_CODE OneTest(void);
 
-	// configurations
 protected:
-*/
+	int m_test_times;
+	
+
+};
+
+class CExTraceTester : public CExTester
+{
+public:
+	CExTraceTester(void) {};
+	virtual ~CExTraceTester(void) {};
+
+protected:
+
+	// 多态化
+	virtual int PrepareTest(const boost::property_tree::wptree& config, IFsSimulator* fs, const std::wstring& log_path);
+	virtual int PreTest(void) { return 0; };
+	virtual ERROR_CODE RunTest(void);
+	virtual void FinishTest(void) {};
+
+protected:
+	//std::string m_trace_fn;
+	boost::property_tree::ptree m_trace;
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // ==== help functions ====
 
 #define TEST_LOG_SINGLE(...)  {\
-	/*sprintf_s(m_log_buf, __VA_ARGS__);*/	\
-	/*LOG_DEBUG(m_log_buf);*/	\
 	if (m_log_file) {fprintf_s(m_log_file, __VA_ARGS__); \
 	fprintf_s(m_log_file, "\n"); \
 	fflush(m_log_file);} }
 
 #define TEST_LOG(...)  {\
-	/*sprintf_s(m_log_buf, __VA_ARGS__);*/	\
-	/*LOG_DEBUG(m_log_buf);*/	\
 	if (m_log_file) {fprintf_s(m_log_file, __VA_ARGS__); \
 	}}
 
@@ -353,5 +360,7 @@ protected:
 
 template <size_t N> void Op2String(char(&str)[N], TRACE_ENTRY& op);
 
-void GenerateFn(char* fn, size_t len);
+// len: fn缓存长度。返回fn长度
+int GenerateFn(char* fn, int len);
+const char* OpName(OP_CODE op_code);
 

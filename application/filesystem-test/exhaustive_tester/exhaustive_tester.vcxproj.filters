@@ -86,5 +86,14 @@
     <ClCompile Include="source\extester_obsolete.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="source\statistic_tester.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="source\f2fs_nat.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="source\fsck.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>

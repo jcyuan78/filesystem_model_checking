@@ -3,6 +3,28 @@
 #include "../include/extester.h"
 #include <boost/property_tree/json_parser.hpp>
 
+OP_CODE StringToOpId(const std::wstring& str)
+{
+	OP_CODE id;
+	if (false) {}
+	else if (str == L"CreateFile")	id = OP_CODE::OP_FILE_CREATE;
+	else if (str == L"CreateDir")	id = OP_CODE::OP_DIR_CREATE;
+	else if (str == L"OpenFile")	id = OP_CODE::OP_FILE_OPEN;
+	else if (str == L"CloseFile")	id = OP_CODE::OP_FILE_CLOSE;
+	//else if (str == L"Append")		id = OP_CODE::APPEND_FILE;
+	else if (str == L"OverWrite")	id = OP_CODE::OP_FILE_WRITE;
+	else if (str == L"Write")		id = OP_CODE::OP_FILE_WRITE;
+	else if (str == L"DeleteFile")	id = OP_CODE::OP_FILE_DELETE;
+	else if (str == L"DeleteDir")	id = OP_CODE::OP_DIR_DELETE;
+	else if (str == L"Move")		id = OP_CODE::OP_MOVE;
+	else if (str == L"Mount")		id = OP_CODE::OP_DEMOUNT_MOUNT;
+//	else if (str == L"PowerCycle")	id = OP_CODE::OP_POWER_OFF_RECOVER;
+	else if (str == L"Verify")		id = OP_CODE::OP_FILE_VERIFY;
+	else if (str == L"PowerOutage")	id = OP_CODE::OP_POWER_OFF_RECOVER;
+	else							id = OP_CODE::OP_NOP;
+	return id;
+}
+
 const char* OpName(OP_CODE op_code)
 {
 	switch (op_code)
@@ -17,7 +39,7 @@ const char* OpName(OP_CODE op_code)
 	case OP_CODE::OP_FILE_OPEN:		return "OpenFile";		break;
 	case OP_CODE::OP_FILE_CLOSE:	return "CloseFile";		break;
 	case OP_CODE::OP_DEMOUNT_MOUNT:	return "Mount";			break;
-	case OP_CODE::OP_POWER_OFF_RECOVER:	return "Power";		break;
+	case OP_CODE::OP_POWER_OFF_RECOVER:	return "PowerOutage";		break;
 	default:						return "unknown    ";	break;
 	}
 }
@@ -27,42 +49,63 @@ void Op2String(char(&str)[N], TRACE_ENTRY& op)
 {
 	const char* op_name = NULL;
 	char str_param[128] = "";
-	switch (op.op_code)
-	{
-	case OP_CODE::OP_NOP:				op_name = "none       ";	break;
-	case OP_CODE::OP_FILE_CREATE:		op_name = "create-file";	break;
-	case OP_CODE::OP_DIR_CREATE:		op_name = "create-dir ";	break;
-	case OP_CODE::OP_FILE_DELETE:		op_name = "delete-file";	break;
-	case OP_CODE::OP_DIR_DELETE:		op_name = "delete-dir ";	break;
-	case OP_CODE::OP_MOVE:				op_name = "move       ";	break;
-	case OP_CODE::OP_FILE_WRITE:		op_name = "overwrite  ";
+	//switch (op.op_code)
+	//{
+	//case OP_CODE::OP_NOP:				op_name = "none       ";	break;
+	//case OP_CODE::OP_FILE_CREATE:		op_name = "create-file";	break;
+	//case OP_CODE::OP_DIR_CREATE:		op_name = "create-dir ";	break;
+	//case OP_CODE::OP_FILE_DELETE:		op_name = "delete-file";	break;
+	//case OP_CODE::OP_DIR_DELETE:		op_name = "delete-dir ";	break;
+	//case OP_CODE::OP_MOVE:				op_name = "move       ";	break;
+	//case OP_CODE::OP_FILE_WRITE:		op_name = "overwrite  ";
+	//	sprintf_s(str_param, "offset=%d, secs=%d", op.offset, op.length);
+	//	break;
+	//case OP_CODE::OP_FILE_OPEN:			op_name = "open-file  ";	break;
+	//case OP_CODE::OP_FILE_CLOSE:		op_name = "close-file ";	break;
+	//case OP_CODE::OP_DEMOUNT_MOUNT:		op_name = "demnt-mount";	break;
+	//case OP_CODE::OP_POWER_OFF_RECOVER:	op_name = "power-off-on";	break;
+	//default:							op_name = "unknown    ";	break;
+	//}
+	if (op.op_code == OP_CODE::OP_FILE_WRITE) {
 		sprintf_s(str_param, "offset=%d, secs=%d", op.offset, op.length);
-		break;
-	case OP_CODE::OP_FILE_OPEN:			op_name = "open-file  ";	break;
-	case OP_CODE::OP_FILE_CLOSE:		op_name = "close-file ";	break;
-	case OP_CODE::OP_DEMOUNT_MOUNT:		op_name = "demnt-mount";	break;
-	case OP_CODE::OP_POWER_OFF_RECOVER:	op_name = "power-off-on";	break;
-	default:							op_name = "unknown    ";	break;
 	}
-	sprintf_s(str, "op:(%d) [%s], path=%s, param: %s", op.op_sn, op_name, op.file_path.c_str(), str_param);
+	else if (op.op_code == OP_CODE::OP_POWER_OFF_RECOVER) {
+		sprintf_s(str_param, "rollback=%d", op.rollback);
+	}
+	sprintf_s(str, "op:(%d) [%s], path=%s, param: %s", op.op_sn, OpName(op.op_code), op.file_path.c_str(), str_param);
+}
+
+int CExTraceTester::PrepareTest(const boost::property_tree::wptree& config, IFsSimulator* fs, const std::wstring& log_path)
+{
+	CExTester::PrepareTest(config, fs, log_path);
+	const std::wstring & fn  = config.get<std::wstring>(L"trace", L"");
+	std::string str_fn;
+	jcvos::UnicodeToUtf8(str_fn, fn);
+
+	boost::property_tree::read_json(str_fn, m_trace);
+
+	return ERR_OK;
 }
 
 
-ERROR_CODE CExTester::RunTrace(IFsSimulator* src_fs, const std::string& fn)
+ERROR_CODE CExTraceTester::RunTest(void)
 {
-	boost::property_tree::ptree trace;
-	boost::property_tree::read_json(fn, trace);
+	printf_s("Running TRACE test\n");
+
+	boost::property_tree::ptree & trace=m_trace;
 	boost::property_tree::ptree& ops = trace.get_child("op");
 
-	CFsState state;
 	IFsSimulator* fs = nullptr;
-	src_fs->Clone(fs);
-	state.Initialize("\\", fs);
-	state.m_ref = 1;
+	m_fs_factory->Clone(fs);
+	m_cur_state = m_states.get();
+	m_cur_state->Initialize("\\", fs);
+	m_cur_state->m_ref = 1;
+
+//	CFsState& state = *m_cur_state;
 
 	ERROR_CODE ir = ERR_OK;
-
-	for (auto it = ops.begin(); it != ops.end(); ++it)
+	int step = 0;
+	for (auto it = ops.begin(); it != ops.end(); ++it, ++step)
 	{
 		boost::property_tree::ptree& prop_op = it->second;
 		TRACE_ENTRY op;
@@ -75,55 +118,68 @@ ERROR_CODE CExTester::RunTrace(IFsSimulator* src_fs, const std::string& fn)
 			op.offset = prop_op.get<FSIZE>("offset");
 			op.length = prop_op.get<FSIZE>("length");
 		}
+		else if (op.op_code == OP_POWER_OFF_RECOVER)
+		{
+			op.offset = prop_op.get<FSIZE>("offset");
+		}
 
+		CFsState* next_state = m_states.duplicate(m_cur_state);
+		next_state->m_op = op;
+		bool is_power_off = false;
 		switch (op.op_code)
 		{
 		case OP_CODE::OP_NOP:			break;
 		case OP_CODE::OP_FILE_CREATE:
-			ir = TestCreateFile(&state, op.file_path);
+			printf_s("[CreateFile] %s\n", op.file_path.c_str());
+			ir = TestCreateFile(next_state, op.file_path);
 			break;
 		case OP_CODE::OP_DIR_CREATE:
-			ir = TestCreateDir(&state, op.file_path);
+			printf_s("[CreateDir] %s\n", op.file_path.c_str());
+			ir = TestCreateDir(next_state, op.file_path);
 			break;
 		case OP_CODE::OP_FILE_DELETE:
-			ir = TestDeleteFile(&state, op.file_path);
-			printf_s("Delete File: %s\n", op.file_path.c_str());
+			printf_s("[DeleteFile] %s\n", op.file_path.c_str());
+			ir = TestDeleteFile(next_state, op.file_path);
 			break;
 		case OP_CODE::OP_DIR_DELETE:
 			break;
 		case OP_CODE::OP_MOVE:			break;
 		case OP_CODE::OP_FILE_WRITE: {
-			CReferenceFs::CRefFile* ref_file = state.m_ref_fs.FindFile(op.file_path);
+			CReferenceFs::CRefFile* ref_file = next_state->m_ref_fs.FindFile(op.file_path);
 			NID fid = ref_file->get_fid();
-			ir = TestWriteFileV2(&state, fid, op.offset, op.length, op.file_path);
-
-			//			TestWriteFile(&state, op.file_path, op.offset, op.length);
-			//			printf_s("Write file: %s, start blk=%d, blks=%d\n", op.file_path.c_str(), op.offset / BLOCK_SIZE, op.length / BLOCK_SIZE);
+			printf_s("[WriteFile] %s, fid=%d, offset=%d, len=%d\n", op.file_path.c_str(), fid, op.offset, op.length);
+			ir = TestWriteFileV2(next_state, fid, op.offset, op.length, op.file_path);
 			break; }
 		case OP_CODE::OP_FILE_OPEN:			
-			ir =TestOpenFile(&state, op.file_path);
+			printf_s("[OpenFile] %s\n", op.file_path.c_str());
+			ir =TestOpenFile(next_state, op.file_path);
 			break;
 
 		case OP_CODE::OP_FILE_CLOSE: {
-			CReferenceFs::CRefFile* ref_file = state.m_ref_fs.FindFile(op.file_path);
+			CReferenceFs::CRefFile* ref_file = next_state->m_ref_fs.FindFile(op.file_path);
 			NID fid = ref_file->get_fid();
-			ir = TestCloseFile(&state, fid, op.file_path);
+			printf_s("[CloseFile] %s, fid=%d\n", op.file_path.c_str(), fid);
+			ir = TestCloseFile(next_state, fid, op.file_path);
 			break; }
 
 		case OP_CODE::OP_DEMOUNT_MOUNT:
-			ir =TestMount(&state);
+			printf_s("[Mount] \n");
+			ir =TestMount(next_state);
 			break;
 		case OP_CODE::OP_POWER_OFF_RECOVER:	
-			ir = TestPowerOutage(&state);
+			printf_s("[Power] \n");
+			is_power_off = true;
+			ir = TestPowerOutage(next_state, op.rollback);
 			break;
 
 		case OP_CODE::OP_FILE_VERIFY: 
-			ir = Verify(&state);
+			ir = Verify(next_state);
 			 break;
 		default:						break;
 		}
-
-		ir = Verify(&state);
+		printf_s("[Verify] \n");
+		if (is_power_off)	ir = VerifyForPower(next_state);
+		else				ir = Verify(next_state);
 		FS_INFO fs_info;
 		fs->GetFsInfo(fs_info);
 		printf_s("fs: dir=%d, files=%d, logic=%d, phisic=%d, total_blk=%d, free_blk=%d, total_seg=%d, free_seg=%d\n",
@@ -132,13 +188,18 @@ ERROR_CODE CExTester::RunTrace(IFsSimulator* src_fs, const std::string& fn)
 			fs_info.free_page_nr, fs_info.total_page_nr, fs_info.free_data_nr, fs_info.total_data_nr);
 		printf_s("\n");
 
+		m_cur_state = next_state;
 	}
+	m_states.put(m_cur_state);
 	return ir;
 }
 
 void CExTester::TraceTestVerify(IFsSimulator* fs, const std::string& fn)
 {
-	NID fid = fs->FileOpen(fn);
+	NID fid = INVALID_BLK;
+	ERROR_CODE err = fs->FileOpen(fid, fn);
+	if (err == ERR_MAX_OPEN_FILE) return;
+
 	FSIZE file_size = fs->GetFileSize(fid);
 	size_t blk_nr = ROUND_UP_DIV(file_size, BLOCK_SIZE);
 	FILE_DATA* data = new FILE_DATA[blk_nr + 10];
@@ -234,18 +295,17 @@ bool CExTester::OutputTrace(CFsState* state)
 		boost::property_tree::ptree prop_op;
 		prop_op.add<std::string>("op_name", OpName(op.op_code));
 		prop_op.add<std::string>("path", op.file_path);
-//		if (op.op_code == OP_FILE_OVERWRITE || op.op_code == OP_FILE_WRITE)
-//		{
-			prop_op.add("offset", op.offset);
-			prop_op.add("length", op.length);
-//		}
-		//		prop_trace.add_child("op", prop_op);
+		prop_op.add("offset", op.offset);
+		prop_op.add("length", op.length);
 		prop_op_array.push_back(std::make_pair("", prop_op));
 	}
 	prop_trace.add_child("op", prop_op_array);
 
-	std::string str_fn;
-	jcvos::UnicodeToUtf8(str_fn, (m_log_path + L"\\trace.json"));
+	DWORD tid = GetCurrentThreadId();
+	char str_fn[MAX_PATH];
+	sprintf_s(str_fn, "%S\\trace_%d.json", m_log_path.c_str(), tid);
+//	std::string str_fn;
+//	jcvos::UnicodeToUtf8(str_fn, (m_log_path + L"\\trace.json"));
 	boost::property_tree::write_json(str_fn, prop_trace);
 	TEST_CLOSE_LOG;
 	return false;

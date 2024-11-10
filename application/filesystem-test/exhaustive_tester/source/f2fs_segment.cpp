@@ -23,9 +23,9 @@ bool CF2fsSegmentManager::InitSegmentManager(SEG_T segment_nr, SEG_T gc_lo, SEG_
 	for (SEG_T ii = 0; ii < MAIN_SEG_NR; ++ii)
 	{
 		m_segments[ii].valid_blk_nr = 0;
-//		m_segments[ii].seg_id = ii;
+		memset(m_segments[ii].valid_bmp, 0, sizeof(SegmentInfo::valid_bmp));
 	}
-	memset(m_dirty_map, 0, sizeof(m_dirty_map));
+	memset(m_dirty_map, 0xFF, sizeof(m_dirty_map));
 	// 构建free链表
 	build_free_link();
 	memset(m_cur_segs, 0xFF, sizeof(SEG_T) * BT_TEMP_NR);
@@ -45,6 +45,9 @@ bool CF2fsSegmentManager::InitSegmentManager(SEG_T segment_nr, SEG_T gc_lo, SEG_
 #endif
 	}
 #endif
+
+	SyncSIT();
+	SyncSSA();
 	return true;
 }
 
@@ -87,41 +90,53 @@ void CF2fsSegmentManager::Reset(void)
 	m_free_ptr = INVALID_BLK;
 }
 
-void CF2fsSegmentManager::Sync(void)
+void CF2fsSegmentManager::SyncSIT(void)
 {
 	// 保存SIT
-	UINT lba = SIT_START_BLK;
+	UINT blk = 0;
 	size_t bmp_size = sizeof(DWORD) * BITMAP_SIZE;
 	CPageInfo* page = m_pages->allocate(true);
-	for (SEG_T seg_id = 0; seg_id < MAIN_SEG_NR; ++lba)
+	for (SEG_T seg_id = 0; seg_id < MAIN_SEG_NR; ++blk)
 	{
-		BLOCK_DATA* data = m_pages->get_data(page);
-		SEG_INFO *seg_info = data->sit.sit_entries;
+		if (m_dirty_map[blk]) {
+			BLOCK_DATA* data = m_pages->get_data(page);
+			SEG_INFO* seg_info = data->sit.sit_entries;
+			LOG_DEBUG(L"save SIT, seg id = %d", seg_id);
 
-		int copy_nr = SIT_ENTRY_PER_BLK;
-		if (seg_id + copy_nr > MAIN_SEG_NR) copy_nr = MAIN_SEG_NR - seg_id;
-		for (int ii = 0; ii < copy_nr; ++ii, ++seg_id)
-		{
-			memcpy_s(seg_info[ii].valid_bmp, bmp_size, m_segments[seg_id].valid_bmp, bmp_size);
-			seg_info[ii].valid_blk_nr = m_segments[seg_id].valid_blk_nr;
-			seg_info[ii].cur_blk = m_segments[seg_id].cur_blk;
+			int copy_nr = SIT_ENTRY_PER_BLK;
+			if (seg_id + copy_nr > MAIN_SEG_NR) copy_nr = MAIN_SEG_NR - seg_id;
+			for (int ii = 0; ii < copy_nr; ++ii, ++seg_id)
+			{
+				memcpy_s(seg_info[ii].valid_bmp, bmp_size, m_segments[seg_id].valid_bmp, bmp_size);
+				seg_info[ii].valid_blk_nr = m_segments[seg_id].valid_blk_nr;
+				seg_info[ii].cur_blk = m_segments[seg_id].cur_blk;
+			}
+			m_storage->BlockWrite(blk + SIT_START_BLK, page);
 		}
-		m_storage->BlockWrite(lba, page);
-	}
-
-	lba = SSA_START_BLK;
-	// 考虑到一个summary block包含一个segmet的信息。
-	for (SEG_T seg_id = 0; seg_id < MAIN_SEG_NR; ++seg_id, ++lba)
-	{
-		SUMMARY_BLOCK& sum = m_pages->get_data(page)->ssa;
-		for (UINT bb = 0; bb<BLOCK_PER_SEG; ++bb)
-		{
-			sum.entries[bb].nid = m_segments[seg_id].nids[bb];
-			sum.entries[bb].offset = m_segments[seg_id].offset[bb];
-		}
-		m_storage->BlockWrite(lba, page);
+		else seg_id += SIT_ENTRY_PER_BLK;
 	}
 	m_pages->free(page);
+}
+
+void CF2fsSegmentManager::SyncSSA(void)
+{
+	CPageInfo* page = m_pages->allocate(true);
+	// 考虑到一个summary block包含一个segmet的信息。
+	for (SEG_T seg_id = 0; seg_id < MAIN_SEG_NR; ++seg_id)
+	{
+		if (is_dirty(seg_id)) {
+			SUMMARY_BLOCK& sum = m_pages->get_data(page)->ssa;
+			for (UINT bb = 0; bb < BLOCK_PER_SEG; ++bb)
+			{
+				sum.entries[bb].nid = m_segments[seg_id].nids[bb];
+				sum.entries[bb].offset = m_segments[seg_id].offset[bb];
+			}
+			LOG_DEBUG(L"save SSA, seg id = %d", seg_id);
+			m_storage->BlockWrite(seg_id+SSA_START_BLK, page);
+		}
+	}
+	m_pages->free(page);
+	memset(m_dirty_map, 0, sizeof(m_dirty_map));
 }
 
 bool CF2fsSegmentManager::Load(void)
@@ -144,7 +159,6 @@ bool CF2fsSegmentManager::Load(void)
 			memcpy_s(m_segments[seg_id].valid_bmp, bmp_size, seg_info[ii].valid_bmp, bmp_size);
 			m_segments[seg_id].valid_blk_nr = seg_info[ii].valid_blk_nr;
 			m_segments[seg_id].cur_blk = seg_info[ii].cur_blk;
-//			m_segments[seg_id].seg_id = seg_id;
 		}
 	}
 	
@@ -184,10 +198,10 @@ SEG_T CF2fsSegmentManager::AllocSegment(BLK_TEMP temp)
 	seg.valid_blk_nr = 0;
 	seg.seg_temp = temp;
 	seg.cur_blk = 0;
-//	seg.seg_id = new_seg;
 	memset(seg.valid_bmp, 0, sizeof(SegmentInfo::valid_bmp));
 	memset(seg.nids, 0xFF, sizeof(SegmentInfo::nids));
 	memset(seg.offset, 0xFF, sizeof(SegmentInfo::offset));
+	set_dirty(new_seg);
 	return new_seg;
 }
 
@@ -202,7 +216,29 @@ void CF2fsSegmentManager::FreeSegment(SEG_T seg_id)
 	seg.SEG_NEXT_FREE = m_free_ptr;
 	m_free_ptr = seg_id;
 	m_free_nr++;
+	set_dirty(seg_id);
 //	LOG_DEBUG(L"SEG_MNG: free segment: %d", seg_id);
+}
+
+void CF2fsSegmentManager::GetBlockInfo(NID& nid, WORD& offset, PHY_BLK phy_blk)
+{
+	SEG_T seg_id;
+	BLK_T blk_id;
+	BlockToSeg(seg_id, blk_id, phy_blk);
+	SegmentInfo& seg = m_segments[seg_id];
+	nid = seg.nids[blk_id];
+	offset = seg.offset[blk_id];
+}
+
+void CF2fsSegmentManager::SetBlockInfo(NID nid, WORD offset, PHY_BLK phy_blk)
+{
+	SEG_T seg_id;
+	BLK_T blk_id;
+	BlockToSeg(seg_id, blk_id, phy_blk);
+	SegmentInfo& seg = m_segments[seg_id];
+	seg.nids[blk_id] = nid;
+	seg.offset[blk_id] = offset;
+	set_dirty(seg_id);
 }
 
 
@@ -219,6 +255,8 @@ PHY_BLK CF2fsSegmentManager::WriteBlockToSeg(CPageInfo * page, bool by_gc)
 	SegmentInfo& seg = m_segments[cur_seg_id];
 
 	BLK_T blk_id = seg.cur_blk;
+	set_bitmap(seg.valid_bmp, blk_id);
+
 	UINT lba = seg_to_lba(cur_seg_id, blk_id);
 	m_storage->BlockWrite(lba, page);
 
@@ -227,6 +265,7 @@ PHY_BLK CF2fsSegmentManager::WriteBlockToSeg(CPageInfo * page, bool by_gc)
 
 	seg.valid_blk_nr++;
 	seg.cur_blk++;
+	set_dirty(cur_seg_id);
 
 	InterlockedIncrement64(&m_health_info->m_total_media_write);
 	InterlockedDecrement(&m_health_info->m_free_blk);
@@ -239,7 +278,6 @@ PHY_BLK CF2fsSegmentManager::WriteBlockToSeg(CPageInfo * page, bool by_gc)
 		SEG_T src_seg_id; BLK_T src_blk_id;
 		BlockToSeg(src_seg_id, src_blk_id, src_phy_blk);
 		InvalidBlock(src_seg_id, src_blk_id);
-//		InvalidBlock(src_phy_blk);
 	}
 
 	SEG_T tar_seg = cur_seg_id;
@@ -259,7 +297,7 @@ PHY_BLK CF2fsSegmentManager::WriteBlockToSeg(CPageInfo * page, bool by_gc)
 
 #define SORTING HEAP
 
-void CF2fsSegmentManager::GarbageCollection(CF2fsSimulator* fs)
+ERROR_CODE CF2fsSegmentManager::GarbageCollection(CF2fsSimulator* fs)
 {
 	LOG_STACK_TRACE();
 	m_fs->fs_trace("GC-IN", 0, 0, 0);
@@ -299,9 +337,10 @@ void CF2fsSegmentManager::GarbageCollection(CF2fsSimulator* fs)
 		CPageInfo* page = m_pages->allocate(true);
 		for (BLK_T bb = 0; bb < BLOCK_PER_SEG; ++bb)
 		{
+			if (test_bitmap(src_seg->valid_bmp, bb) == 0) continue;
 			NID nid = src_seg->nids[bb];		// block 所在的inode
-			if (nid == INVALID_BLK) continue;	//检查segment中，这个block是否有效
 			WORD offset = src_seg->offset[bb];
+//			if (nid == INVALID_BLK) continue;	//检查segment中，这个block是否有效
 
 			// 如果有效，检查block的nid和offset
 			PHY_BLK org_phy = PhyBlock(src_seg_id, bb);
@@ -309,15 +348,44 @@ void CF2fsSegmentManager::GarbageCollection(CF2fsSimulator* fs)
 			// 读取page
 			if (page == nullptr) THROW_ERROR(ERR_USER, L"no enough pages");
 			// page 是否为node，且已经cache了，将cache 的page强制刷新
-			if ((offset >= INVALID_FID) && (m_fs->m_nat.node_catch[nid] != INVALID_BLK))
+			// <TODO> 在F2FS中，还要判断L2P的physical地址是否匹配，不匹配的跳过GC。
+			//		但是如果跳过的话，会导致block无法释放。（此处仅检查L2P是否匹配）
+
+			CPageInfo* node_page = nullptr;
+			m_fs->ReadNode(nid, node_page);
+			
+//			m_pages->page(m_fs->m_nat.node_catch[nid]);
+
+//			if ((offset >= INVALID_FID) && (m_fs->m_nat.node_catch[nid] != INVALID_BLK))
+			if ( CF2fsSimulator::is_invalid(offset) )
 			{	// node block, page 被cache住
-				CPageInfo* _page = m_pages->page(m_fs->m_nat.node_catch[nid]);
-				PHY_BLK phy_blk = WriteBlockToSeg(_page, true);
-				_page->dirty = false;
+				PHY_BLK l2p = m_fs->m_nat.get_phy_blk(nid);
+				if (l2p != org_phy) {
+					THROW_FS_ERROR(ERR_PHY_ADDR_MISMATCH, L"phy_blk [%d] node=%d, L2P=%d mismatch", org_phy, nid, l2p);
+				}
+
+				PHY_BLK phy_blk = WriteBlockToSeg(node_page, true);
+				node_page->dirty = false;
 				m_fs->m_nat.set_phy_blk(nid, phy_blk);
+//				m_fs->UpdateNat(nid, phy_blk);
 			}
 			else
 			{
+				BLOCK_DATA * node_blk = m_pages->get_data(node_page);
+				if (node_blk->m_type != BLOCK_DATA::BLOCK_INDEX) {
+					THROW_FS_ERROR(ERR_WRONG_BLOCK_TYPE, L"node [%d] expected INDEX BLOCK, wrong type=%d", 
+						nid, node_blk->m_type);
+				}
+				if (offset > INDEX_SIZE) {
+					THROW_FS_ERROR(ERR_INVALID_INDEX, L"data block [%d,%d], phy=%d, offset over range",
+						nid, offset, org_phy);
+				}
+				PHY_BLK l2p = node_blk->node.index.index[offset];
+				if (l2p != org_phy) {
+					THROW_FS_ERROR(ERR_PHY_ADDR_MISMATCH, L"data block [%d, %d] phy=%d, L2P=%d mismatch", 
+						nid, offset, org_phy, l2p);
+				}
+
 				m_storage->BlockRead(lba, page);
 
 				// 写入page	// 注意：GC不应该改变block的温度，这里做一个检查
@@ -331,24 +399,15 @@ void CF2fsSegmentManager::GarbageCollection(CF2fsSimulator* fs)
 				PHY_BLK phy_blk = WriteBlockToSeg(page, true);
 
 				// 磁盘中没有记录温度信息，暂时忽略比较
-#if 0
-				BLK_TEMP after_temp = page->ttemp;
-				if (before_temp != after_temp)
-				{
-					THROW_ERROR(ERR_APP, L"page temperature mismatch, before=%S(%d), after=%S(%d)",
-						BLK_TEMP_NAME[before_temp], before_temp, BLK_TEMP_NAME[after_temp], after_temp);
-			}
-#endif
 //				LOG_DEBUG(L"GC:  new phy=0x%04X", phy_blk);
 				// 更新inode 或者 nat
-				if (offset >= INVALID_FID)
-				{	// node block， 更新nat // <TODO> 检查F2FS，谁负责更新L2P，write()函数，还是write()的调用者？
-					m_fs->UpdateNat(nid, phy_blk);
-				}
-				else
-				{
+//				if (offset >= INVALID_FID)
+//				{	// node block， 更新nat // <TODO> 检查F2FS，谁负责更新L2P，write()函数，还是write()的调用者？
+//				}
+//				else
+//				{
 					m_fs->UpdateIndex(nid, offset, phy_blk);
-				}
+//				}
 			}
 			// Write Block To Segment就会触发invalid 旧的block，当原segment中的所有block都无效了，会free. 此处不用再次invalid
 			// invalid original blk
@@ -387,6 +446,7 @@ void CF2fsSegmentManager::GarbageCollection(CF2fsSimulator* fs)
 	}
 #endif
 	m_fs->fs_trace("GC-OUT", 0, 0, 0);
+	return ERR_OK;
 }
 
 #define FLUSH_SEGMENT_BLOCK_OUT(_blk)	\
@@ -407,10 +467,14 @@ bool CF2fsSegmentManager::InvalidBlock(SEG_T seg_id, BLK_T blk_id)
 	bool free_seg = false;
 	JCASSERT(seg_id < MAIN_SEG_NR);
 	SegmentInfo& seg = m_segments[seg_id];
-	if (seg.nids[blk_id] == INVALID_BLK) THROW_ERROR(ERR_USER, L"double invalid phy block, seg=%d, blk=%d,", seg_id, blk_id);
+	// block的有效性判断以SIT为主
+	if (test_bitmap(seg.valid_bmp, blk_id)==0) THROW_ERROR(ERR_USER, L"double invalid phy block, seg=%d, blk=%d,", seg_id, blk_id);
+//	if (seg.nids[blk_id] == INVALID_BLK) THROW_ERROR(ERR_USER, L"double invalid phy block, seg=%d, blk=%d,", seg_id, blk_id);
 	seg.valid_blk_nr--;
+	clear_bitmap(seg.valid_bmp, blk_id);
 	seg.nids[blk_id] = INVALID_BLK;
 	seg.offset[blk_id] = INVALID_FID;
+	set_dirty(seg_id);
 
 	//LOG_DEBUG(L"[invalid block] seg=%d, blk=%d, valid_blk=%d,", seg_id, blk_id, seg.valid_blk_nr);
 
@@ -420,7 +484,10 @@ bool CF2fsSegmentManager::InvalidBlock(SEG_T seg_id, BLK_T blk_id)
 #if 1		// for debug only, 检查是否所有block都invalid
 		for (BLK_T bb = 0; bb < BLOCK_PER_SEG; ++bb)
 		{
-			if (seg.nids[bb] != INVALID_BLK) THROW_ERROR(ERR_USER, L"try to free a non-empty segment, seg=%d", seg_id);
+			if (test_bitmap(seg.valid_bmp, blk_id) != 0) {
+				THROW_ERROR(ERR_USER, L"try to free a non-empty segment, seg=%d", seg_id);
+			}
+//			if (seg.nids[bb] != INVALID_BLK) THROW_ERROR(ERR_USER, L"try to free a non-empty segment, seg=%d", seg_id);
 		}
 #endif
 		FreeSegment(seg_id);
@@ -503,6 +570,22 @@ void CF2fsSegmentManager::DumpSegmentBlocks(const std::wstring& fn)
 //		FLUSH_SEGMENT_BLOCK_OUT(BLOCK_PER_SEG);
 	}
 	fclose(log);
+}
+
+bool CF2fsSegmentManager::is_dirty(SEG_T seg_id)
+{
+	UINT sit_blk = seg_id / SIT_ENTRY_PER_BLK;
+	UINT offset = seg_id % SIT_ENTRY_PER_BLK;
+	DWORD mask = (1 << offset);
+	return (m_dirty_map[sit_blk] & mask);
+}
+
+void CF2fsSegmentManager::set_dirty(SEG_T seg_id)
+{
+	UINT sit_blk = seg_id / SIT_ENTRY_PER_BLK;
+	UINT offset = seg_id % SIT_ENTRY_PER_BLK;
+	DWORD mask = (1 << offset);
+	m_dirty_map[sit_blk] |= mask;
 }
 
 

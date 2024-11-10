@@ -6,9 +6,9 @@
 #include "fs_simulator.h"
 #include "blocks.h"
 
-#define PAGE_NEXT_FREE	data_index
+//#define PAGE_NEXT_FREE	data_index
 
-struct BLOCK_DATA;
+//struct BLOCK_DATA;
 
 class CPageInfo
 {
@@ -22,17 +22,20 @@ public:
 	// nid和offset在一起表示page的逻辑地址（在父节点中的位置）。主要用于GC时更新父节点的内容。这两个参数在调用 WriteBlockToSeg() 前设置
 	// 当page指向node block（inode, index）时，其父节点为NAT。 nid表示node id，offset =INVALID_BLK表示指向node
 	// 当page指向data block（data, dentry)等。其父节点为inode/index，nid表示父节点的nid，offset表示在父节点中的位置。
-	NID	nid;						// 这个page所在的node的nid。对于node block，不需要更新父节点，更新NAT即可
+
+	NID	nid;						// 这个page所在的node的nid。对于node block，不需要更新父节点，更新NAT即可。nid=INVALID_BLK时，表示page无效。
 	LBLK_T offset = INVALID_BLK;	// 如果page是一个node，offset=INVALID_BLK
 	bool dirty = false;
-	PAGE_INDEX page_id;
 public:
 	// 用于性能统计
 	UINT host_write = 0;
 	friend class CPageAllocator;
 protected:
 	// 数据(对于inode 或者 direct node)
-	UINT data_index;	// 指向数据缓存的索引号
+	union {
+		PAGE_INDEX free_link;	// 指向 下一个free page
+		BLOCK_DATA data;
+	};
 };
 
 typedef CPageInfo* PPAGE;
@@ -52,28 +55,27 @@ public:
 	PAGE_INDEX allocate(void);
 	// 申请一个page，data:true，同时申请数据，false，不要数据
 	CPageInfo* allocate(bool data);
-	void free(PAGE_INDEX index);
-	void free(CPageInfo* page) {
-		free(page->page_id);
-	}
+//	void free(PAGE_INDEX index);
+	void free(CPageInfo* page);
 
 	BLOCK_DATA * get_data(CPageInfo* page);
 
 	inline CPageInfo* page(PAGE_INDEX index) {
 		return (index >= m_page_nr) ? nullptr : (m_pages + index);
 	}
+	inline PAGE_INDEX page_id(CPageInfo* page) const { return (PAGE_INDEX)(page - m_pages); }
 
 // 获取相关信息
 public:
 	UINT total_page_nr(void) { return MAX_PAGE_NUM; }
-	UINT total_data_nr(void) { return BLOCK_BUF_SIZE; }
+//	UINT total_data_nr(void) { return BLOCK_BUF_SIZE; }
 	UINT free_page_nr(void) { return MAX_PAGE_NUM - m_used_nr; }
-	UINT free_data_nr(void) { return BLOCK_BUF_SIZE - m_buffer.m_used_nr; }
+//	UINT free_data_nr(void) { return BLOCK_BUF_SIZE - m_buffer.m_used_nr; }
 
 protected:
 	CPageInfo m_pages[MAX_PAGE_NUM];
 	PAGE_INDEX m_free_ptr, m_used_nr;
 	UINT m_page_nr;
 protected:
-	CBufferManager m_buffer;
+//	CBufferManager m_buffer;
 };

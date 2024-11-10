@@ -39,6 +39,9 @@ public:
 	UINT64 duration = 0;	// 操作所用的时间
 	UINT op_sn;
 	union {
+		struct {
+			UINT rollback;		// 用于power outage测试，
+		};
 		struct {	// for thread
 			DWORD new_thread_id;
 		};
@@ -118,6 +121,7 @@ public:
 		return dir.m_depth;
 	}
 	size_t GetFileNumber(void) const {
+		JCASSERT((m_free_num + m_file_num + m_dir_num) == MAX_FILE_NUM);
 		return (MAX_FILE_NUM - m_free_num);
 	}
 	//void AddRoot(void);

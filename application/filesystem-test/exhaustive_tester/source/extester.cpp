@@ -9,14 +9,16 @@ LOCAL_LOGGER_ENABLE(L"extester", LOGGER_LEVEL_DEBUGINFO);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //== Help functions ==
-void GenerateFn(char* fn, size_t len)
+int GenerateFn(char* fn, int len)
 {
-	size_t ii;
-	for (ii = 0; ii < len; ++ii)
+	int ii;
+	int fn_len = rand() % len + 1;
+	for (ii = 0; ii < fn_len; ++ii)
 	{
 		fn[ii] = rand() % 26 + 'A';
 	}
 	fn[ii] = 0;
+	return ii;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -27,7 +29,6 @@ CExTester::CExTester(void)
 
 CExTester::~CExTester(void)
 {
-//	RELEASE(m_fs_factory);
 }
 
 
@@ -44,6 +45,7 @@ int CExTester::PrepareTest(const boost::property_tree::wptree& config, IFsSimula
 	m_max_dir_depth = config.get<size_t>(L"max_dir_depth", 5);
 	m_max_file_op = config.get<size_t>(L"max_file_op", 5);
 	m_thread_num = config.get<UINT>(L"thread_num", 8);
+	m_branch = config.get<int>(L"branch", 4);
 
 	// 文件系统支持的最大文件大小。
 	FSIZE max_file_secs = m_fs_factory->MaxFileSize() * BLOCK_SIZE;
@@ -72,9 +74,12 @@ int CExTester::PrepareTest(const boost::property_tree::wptree& config, IFsSimula
 	// 设置log文件夹
 	m_log_path = log_path;
 	std::wstring trace_log_fn = m_log_path + L"\\log.txt";
+#ifdef ENABLE_LOG
 	m_log_file = _wfsopen(trace_log_fn.c_str(), L"w+", _SH_DENYNO);
 	if (!m_log_file) THROW_ERROR(ERR_USER, L"failed on opening log file %s", log_path.c_str());
-
+#else
+	m_log_file = nullptr;
+#endif
 	// 用于统计测试时间
 	_wfopen_s(&m_log_performance, (m_log_path + L"\\perf.csv").c_str(), L"w+");
 	if (!m_log_performance) THROW_ERROR(ERR_USER, L"failed on opening log file %s\\perf.csv", m_log_path.c_str());
@@ -139,9 +144,138 @@ int CExTester::PreTest(void)
 			if (m_thread_list[ii] == nullptr) THROW_WIN32_ERROR(L"faild on creating working thread %d", ii);
 		}
 #endif
+		InitializeCriticalSection(&m_trace_crit);
+	}
+	srand(GetCurrentThreadId());
+	return 0;
+}
+
+//void ListIn(std::vector<TRACE_ENTRY>& ops, TRACE_ENTRY & op)
+
+TRACE_ENTRY* op_index(std::vector<TRACE_ENTRY>& ops, size_t & index)
+{
+	TRACE_ENTRY* next = nullptr;
+	if (index >= ops.size()) {
+		ops.emplace_back();
+		next = &ops.back();
+	}
+	else {
+		next = &ops[index];
+	}
+	index++;
+	return next;
+}
+
+void AddOp(std::vector<TRACE_ENTRY>& ops, size_t& index, OP_CODE op_code, const std::string& file_path)
+{
+	TRACE_ENTRY* op = op_index(ops, index);
+	op->op_code = op_code;
+	op->file_path = file_path;
+	op->offset = 0;
+	op->length = 0;
+	op->fid = 0;
+}
+
+void AddOp(std::vector<TRACE_ENTRY>& ops, size_t& index, OP_CODE op_code, const std::string& file_path, 
+		UINT fid, FSIZE offset, FSIZE length)
+{
+	TRACE_ENTRY* op = op_index(ops, index);
+	op->op_code = op_code;
+	op->file_path = file_path;
+	op->offset = offset;
+	op->length = length;
+	op->fid = fid;
+}
+
+void AddOp(std::vector<TRACE_ENTRY>& ops, size_t& index, OP_CODE op_code)
+{
+	TRACE_ENTRY* op = op_index(ops, index);
+	op->op_code = op_code;
+	op->offset = 0;
+	op->length = 0;
+	op->fid = 0;
+}
+
+void AddOp(std::vector<TRACE_ENTRY>& ops, size_t& index, OP_CODE op_code, UINT rollback)
+{
+	TRACE_ENTRY* op = op_index(ops, index);
+	op->op_code = op_code;
+//	op->offset = 0;
+//	op->length = 0;
+	op->fid = 0;
+	op->rollback = rollback;
+}
+
+size_t CExTester::GenerateOps(CFsState* cur_state, std::vector<TRACE_ENTRY>& ops)
+{
+	size_t index = 0;
+	UINT first_op = m_op_sn;
+
+	CReferenceFs& ref_fs = cur_state->m_ref_fs;
+	auto endit = ref_fs.End();
+	auto it = ref_fs.Begin();
+	TRACE_ENTRY* op = nullptr;
+	size_t file_nr = ref_fs.GetFileNumber();
+
+	// 生成所有可能的操作，放入ops数组
+	for (; it != endit; it++)
+	{
+//		if (context_id >= MAX_WORK_NR) THROW_ERROR(ERR_APP, L"too many operations");
+		const CReferenceFs::CRefFile& file = ref_fs.GetFile(it);
+		bool isdir = ref_fs.IsDir(file);
+
+		std::string path;
+		ref_fs.GetFilePath(file, path);
+
+		DWORD checksum;
+		FSIZE file_len;
+		ref_fs.GetFileInfo(file, checksum, file_len);
+
+
+		if (isdir)
+		{	// 目录
+			UINT child_num = file.child_num();
+			if (child_num >= m_max_child_num) continue;
+			if (file.depth() >= (m_max_dir_depth - 1)) continue;
+			if (file_nr >= MAX_FILE_NUM) continue;
+
+			AddOp(ops, index, OP_FILE_CREATE, path);
+			AddOp(ops, index, OP_DIR_CREATE, path);
+			if (child_num == 0 && path != "\\") {
+				AddOp(ops, index, OP_DIR_DELETE, path);
+			}
+		}
+		else
+		{	// 文件
+			FSIZE offset = (FSIZE)(file_len * ((float)(rand()) / RAND_MAX));
+			FSIZE len = (FSIZE)((m_max_file_size - offset) * ((float)(rand()) / RAND_MAX));
+			if (file.is_open())
+			{
+				if (file.write_count() < m_max_file_op)
+				{
+					AddOp(ops, index, OP_FILE_WRITE, path, file.get_fid(), 0, file_len);
+				}
+				AddOp(ops, index, OP_FILE_CLOSE, path, file.get_fid(), 0, 0);
+			}
+			else
+			{
+				AddOp(ops, index, OP_FILE_DELETE, path);
+				AddOp(ops, index, OP_FILE_OPEN, path);
+			}
+		}
 	}
 
-	return 0;
+	AddOp(ops, index, OP_DEMOUNT_MOUNT);
+	// 生成对power off测试的op
+#if 1
+	IFsSimulator* real_fs = cur_state->m_real_fs;
+	UINT io_nr = real_fs->GetCacheNum();
+	for (UINT ii = 1; ii < io_nr; ++ii)
+	{
+		AddOp(ops, index, OP_POWER_OFF_RECOVER, ii);		
+	}
+#endif
+	return index;
 }
 
 void CExTester::FinishTest(void)
@@ -176,6 +310,7 @@ void CExTester::FinishTest(void)
 		}
 		DestroyThreadpoolEnvironment(&m_tp_environ);
 #endif
+		DeleteCriticalSection(&m_trace_crit);
 	}
 
 	LOG_DEBUG(L"max work num=%d", m_max_work);
@@ -186,6 +321,7 @@ void CExTester::FinishTest(void)
 ERROR_CODE CExTester::RunTest(void)
 {
 	ERROR_CODE ir = ERR_OK;
+	printf_s("Running EXHAUSTICE test\n");
 #if 0
 	// 简化测试流程
 	m_cur_state = m_open_list.front();
@@ -199,8 +335,11 @@ ERROR_CODE CExTester::RunTest(void)
 //	RunTrace(fs, "T0801152958\\trace.json");
 //	RunTrace(fs, "T0802001039\\trace.json");
 //	ir = RunTrace(fs, "T0806005205\\trace.json");
-
+//	ir = RunTrace(fs, "T0809162728\\trace.json");
+//	ir = RunTrace(fs, "T0809234843\\trace_15500.json");
+	ir = RunTrace(fs, "T0810222823\\trace_28372.json");
 #else
+	std::vector<TRACE_ENTRY> ops;
 	while (!m_open_list.empty())
 	{
 		m_cur_state = m_open_list.front();
@@ -214,21 +353,35 @@ ERROR_CODE CExTester::RunTest(void)
 		LONG max_depth = m_max_depth;
 		if (depth > max_depth) {
 			InterlockedExchange(&m_max_depth, depth);
+			if (m_max_depth_state) m_states.put(m_max_depth_state);
+			m_max_depth_state = m_cur_state;
+			InterlockedIncrement(&m_max_depth_state->m_ref);
 		}
 		// (2) 扩展当前状态，
 		auto it = m_open_list.begin();
-		if (m_thread_num > 1)		ir = EnumerateOp_Thread(m_cur_state, it);
-		else						ir = EnumerateOpV2(m_cur_state, it);
+		if (m_thread_num > 1)		ir = EnumerateOp_Thread_V2(ops, m_cur_state, it);
+		else						ir = EnumerateOpV2(ops, m_cur_state, it);
 		// (3) 移除当前状态      
 		// 清除父节点
 		LOG_DEBUG_(1, L"out => state=%p, ref=%d, parent=%p, parent ref=%d", m_cur_state, m_cur_state->m_ref, m_cur_state->m_parent, (m_cur_state->m_parent ? m_cur_state->m_parent->m_ref : -1));
 		m_states.put(m_cur_state);		// put()中将m_cur_state置 nullptr
 		if (ir != ERR_OK) break;
+		// 用户控制停止
+		if (m_stop_test > 0)
+		{
+			wprintf_s(L"test stopped by user pressing ctrl C\n");
+			break;
+		}
 	}
 #endif
 	if (ir != ERR_OK)
 	{
 		wprintf_s(L"test failed with error code=%d\n", ir);
+	}
+	if (m_max_depth_state)
+	{
+		OutputTrace_Thread(m_max_depth_state, ERR_OK, "max_depth");
+		m_states.put(m_max_depth_state);
 	}
 	return ir;
 }
@@ -254,7 +407,7 @@ int CExTester::StartTest(void)
 			break;
 		}
 	}
-	fclose(m_log_file);
+	if(m_log_file) fclose(m_log_file);
 	fclose(m_log_performance);
 	return 0;
 }
@@ -282,14 +435,10 @@ DWORD WINAPI CExTester::_RunTest(PVOID p)
 		ir = ERR_GENERAL;
 		wprintf_s(L"test failed with error code=%d, msg=%S\n", ir, err.what());
 	}
-//	if (ir != ERR_OK)
-//	{	// 输出trace
-		if (tester->m_cur_state)
-		{
-//			tester->OutputTrace(tester->m_cur_state);
-			tester->m_states.put(tester->m_cur_state);
-		}
-//	}
+	if (tester->m_cur_state)
+	{
+		tester->m_states.put(tester->m_cur_state);
+	}
 	tester->FinishTest();
 	return ir;
 }
@@ -335,23 +484,37 @@ void CExTester::GetTestSummary(boost::property_tree::wptree& pt_sum)
 	sum.add(L"max_media_write", m_media_write);
 	sum.add(L"total_blks", m_total_blks);
 	sum.add(L"thread_num", m_thread_num);
+	sum.add(L"branch", m_branch);
 	pt_sum.add_child(L"exhaustive_summary", sum);
+}
+
+void CExTester::StopTest(void)
+{
+	LOG_DEBUG(L"Stop Test");
+	wprintf_s(L"Ctrl +C pressed\n");
+	InterlockedIncrement(&m_stop_test);
+	DWORD ir = WaitForSingleObject(m_test_thread, INFINITE);
 }
 
 
 
-ERROR_CODE CExTester::EnumerateOpV2(CFsState* cur_state, std::list<CFsState*>::iterator& insert)
+ERROR_CODE CExTester::EnumerateOpV2(std::vector<TRACE_ENTRY>& ops, CFsState* cur_state, std::list<CFsState*>::iterator& insert)
 {
 	LOG_STACK_TRACE();
+	size_t op_nr = GenerateOps(cur_state, ops);
+	for (size_t ii = 0; ii < op_nr; ii++)
+	{
+		ERROR_CODE ir = DoFsOperator(cur_state, ops[ii], insert);
+		if (ir != ERR_OK) return ir;
+	}
+
+#if 0
 	int context_id = 0;
 	UINT first_op = m_op_sn;
-
 	CReferenceFs& ref_fs = cur_state->m_ref_fs;
 	auto endit = ref_fs.End();
 	auto it = ref_fs.Begin();
 	TRACE_ENTRY op;
-	//op.offset = 0;
-	//op.length = 0;
 	ERROR_CODE ir = ERR_OK; // 记录操作的结果
 
 	for (; it != endit; it++)
@@ -365,7 +528,6 @@ ERROR_CODE CExTester::EnumerateOpV2(CFsState* cur_state, std::list<CFsState*>::i
 		DWORD checksum;
 		FSIZE file_len;
 		ref_fs.GetFileInfo(file, checksum, file_len);
-
 
 		if (isdir)
 		{	// 目录
@@ -393,10 +555,8 @@ ERROR_CODE CExTester::EnumerateOpV2(CFsState* cur_state, std::list<CFsState*>::i
 			ir = DoFsOperator(cur_state, op, insert);
 			if (ir != ERR_OK) return ir;
 			context_id++;
-
 			// <TODO> move dir
 			// <TODO> delete dir
-
 		}
 		else
 		{	// 文件
@@ -419,8 +579,6 @@ ERROR_CODE CExTester::EnumerateOpV2(CFsState* cur_state, std::list<CFsState*>::i
 				// 关闭
 				op.op_code = OP_FILE_CLOSE;
 				op.file_path = path;
-				//op.offset = 0;
-				//op.length = 0;
 				ir = DoFsOperator(cur_state, op, insert);
 				if (ir != ERR_OK) return ir;
 				context_id++;
@@ -449,17 +607,8 @@ ERROR_CODE CExTester::EnumerateOpV2(CFsState* cur_state, std::list<CFsState*>::i
 	ir = DoFsOperator(cur_state, op, insert);
 	if (ir != ERR_OK) return ir;
 	context_id++;
-
-	//op.op_code = OP_POWER_OFF_RECOVER;
-	//ir = DoFsOperator(cur_state, op, insert);
-	//if (ir != ERR_OK) return ir;
-	//context_id++;
-
+#endif
 	UpdateFsParam(cur_state->m_real_fs);
-
-//	double runtime = RUNNING_TIME;
-//	fprintf_s(m_log_performance, "%d,%.1f,%d,%.1f\n", first_op, runtime, context_id, runtime / context_id);
-
 	return ERR_OK;
 }
 
@@ -469,29 +618,47 @@ ERROR_CODE CExTester::FsOperatorCore(CFsState* state, TRACE_ENTRY& op)
 	ERROR_CODE ir = ERR_OK;
 	// (2) 在新的测试状态上执行测试
 //	std::string &path =  op.file_path;
+	bool is_power_test = false;
 	switch (op.op_code)
 	{
-	case OP_FILE_CREATE:
-		ir = TestCreateFile(state, op.file_path);
+	case OP_FILE_CREATE: {
+		char fn[MAX_FILENAME_LEN + 1];
+		GenerateFn(fn, MAX_FILENAME_LEN);
+		std::string path = (op.file_path.size() > 1) ? (op.file_path + "\\" + fn) : (op.file_path + fn);
+		op.file_path = path;
 		op.offset = 0;
 		op.length = 0;
-		break;
-	case OP_DIR_CREATE:
+		ir = TestCreateFile(state, path);
+		break; }
+	case OP_DIR_CREATE: {
+		char fn[MAX_FILENAME_LEN + 1];
+		GenerateFn(fn, MAX_FILENAME_LEN);
+		std::string path = (op.file_path.size() > 1) ? (op.file_path + "\\" + fn) : (op.file_path + fn);
+		op.file_path = path;
 		op.offset = 0;
 		op.length = 0;
 		ir = TestCreateDir(state, op.file_path);
-		break;
+		break; }
 
-	case OP_FILE_WRITE:
-//		ir = TestWriteFile(state, op.file_path, op.offset, op.length);
-		ir = TestWriteFileV2(state, op.fid, op.offset, op.length, op.file_path);
-		break;
+	case OP_FILE_WRITE: {
+		FSIZE offset = (FSIZE)(op.length * ((float)(rand()) / RAND_MAX));
+		FSIZE len = (FSIZE)((m_max_file_size - offset) * ((float)(rand()) / RAND_MAX));
+		op.offset = offset;
+		op.length = len;
+		ir = TestWriteFileV2(state, op.fid, offset, len, op.file_path);
+		break; }
 
 	case OP_FILE_DELETE:
 		op.offset = 0;
 		op.length = 0;
 
 		ir = TestDeleteFile(state, op.file_path);
+		break;
+
+	case OP_DIR_DELETE:
+		op.offset = 0;
+		op.length = 0;
+		ir = TestDeleteDir(state, op.file_path);
 		break;
 
 	case OP_FILE_OPEN:
@@ -508,7 +675,6 @@ ERROR_CODE CExTester::FsOperatorCore(CFsState* state, TRACE_ENTRY& op)
 		break;
 
 		//	case OP_FILE_OVERWRITE:
-	case OP_DIR_DELETE:
 	case OP_MOVE:
 		break;
 	case OP_DEMOUNT_MOUNT:
@@ -519,23 +685,21 @@ ERROR_CODE CExTester::FsOperatorCore(CFsState* state, TRACE_ENTRY& op)
 		break;
 
 	case OP_POWER_OFF_RECOVER:
-		op.offset = 0;
-		op.length = 0;
+		//op.offset = 0;
+		//op.length = 0;
 		op.file_path = "";
-
-		ir = TestPowerOutage(state);
+		ir = TestPowerOutage(state, op.rollback);
+		is_power_test = true;
 		break;
 	}
 	// (3) 检查测试结果
-	if (ir != ERR_OK)
+	if (ir != ERR_OK && ir != ERR_NO_OPERATION)
 	{
-		THROW_ERROR(ERR_APP, L"run test error, code=%d op=%d, file=%s, ", ir, op.op_code, op.file_path.c_str());
+		THROW_ERROR(ERR_APP, L"run test error (code=%d): %S op=%d, file=%S, ", ir, CFsException::ErrCodeToString(ir), op.op_code, op.file_path.c_str());
 	}
-	//		ERROR_CODE err = ERR_OK;
-	ir = Verify(state);
-	if (ir != ERR_OK) THROW_ERROR(ERR_APP, L"verify failed, code=%d", ir);
-
-	//	new_state->OutputState(m_log_file);
+	if (is_power_test)	ir = VerifyForPower(state);
+	else				ir = Verify(state);
+	if (ir != ERR_OK) THROW_FS_ERROR(ir, L"verify failed, code=%d", ir);
 	return ir;
 }
 
@@ -573,11 +737,8 @@ ERROR_CODE CExTester::DoFsOperator(CFsState* cur_state, TRACE_ENTRY& op, std::li
 	catch (jcvos::CJCException & err)
 	{
 		TEST_ERROR("test failed with exception: %S", err.WhatT());
-
-//		m_states.put(new_state);
 //		LOG_DEBUG_(1, L"test failed, state=%p", new_state);
 		ir = ERR_GENERAL;
-//		throw;
 	}
 //	LOG_DEBUG(L"complete work: op=%d, code=%d", opsn, op.op_code);
 
@@ -627,138 +788,131 @@ void CExTester::UpdateFsParam(IFsSimulator* fs)
 	min_update(m_free_blks, src_info.free_blks);
 }
 
-ERROR_CODE CExTester::Verify(CFsState* cur_state)
+ERROR_CODE CExTester::Verify(CFsState* state)
+{
+	IFsSimulator* real_fs = state->m_real_fs;
+	CReferenceFs& ref_fs = state->m_ref_fs;
+	return VerifyState(ref_fs, real_fs);
+}
+
+ERROR_CODE CExTester::VerifyForPower(CFsState* cur_state)
+{
+	CFsState* state = cur_state;
+	IFsSimulator* real_fs = state->m_real_fs;
+	ERROR_CODE err = ERR_OK;
+	while (state != nullptr)
+	{
+		CReferenceFs& ref_fs = state->m_ref_fs;
+		err = VerifyState(ref_fs, real_fs);
+		if ((err == ERR_OK) || (err == ERR_NO_OPERATION))
+		{
+			if (state != cur_state)
+			{	// 用正确的状态覆盖原来状态
+//				cur_state->m_ref_fs = state -> m_ref_fs;
+				cur_state->m_ref_fs.CopyFrom(state->m_ref_fs);
+			}
+			return err;
+		}
+		// 对于power off测试，回溯之前状态
+		state = state->m_parent;
+	}
+	return err;
+}
+
+ERROR_CODE CExTester::VerifyState(CReferenceFs & ref_fs, IFsSimulator * real_fs)
 {
 	LOG_STACK_PERFORM(L"verification");
-	ERROR_CODE err = ERR_OK;
+	ERROR_CODE ir = ERR_OK;
 	TEST_LOG("[BEGIN VERIFY]\n");
-
-	CReferenceFs& ref = cur_state->m_ref_fs;
-	IFsSimulator* fs = cur_state->m_real_fs;
+	size_t checked_file = 0, checked_total = 0;
 
 	// 获取文件系统信息：文件、目录总数；文件数量；逻辑饱和度；物理饱和度；空闲块；host write; media write
-	FS_INFO fs_info;
-	fs->GetFsInfo(fs_info);
-	UINT total_item = fs_info.dir_nr + fs_info.file_nr;
-	UINT ph_blks = fs_info.total_blks - fs_info.free_blks;
+	try {
+		FS_INFO fs_info;
+		real_fs->GetFsInfo(fs_info);
+		UINT total_item = fs_info.dir_nr + fs_info.file_nr;
+		UINT ph_blks = fs_info.total_blks - fs_info.free_blks;
 
-	// TODO: os需要保存file number以供检查
-	//UINT dir_nr = ref.m_dir_num, file_nr = ref.m_file_num;
-	//if (dir_nr != fs_info.dir_nr) {
-	//	THROW_ERROR(ERR_APP, L"directory number does not match, ref:%d, fs:%d", dir_nr, fs_info.dir_nr);
-	//}
-	//if (file_nr != fs_info.file_nr) {
-	//	THROW_ERROR(ERR_APP, L"file number does not match, ref:%d, fs:%d", file_nr, fs_info.file_nr);
-	//}
-	FSIZE total_file_blks = 0;
+		// TODO: os需要保存file number以供检查
+		//UINT dir_nr = ref.m_dir_num, file_nr = ref.m_file_num;
+		//if (dir_nr != fs_info.dir_nr) {
+		//	THROW_ERROR(ERR_APP, L"directory number does not match, ref:%d, fs:%d", dir_nr, fs_info.dir_nr);
+		//}
+		//if (file_nr != fs_info.file_nr) {
+		//	THROW_ERROR(ERR_APP, L"file number does not match, ref:%d, fs:%d", file_nr, fs_info.file_nr);
+		//}
+		FSIZE total_file_blks = 0;
 
-//	std::string str_encode;
-	char str_encode[MAX_ENCODE_SIZE];
-	ref.Encode(str_encode, MAX_ENCODE_SIZE);
-//	ref.GetEncodeString(str_encode);
+		char str_encode[MAX_ENCODE_SIZE];
+		ref_fs.Encode(str_encode, MAX_ENCODE_SIZE);
 
-	size_t checked_file = 0, checked_total = 0;
-	auto endit = ref.End();
-	for (auto it = ref.Begin(); it != endit; ++it)
-	{
-		const CReferenceFs::CRefFile& ref_file = ref.GetFile(it);
-		std::string path;
-		ref.GetFilePath(ref_file, path);
-		if (path == "\\") continue;	//不对根目录做比较
-
-		checked_total++;
-		bool dir = ref.IsDir(ref_file);
-//		ref_file.GetEncodeString(str_encode);
-		ref.Encode(str_encode, MAX_ENCODE_SIZE);
-		DWORD access = 0;
-		DWORD flag = 0;
-		if (dir) { flag |= FILE_FLAG_BACKUP_SEMANTICS; }
-		else { access |= GENERIC_READ; }
-
-		TEST_LOG("  check %s: %s\n", dir ? "DIR " : "FILE", path.c_str());
-
-
-		bool need_to_close = false;
-		if (dir) continue;
+		auto endit = ref_fs.End();
+		for (auto it = ref_fs.Begin(); it != endit; ++it)
 		{
+			const CReferenceFs::CRefFile& ref_file = ref_fs.GetFile(it);
+			std::string path;
+			ref_fs.GetFilePath(ref_file, path);
+			if (path == "\\") continue;	//不对根目录做比较
+
+			checked_total++;
+			bool dir = ref_fs.IsDir(ref_file);
+			ref_fs.Encode(str_encode, MAX_ENCODE_SIZE);
+			DWORD access = 0;
+			DWORD flag = 0;
+			if (dir) { flag |= FILE_FLAG_BACKUP_SEMANTICS; }
+			else { access |= GENERIC_READ; }
+
+			TEST_LOG("  check %s: %s\n", dir ? "DIR " : "FILE", path.c_str());
+			if (dir) continue;
 			NID fid = INVALID_BLK;
-
-			if (ref_file.is_open() ) {
-				fid = ref_file.get_fid();
+			ir = real_fs->FileOpen(fid, path);
+			if (ir == ERR_MAX_OPEN_FILE)
+			{
+				ir = ERR_OK;
+				continue;		// 打开文件已经超过上限
 			}
-			else {
-				if (ref.OpenedFileNr() + 2 >= m_max_opened_file_nr) continue;
-				fid = fs->FileOpen(path);
-				need_to_close = true;
-				if (fid == INVALID_BLK)
-				{
-					err = ERR_OPEN_FILE;
-					THROW_ERROR(ERR_APP, L"failed on open file=%s", path.c_str());
-				}
-			}
-//			NID fid = fs->FileOpen(path);
 
+			if (ir != ERR_OK || fid == INVALID_BLK)
+			{
+				THROW_FS_ERROR(ir == ERR_OK ? ERR_OPEN_FILE : ir, L"failed on open file=%S", path.c_str());
+			}
 			checked_file++;
 			DWORD ref_checksum;
-			FSIZE ref_len, file_secs = fs->GetFileSize(fid);
-			ref.GetFileInfo(ref_file, ref_checksum, ref_len);
+			FSIZE ref_len, file_secs = real_fs->GetFileSize(fid);
+			ref_fs.GetFileInfo(ref_file, ref_checksum, ref_len);
 			total_file_blks += ref_len;
 
-//			TEST_LOG(L" ref size=%d, file size=%d, checksum=0x%08X", ref_len, cur_file_size, ref_checksum);
 			if (ref_len != file_secs)
 			{
-				err = ERR_WRONG_FILE_SIZE;
+				ir = ERR_WRONG_FILE_SIZE;
 				TEST_ERROR("file length does not match ref=%d, file=%d", ref_len, file_secs);
-				THROW_ERROR(ERR_APP, L"verify file failed, length does not match");
-//				return err;
+//				THROW_ERROR(ERR_APP, L"verify file failed, length does not match");
+				THROW_FS_ERROR(ERR_VERIFY_FILE_LEN, L"file length does not match ref=%d, file=%d", ref_len, file_secs);
 			}
 			FILE_DATA data[MAX_FILE_BLKS];
-			size_t page_nr = fs->FileRead(data, fid, 0, file_secs);
+			size_t page_nr = real_fs->FileRead(data, fid, 0, file_secs);
 			FSIZE ss = 0;
 
-			int compare =0;
-			for (size_t ii =0; ii<page_nr; ++ii, ss++)
+			int compare = 0;
+			for (size_t ii = 0; ii < page_nr; ++ii, ss++)
 			{
 				if (data[ii].fid != fid || data[ii].offset != ss) {
-//					THROW_ERROR(ERR_APP, L"read file does not match, fid=%d, lblk=%d, page_fid=%d, page_offset=%d",
-//						fid, ss, data[ii].fid, data[ii].offset);
 					TEST_ERROR("file data mismatch, fid=%d, lblk=%d, page_fid=%d, page_offset=%d", fid, ss, data[ii].fid, data[ii].offset);
 					compare++;
 				}
 			}
-			if (compare>0) THROW_ERROR(ERR_USER, L"read file mismatch, %d secs", compare);
-
-			//if (cur_file_size == 0)
-			//{	// 有可能是over write的roll back造成的，忽略比较
-			//	TEST_LOG(L" ignor comparing");
-			//}
-			//else
-			//{
-			//	TEST_LOG(L" compare");
-			//	if (ref_len != cur_file_size)
-			//	{
-			//		err = ERR_WRONG_FILE_SIZE;
-			//		TEST_ERROR(L"file length does not match ref=%zd, file=%zd", ref_len, cur_file_size);
-			//		m_fs->FileClose(fid);
-			//		THROW_ERROR(ERR_USER, L"file length does not match ref=%d, file=%d", ref_len, cur_file_size);
-			//		break;
-			//	}
-			//	DWORD checksum = CalFileChecksum(fid);
-			//	if (checksum != ref_checksum)
-			//	{
-			//		err = ERR_WRONG_FILE_DATA;
-			//		TEST_ERROR(L"checksum does not match, ref=0x%08X, file=0x%08X", ref_checksum, checksum);
-			//		m_fs->FileClose(fid);
-			//		THROW_ERROR(ERR_USER, L"checksum does not match, ref=0x%08X, file=0x%08X", ref_checksum, checksum);
-			//		break;
-			//	}
-			//}
-			if (need_to_close)		fs->FileClose(fid);
+			if (compare > 0) THROW_ERROR(ERR_USER, L"read file mismatch, %d secs", compare);
+			real_fs->FileClose(fid);
 		}
-
+	}
+	catch (jcvos::CJCException & err)
+	{
+		ir = (ERROR_CODE)(err.GetErrorCode());
+		if (ir > ERR_UNKNOWN) ir = ERR_UNKNOWN;
+		ir = ir;
 	}
 	TEST_LOG("[END VERIFY], total checked=%zd, file checked= %zd\n", checked_total, checked_file);
-	return err;
+	return ir;
 }
 
 ERROR_CODE CExTester::TestCreateFile(CFsState* cur_state, const std::string& path)
@@ -769,44 +923,46 @@ ERROR_CODE CExTester::TestCreateFile(CFsState* cur_state, const std::string& pat
 	CReferenceFs& ref = cur_state->m_ref_fs;
 
 	ERROR_CODE err = ERR_OK;
-	// 检查自己点数量是否超标
-	// create full path name
-	bool create_result = false;
 
-	if (ref.OpenedFileNr() + 2 >= m_max_opened_file_nr) {
-		TEST_LOG("[OPERATE ](%d) CREATE FILE, path=%s, max opened file reached\n", cur_state->m_op.op_sn, path.c_str());
-		return err;
+	// 检查自己点数量是否超标
+	NID fid = INVALID_BLK;
+	try
+	{
+		err = real_fs->FileCreate(fid, path);
+		if (err != ERR_OK) {
+			LOG_ERROR(L"[err] failed on creating file %S, err(%d):%s",
+				path.c_str(), err, CFsException::ErrCodeToString(err));
+		}
+	}
+	catch (jcvos::CJCException& err)
+	{
+		std::wstring err_msg = err.WhatT();
+		THROW_ERROR(ERR_USER, L"failed in creating file %S, err=%s", path.c_str(), err_msg.c_str());
 	}
 
-	NID fid = real_fs->FileCreate(path);
-	if (fid != INVALID_BLK)
-	{
-		create_result = true;
-//		real_fs->FileClose(fid);
+	if (err == ERR_MAX_OPEN_FILE || err == ERR_DENTRY_FULL)
+	{	// 达到文件系统极限
+		return ERR_OK;
 	}
 
 	// check if doubled name, update ref fs
 	if (ref.IsExist(path))
 	{	// 文件已经存在，要求返回false
 		TEST_LOG("[OPERATE ](%d) CREATE FILE, path=%s, existing file\n", cur_state->m_op.op_sn, path.c_str());
-		if (create_result)
-		{
-			err = ERR_CREATE_EXIST;
-			TEST_ERROR("create a file which is existed path=%s.", path.c_str());
-		}
-//		real_fs->FileClose(fid);
+		if (fid != INVALID_BLK) { err = ERR_CREATE_EXIST; }		// 不应该创建成功
+		else { err = ERR_NO_OPERATION; }						// 创建失败。测试成功，返回no operation.
 	}
 	else
 	{	// create file in fs
 		TEST_LOG("[OPERATE ](%d) CREATE FILE, path=%s, new file\n", cur_state->m_op.op_sn, path.c_str());
 		CReferenceFs::CRefFile * ref_file = ref.AddPath(path, false, fid);
 		ref.OpenFile(*ref_file);
-//		ref_file->m_is_open = true;
-		if (!create_result)
+		if (fid == INVALID_BLK)
 		{
 			err = ERR_CREATE;
-			TEST_ERROR("failed on creating file fn=%s", path.c_str());
+//			THROW_ERROR(ERR_USER, L"failed on creating file fn=%S", path.c_str());
 		}
+//		err = ERR_OK;
 	}
 	return err;
 }
@@ -821,9 +977,36 @@ ERROR_CODE CExTester::TestDeleteFile(CFsState* cur_state, const std::string& pat
 	ERROR_CODE err = ERR_OK;
 	TEST_LOG("[OPERATE ](%d) DELETE FILE, path=%s,", cur_state->m_op.op_sn, path.c_str());
 
-	real_fs->FileDelete(path);
-	ref.RemoveFile(path);
+	CReferenceFs::CRefFile* ref_file = ref.FindFile(path);
+	if (ref_file == nullptr) THROW_ERROR(ERR_APP, L"file %S not in ref fs", path.c_str());
 
+	real_fs->FileDelete(path);
+//	if (ref_file->is_open()) real_fs->FileClose(ref_file->get_fid());
+	
+	ref.RemoveFile(path);
+	TEST_CLOSE_LOG;
+	return err;
+}
+
+ERROR_CODE CExTester::TestDeleteDir(CFsState* cur_state, const std::string& path)
+{
+	JCASSERT(cur_state);
+	IFsSimulator* real_fs = cur_state->m_real_fs;
+	JCASSERT(real_fs);
+	CReferenceFs& ref = cur_state->m_ref_fs;
+
+	ERROR_CODE err = ERR_OK;
+	TEST_LOG("[OPERATE ](%d) DELETE DIR , path=%s,", cur_state->m_op.op_sn, path.c_str());
+
+	CReferenceFs::CRefFile* ref_file = ref.FindFile(path);
+	if (ref_file == nullptr) THROW_ERROR(ERR_APP, L"file %S not in ref fs", path.c_str());
+
+	err = real_fs->DirDelete(path);
+	if (err == ERR_OK)
+	{
+		ref.RemoveFile(path);
+	}
+	//	if (ref_file->is_open()) real_fs->FileClose(ref_file->get_fid());
 	TEST_CLOSE_LOG;
 	return err;
 }
@@ -837,21 +1020,29 @@ ERROR_CODE CExTester::TestMount(CFsState* cur_state)
 	ref.Demount();
 
 	real_fs->Unmount();
-	real_fs->Reset();
+	real_fs->Reset(0);
 	real_fs->Mount();
 	TEST_LOG("[OPERATE ](%d) DEMOUNT MOUNT\n", cur_state->m_op.op_sn);
 	return ERR_OK;
 }
 
-ERROR_CODE CExTester::TestPowerOutage(CFsState* cur_state)
+ERROR_CODE CExTester::TestPowerOutage(CFsState* cur_state, UINT rollback)
 {
 	JCASSERT(cur_state);
 	IFsSimulator* real_fs = cur_state->m_real_fs;
 	JCASSERT(real_fs);
 	CReferenceFs& ref = cur_state->m_ref_fs;
 	ref.Demount();
+
+	// 获取fs的io list
+
+	// 
+	// 对每个尝试每个io, 并且检查完整性
+
+	// 选择一个io, mount，做下一步测试
 	
-	real_fs->Reset();
+	real_fs->Reset(rollback);
+	real_fs->fsck(true);
 	real_fs->Mount();
 	TEST_LOG("[OPERATE ](%d) POWER_OUTAGE\n", cur_state->m_op.op_sn);
 	return ERR_OK;
@@ -867,34 +1058,54 @@ ERROR_CODE CExTester::TestCreateDir(CFsState* cur_state, const std::string& path
 	ERROR_CODE err = ERR_OK;
 	// 检查自己点数量是否超标
 	// create full path name
+		// 随机生成文件名
+	//char fn[MAX_FILENAME_LEN + 1];
+	//GenerateFn(fn, MAX_FILENAME_LEN);
+	//std::string path = (_path.size() > 1) ? (_path + "\\" + fn) : (_path + fn);
+	//cur_state->m_op.file_path = path;
+
 	TEST_LOG("[OPERATE ](%d) CREATE DIR_, path=%s,", cur_state->m_op.op_sn, path.c_str());
 
-	bool create_result = false;
-	NID fid = real_fs->DirCreate(path);
-	if (fid != INVALID_BLK)
-	{
-		create_result = true;
+	//bool create_result = false;
+	NID fid = INVALID_BLK;
+	try {
+		err = real_fs->DirCreate(fid, path);
 	}
+	catch (jcvos::CJCException& err)
+	{
+		std::wstring err_msg = err.WhatT();
+		THROW_ERROR(ERR_USER, L"failed in creating dir %S, err=%s", path.c_str(), err_msg.c_str());
+	}
+
+	if (err == ERR_MAX_OPEN_FILE || err == ERR_DENTRY_FULL) return ERR_OK;
+
+
+	//if (fid != INVALID_BLK)
+	//{
+	//	create_result = true;
+	//}
 
 	// check if doubled name, update ref fs
 	if (ref.IsExist(path))
 	{	// 文件已经存在，要求返回false
 		TEST_LOG(" existing dir");
-		if (create_result)
+		if (fid != INVALID_BLK)
 		{
 			err = ERR_CREATE_EXIST;
 			TEST_ERROR("create a file which is existed path=%s.", path.c_str());
 		}
+		err = ERR_OK;
 	}
 	else
 	{	// create file in fs
 		TEST_LOG(" new dir");
 		ref.AddPath(path, true, fid);
-		if (!create_result)
+		if (fid == INVALID_BLK)
 		{
 			err = ERR_CREATE;
 			TEST_ERROR("failed on creating file fn=%s", path.c_str());
 		}
+		err = ERR_OK;
 	}
 	TEST_CLOSE_LOG;
 	return err;
@@ -909,6 +1120,14 @@ ERROR_CODE CExTester::TestWriteFileV2(CFsState* cur_state, NID fid, FSIZE offset
 	CReferenceFs& ref = cur_state->m_ref_fs;
 
 	ERROR_CODE err = ERR_OK;
+
+	//随机生成读写长度和偏移
+
+	//FSIZE offset = (FSIZE)(_len * ((float)(rand()) / RAND_MAX));
+	//FSIZE len = (FSIZE)((m_max_file_size - offset) * ((float)(rand()) / RAND_MAX));
+	//cur_state->m_op.offset = offset;
+	//cur_state->m_op.length = len;
+
 	//	len &= ~3;		// DWORD对齐
 	TEST_LOG("[OPERATE ](%d) WriteFile, path=%s, offset=%d, size=%d\n", cur_state->m_op.op_sn, path.c_str(), offset, len);
 
@@ -969,20 +1188,23 @@ ERROR_CODE CExTester::TestOpenFile(CFsState* cur_state, const std::string& path)
 
 	ERROR_CODE err = ERR_OK;
 
-	if (ref.OpenedFileNr() + 2 >= m_max_opened_file_nr) {
-		TEST_LOG("[OPERATE ](%d) OPEN FILE, path=%s, max opened file reached\n", cur_state->m_op.op_sn, path.c_str());
-		return err;
-	}
+	//if (ref.OpenedFileNr() + 2 >= m_max_opened_file_nr) {
+	//	TEST_LOG("[OPERATE ](%d) OPEN FILE, path=%s, max opened file reached\n", cur_state->m_op.op_sn, path.c_str());
+	//	return err;
+	//}
 
 	CReferenceFs::CRefFile* ref_file = ref.FindFile(path);
 	if (!ref_file) THROW_ERROR(ERR_APP, L"cannof find ref file: %S", path.c_str());
 
+	NID fid = INVALID_BLK;
+	err = real_fs->FileOpen(fid, path);
+	if (err == ERR_MAX_OPEN_FILE) return ERR_OK;
+
 	ref.OpenFile(*ref_file);
-	NID fid = real_fs->FileOpen(path);
-	if (fid == INVALID_BLK)
+	if (err != ERR_OK || fid == INVALID_BLK)
 	{
-		err = ERR_OPEN_FILE;
-		THROW_ERROR(ERR_USER, L"failed on opening file, fn=%S", path.c_str());
+//		err = ERR_OPEN_FILE;
+		THROW_FS_ERROR(err == ERR_OK ? ERR_OPEN_FILE : err, L"failed on opening file, fn=%S", path.c_str());
 	}
 	if (fid != ref_file->get_fid()) {
 		THROW_ERROR(ERR_USER, L"file id does not match, file=%S, real fid=%d, ref fid=%d", 

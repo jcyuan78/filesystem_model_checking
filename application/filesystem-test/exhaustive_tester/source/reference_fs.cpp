@@ -9,27 +9,7 @@ LOCAL_LOGGER_ENABLE(L"ref_fs", LOGGER_LEVEL_DEBUGINFO);
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //== Help functions ==
 
-OP_CODE StringToOpId(const std::wstring& str)
-{
-	OP_CODE id;
-	if (false) {}
-	else if (str == L"CreateFile")	id = OP_CODE::OP_FILE_CREATE;
-	else if (str == L"CreateDir")	id = OP_CODE::OP_DIR_CREATE;
-	else if (str == L"OpenFile")	id = OP_CODE::OP_FILE_OPEN;
-	else if (str == L"CloseFile")	id = OP_CODE::OP_FILE_CLOSE;
-	//else if (str == L"Append")		id = OP_CODE::APPEND_FILE;
-	else if (str == L"OverWrite")	id = OP_CODE::OP_FILE_WRITE;
-	else if (str == L"Write")		id = OP_CODE::OP_FILE_WRITE;
-	else if (str == L"DeleteFile")	id = OP_CODE::OP_FILE_DELETE;
-	else if (str == L"DeleteDir")	id = OP_CODE::OP_DIR_DELETE;
-	else if (str == L"Move")		id = OP_CODE::OP_MOVE;
-	else if (str == L"Mount")		id = OP_CODE::OP_DEMOUNT_MOUNT;
-	else if (str == L"PowerCycle")	id = OP_CODE::OP_POWER_OFF_RECOVER;
-	else if (str == L"Verify")		id = OP_CODE::OP_FILE_VERIFY;
-	else if (str == L"Power")		id = OP_CODE::OP_POWER_OFF_RECOVER;
-	else							id = OP_CODE::OP_NOP;
-	return id;
-}
+
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //== Reference file system ==
@@ -52,6 +32,8 @@ void CReferenceFs::Initialize(const std::string & root_path)
 	m_free_list = 1;
 	m_free_num = MAX_FILE_NUM;
 	m_dir_num = 1;		// 根目录
+	m_free_num--;
+	m_reset_count = 0;
 }
 
 void CReferenceFs::CopyFrom(const CReferenceFs & src)
@@ -79,6 +61,7 @@ CReferenceFs::CRefFile * CReferenceFs::AddPath(const std::string & path, bool di
 	UINT obj_id = m_free_list;
 	CRefFile * obj = m_files + m_free_list;
 	m_free_list = obj->checksum;
+	m_free_num--;
 
 	// 查找父节点
 	size_t pos = path.find_last_of("\\");
@@ -114,13 +97,6 @@ CReferenceFs::CRefFile * CReferenceFs::AddPath(const std::string & path, bool di
 
 	// 更新encode
 	parent->UpdateEncode(m_files);
-	//while (1)
-	//{
-	//	parent->UpdateEncode(m_files);
-	//	parent_id = parent->m_parent;
-	//	if (parent_id > MAX_FILE_NUM) break;
-	//	parent = m_files + parent_id;
-	//}
 	return obj;
 }
 
@@ -229,14 +205,6 @@ void CReferenceFs::RemoveFile(const std::string & path)
 
 	// 更新encode
 	parent->UpdateEncode(m_files);
-	//while (1)
-	//{
-	//	parent->UpdateEncode(m_files);
-	//	UINT parent_id = parent->m_parent;
-	//	if (parent_id > MAX_FILE_NUM) break;
-	//	parent = m_files + parent_id;
-	//}
-
 	memset(obj, 0, sizeof(CRefFile));
 	obj->fid = INVALID_BLK;
 	// 加入free list
@@ -253,22 +221,18 @@ UINT CReferenceFs::FindFileIndex(const std::string & path)
 	return it->second;
 }
 
-
-//void CReferenceFs::GetEncodeString(std::string& str) const
-//{
-//	str = m_files[0].m_encode;
-//}
-
 size_t CReferenceFs::Encode(char* code, size_t buf_len) const
 {
 	const char* encode = m_files[0].m_encode;
 	int len = m_files[0].m_encode_size;
 //	memset(code, 0, sizeof(code));
 	char* ptr = code;
-	if (m_reset_count > 0) {
-		*ptr = 'R';
-		ptr++;
+	if (m_reset_count < 10) {
+		*ptr = m_reset_count + '0';
 	}
+	else *ptr = '9';
+	ptr++;
+
 	memcpy_s(ptr, buf_len-1, encode, len);
 	ptr += len;
 	*ptr = 0;

@@ -4,6 +4,7 @@
 #include <jcapp.h>
 #include <boost/property_tree/xml_parser.hpp>
 
+class CExTester;
 
 class CExhaustiveTesterApp
 	: public jcvos::CJCAppSupport<jcvos::AppArguSupport>
@@ -23,6 +24,7 @@ public:
 	virtual LPCTSTR AppDescription(void) const {
 		return L"File System Tester, by Jingcheng Yuan\n";
 	};
+	void StopTest(void);
 
 protected:
 	void MakeTestId(void);
@@ -37,8 +39,12 @@ public:
 	int m_multihead_cnt = 0;
 	int m_searching_depth = 0;
 	UINT m_thread_num = 0;
+	int m_branch = 0;
+	std::wstring m_test_type;
+	std::wstring m_trace_fn;
 
 protected:
 	std::wstring m_fn_log, m_fn_lblka, m_fn_lblkb, m_fn_seg;
 	boost::property_tree::wptree m_test_summary;
+	CExTester* m_tester = nullptr;
 };

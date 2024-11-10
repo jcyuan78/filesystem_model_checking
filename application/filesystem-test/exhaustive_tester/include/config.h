@@ -4,11 +4,12 @@
 // 文件系统规模
 //#define INDEX_TABLE_SIZE			128
 
-#define BLOCK_PER_SEG			(32)			// 一个segment有多少块
-#define BITMAP_SIZE				(2)				// 512 blocks / 32 bit
+#define BLOCK_PER_SEG			(32)					// 一个segment有多少块
+#define BITMAP_SIZE				(BLOCK_PER_SEG /32)		// 512 blocks / 32 bit
 #define SEG_NUM					(128)
 #define MAIN_SEG_OFFSET			(10)
 #define MAIN_SEG_NR				(SEG_NUM - MAIN_SEG_OFFSET)
+#define MAIN_BLK_NR				(MAIN_SEG_NR * BLOCK_PER_SEG)
 
 // 每个SIT block拥有的segment数量
 #define SIT_ENTRY_PER_BLK		(12)		// 每个SIT block存放 12 个segment entry
@@ -28,6 +29,7 @@
 
 // SSD 空间
 #define TOTAL_BLOCK_NR			(SEG_NUM * BLOCK_PER_SEG)
+#define SSD_CACHE_SIZE			(256)
 
 // 文件系统内存配置// OS 缓存配置
 #define MAX_PAGE_NUM			(2048)
@@ -47,3 +49,5 @@
 #define MAX_FILENAME_LEN		(DENTRY_PER_BLOCK * FN_SLOT_LEN)		// 文件名的最大长度
 #define MAX_DENTRY_LEVEL		(4)
 
+//#define FS_BREAK				JCASSERT(0);		// 如果需要在THROW_FS_ERROR时暂停，则定义FS_BREAK
+#define FS_BREAK

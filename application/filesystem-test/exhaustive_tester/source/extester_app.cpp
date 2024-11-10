@@ -24,6 +24,11 @@ ARGU_DEF(L"test_id", 't', m_test_id, L"test id for generating log and result")
 ARGU_DEF(L"multihead", 'm', m_multihead_cnt, L"number of head count for mulithead log")
 ARGU_DEF(L"depth", 'd', m_searching_depth, L"max depth for searching")
 ARGU_DEF(L"thread", 'r', m_thread_num, L"thread number for searching")
+ARGU_DEF(L"branch", 'b', m_branch, L"test branch for statistic check")
+ARGU_DEF(L"type", 'p', m_test_type, L"test type: exhaustive, statistic, trace")
+ARGU_DEF(L"trace", 0, m_trace_fn, L"trace filename for trace test")
+
+
 //ARGU_DEF(L"target", 't', m_root, L"target folder to test, like D:, D:\\test")
 END_ARGU_DEF_TABLE()
 
@@ -50,6 +55,8 @@ int CExhaustiveTesterApp::Initialize(void)
 void CExhaustiveTesterApp::CleanUp(void)
 {
 }
+
+
 
 void CExhaustiveTesterApp::MakeTestId(void)
 {
@@ -78,6 +85,23 @@ void CExhaustiveTesterApp::GenerateLogFileName(void)
 	m_fn_seg = str_fn;
 }
 
+// 增加Ctrl+C的处理
+BOOL WINAPI HandlerRoutine(DWORD dwCtrlType)
+{
+	if (dwCtrlType == CTRL_C_EVENT)
+	{
+		CExhaustiveTesterApp* app = dynamic_cast<CExhaustiveTesterApp*>(CExhaustiveTesterApp::GetApp());
+		app->StopTest();
+		return TRUE;
+	}
+	return FALSE;
+}
+
+void CExhaustiveTesterApp::StopTest(void)
+{
+	if (m_tester) m_tester->StopTest();
+}
+
 
 int CExhaustiveTesterApp::Run(void)
 {
@@ -99,15 +123,42 @@ int CExhaustiveTesterApp::Run(void)
 	if (m_multihead_cnt != 0)	{	fs_config.put(L"multi_header_num", m_multihead_cnt);	}
 	if (m_searching_depth != 0)	{	test_config.put(L"depth", m_searching_depth);	}
 	if (m_thread_num > 0)		{	test_config.put(L"thread_num", m_thread_num); }
+	if (m_branch > 0)			{	test_config.put(L"branch", m_branch); }
 
-	const std::wstring& test_type = test_config.get<std::wstring>(L"type");
+	if (m_test_type.empty() ) m_test_type = test_config.get<std::wstring>(L"type");
 	jcvos::auto_ptr<CF2fsSimulator> lfs(new CF2fsSimulator);
 	lfs->Initialzie(fs_config, m_test_id);
-	CExTester tester;
-	tester.PrepareTest(test_config, lfs, m_test_id );
-	tester.StartTest();
 
-	tester.GetTestSummary(m_test_summary);
+
+	CExTester* tester = nullptr;
+	if (m_test_type == L"statistic")
+	{
+		tester = new CExStatisticTester;
+	}
+	else if (m_test_type == L"exhaustive")
+	{
+		tester = new CExTester;
+	}
+	else if (m_test_type == L"trace")
+	{
+		tester = new CExTraceTester;
+		if (!m_trace_fn.empty()) test_config.put(L"trace", m_trace_fn);
+	}
+	else
+	{
+		THROW_ERROR(ERR_USER, L"unknown test type: %s ", m_test_type);
+	}
+
+//	CExTester tester;
+//	m_tester = tester;
+	if (!SetConsoleCtrlHandler(HandlerRoutine, TRUE))
+	{
+		THROW_WIN32_ERROR(L"[err] failed on setting console ctrl handler");
+	}
+	tester->PrepareTest(test_config, lfs, m_test_id );
+	tester->StartTest();
+
+	tester->GetTestSummary(m_test_summary);
 	// 保存测试的配置结果
 	std::string str_log_fn;
 	jcvos::UnicodeToUtf8(str_log_fn, m_test_id + L"\\config.xml");
@@ -115,5 +166,10 @@ int CExhaustiveTesterApp::Run(void)
 	// 保存测试结果小结
 	jcvos::UnicodeToUtf8(str_log_fn, m_test_id + L"\\summary.json");
 	boost::property_tree::json_parser::write_json(str_log_fn, m_test_summary);
+
+	delete tester;
+
+	m_tester = nullptr;
 	return 0;
 }
+
