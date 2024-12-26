@@ -6,13 +6,17 @@
 
 LOCAL_LOGGER_ENABLE(L"extester.state", LOGGER_LEVEL_DEBUGINFO);
 
+LOG_CLASS_SIZE(CReferenceFs);
+LOG_CLASS_SIZE(CFsState);
+
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //== State ==
 
 CFsState::~CFsState(void)
 {
-	delete m_real_fs;
+	if (m_real_fs) m_real_fs->release();
+//	delete m_real_fs;
 }
 
 void CFsState::OutputState(FILE* log_file)
@@ -50,19 +54,33 @@ void CFsState::OutputState(FILE* log_file)
 
 void CFsState::DuplicateFrom(CFsState* src_state)
 {
-	LOG_STACK_PERFORM(L"state_duplication");
 	m_ref_fs.CopyFrom(src_state->m_ref_fs);
 	if (m_real_fs == nullptr) 	src_state->m_real_fs->Clone(m_real_fs);
 	else m_real_fs->CopyFrom(src_state->m_real_fs);
 	m_depth = src_state->m_depth + 1;
 	m_parent = src_state;
-	m_ref = 1;
+	src_state->m_ref++;
+}
+
+void CFsState::DuplicateWithoutFs(CFsState* src_state)
+{
+	m_ref_fs.CopyFrom(src_state->m_ref_fs);
+	JCASSERT(m_real_fs == nullptr);
+	m_real_fs = src_state->m_real_fs;
+	m_real_fs->add_ref();
+	m_depth = src_state->m_depth + 1;
+	m_parent = src_state;
+	src_state->m_ref++;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //== State Manager ==
 CStateManager::CStateManager(void)
 {
+	m_duplicate_real_fs = true;
+	InitializeCriticalSection(&m_lock);
+	// for debug
+	//memset(states, 0, sizeof(states));
 }
 
 CStateManager::~CStateManager(void)
@@ -75,15 +93,20 @@ CStateManager::~CStateManager(void)
 		m_free_nr--;
 	}
 	LOG_DEBUG(L"free = %zd", m_free_nr);
+	DeleteCriticalSection(&m_lock);
 }
 
-void CStateManager::Initialize(size_t size)
+void CStateManager::Initialize(size_t size, bool duplicate_real_fs)
 {
+	m_duplicate_real_fs = duplicate_real_fs;
 }
 
 CFsState* CStateManager::get(void)
 {
 	CFsState* new_state = nullptr;
+#ifdef STATE_MANAGER_THREAD_SAFE
+	EnterCriticalSection(&m_lock);
+#endif 
 	if (m_free_nr > 0)
 	{
 		new_state = m_free_list;
@@ -91,10 +114,15 @@ CFsState* CStateManager::get(void)
 		new_state->m_parent = nullptr;
 		m_free_nr--;
 	}
-	else
-	{
+#ifdef STATE_MANAGER_THREAD_SAFE
+	LeaveCriticalSection(&m_lock);
+#endif
+	if (new_state == nullptr)	{
 		new_state = new CFsState;
+		//states[m_buffer_size] = new_state;
+		//m_buffer_size++;
 	}
+	new_state->m_ref = 1;
 	return new_state;
 }
 
@@ -102,14 +130,25 @@ void CStateManager::put(CFsState*& state)
 {
 	while (state)
 	{
-		UINT ref = InterlockedDecrement(&state->m_ref);
+//		UINT ref = InterlockedDecrement(&state->m_ref);
+		UINT ref = --(state->m_ref);
 		if (ref != 0) break;
+		if (!m_duplicate_real_fs) {
+			state->m_real_fs->release();
+			state->m_real_fs = nullptr;
+		}
 		CFsState* pp = state->m_parent;
 		// ·ÅÈëfree list
+#ifdef STATE_MANAGER_THREAD_SAFE
+		EnterCriticalSection(&m_lock);
+#endif
 		state->m_parent = m_free_list;
 		m_free_list = state;
 		m_free_nr++;
-
+#ifdef STATE_MANAGER_THREAD_SAFE
+		LeaveCriticalSection(&m_lock);
+#endif
+		// continue put parent
 		state = pp;
 	}
 	state = nullptr;
@@ -119,7 +158,8 @@ CFsState* CStateManager::duplicate(CFsState* state)
 {
 	CFsState* new_state = get();
 	//	LOG_DEBUG_(1, L"duplicate state: <%p>", new_state);
-	new_state->DuplicateFrom(state);
+	if (m_duplicate_real_fs)	new_state->DuplicateFrom(state);
+	else						new_state->DuplicateWithoutFs(state);
 	return new_state;
 }
 

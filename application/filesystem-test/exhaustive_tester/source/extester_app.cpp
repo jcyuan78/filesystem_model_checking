@@ -110,9 +110,33 @@ int CExhaustiveTesterApp::Run(void)
 	if (m_test_id.empty()) MakeTestId();
 	GenerateLogFileName();
 
+	std::string default_config;
+	CExTester* tester = nullptr;
+	if (m_test_type == L"statistic")
+	{
+		tester = new CExStatisticTester;
+		default_config = "config-statistic.xml";
+	}
+	else if (m_test_type == L"exhaustive")
+	{
+		tester = new CExTester;
+		default_config = "config-exhaus.xml";
+	}
+	else if (m_test_type == L"trace")
+	{
+		tester = new CExTraceTester;
+		default_config = "config-statistic.xml";
+	}
+	else
+	{
+		THROW_ERROR(ERR_USER, L"unknown test type: %s ", m_test_type);
+	}
+
+
 	// load config file
 	std::string config_fn;
-	jcvos::UnicodeToUtf8(config_fn, m_config_file);
+	if (m_config_file.empty())	config_fn = default_config;
+	else 						jcvos::UnicodeToUtf8(config_fn, m_config_file);
 	boost::property_tree::wptree prop;
 	boost::property_tree::xml_parser::read_xml(config_fn, prop);
 
@@ -124,30 +148,12 @@ int CExhaustiveTesterApp::Run(void)
 	if (m_searching_depth != 0)	{	test_config.put(L"depth", m_searching_depth);	}
 	if (m_thread_num > 0)		{	test_config.put(L"thread_num", m_thread_num); }
 	if (m_branch > 0)			{	test_config.put(L"branch", m_branch); }
+	if (!m_trace_fn.empty())	{	test_config.put(L"trace", m_trace_fn); }
 
 	if (m_test_type.empty() ) m_test_type = test_config.get<std::wstring>(L"type");
-	jcvos::auto_ptr<CF2fsSimulator> lfs(new CF2fsSimulator);
+//	jcvos::auto_ptr<CF2fsSimulator> lfs(new CF2fsSimulator);
+	IFsSimulator* lfs = CF2fsSimulator::factory();
 	lfs->Initialzie(fs_config, m_test_id);
-
-
-	CExTester* tester = nullptr;
-	if (m_test_type == L"statistic")
-	{
-		tester = new CExStatisticTester;
-	}
-	else if (m_test_type == L"exhaustive")
-	{
-		tester = new CExTester;
-	}
-	else if (m_test_type == L"trace")
-	{
-		tester = new CExTraceTester;
-		if (!m_trace_fn.empty()) test_config.put(L"trace", m_trace_fn);
-	}
-	else
-	{
-		THROW_ERROR(ERR_USER, L"unknown test type: %s ", m_test_type);
-	}
 
 //	CExTester tester;
 //	m_tester = tester;
@@ -168,6 +174,8 @@ int CExhaustiveTesterApp::Run(void)
 	boost::property_tree::json_parser::write_json(str_log_fn, m_test_summary);
 
 	delete tester;
+
+	lfs->release();
 
 	m_tester = nullptr;
 	return 0;

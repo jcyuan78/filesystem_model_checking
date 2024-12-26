@@ -15,7 +15,6 @@ class CPageInfo;
 
 typedef DWORD SEG_T;
 typedef DWORD BLK_T;
-//typedef WORD NID;		// node id
 typedef void* DATA_BLK;
 
 class CStorage;
@@ -23,7 +22,6 @@ class CPageAllocator;
 
 
 // segment info：一个segment的信息
-#define SEG_NEXT_FREE	cur_blk
 struct SEG_INFO
 {
 public:
@@ -31,7 +29,7 @@ public:
 	DWORD valid_bmp[BITMAP_SIZE];
 	// 当segment free的时候，作为free链表的指针使用。valid_blk_nr == INVALID_BLK 表示block为free，可以再分配
 	DWORD valid_blk_nr;		
-	DWORD cur_blk;			// 可以分配的下一个block, 0:表示这个segment未被使用，BLOCK_PER_SEG：表示已经填满，其他：当前segment
+//	DWORD cur_blk;			// 可以分配的下一个block, 0:表示这个segment未被使用，BLOCK_PER_SEG：表示已经填满，其他：当前segment
 							// 当block free时， cur_blk表示free指针
 	BLK_TEMP seg_temp;		// 指示segment的温度，用于GC和
 };
@@ -52,19 +50,45 @@ struct SUMMARY_BLOCK
 	SUMMARY entries[SUMMARY_PER_BLK];
 };
 
+struct CURSEG_INFO {
+	SEG_T seg_no;
+	BLK_T blk_offset;
+};
+
+struct NAT_JOURNAL_ENTRY {
+	NID nid;
+	PHY_BLK phy_blk;
+};
+
+struct SIT_JOURNAL_ENTRY {
+	SEG_T seg_no;
+	SEG_INFO seg_info;
+};
+
+struct CKPT_BLOCK
+{
+	CURSEG_INFO cur_segs[BT_TEMP_NR];
+	UINT nat_journal_nr, sit_journal_nr;
+	NAT_JOURNAL_ENTRY nat_journals[JOURNAL_NR];
+	SIT_JOURNAL_ENTRY sit_journals[JOURNAL_NR];
+};
+
 // Segment Info的内存数据结构：
 //	free segment的表示：valid_blk_nr == 0；
 //	free link: cur_blk
+#define SEG_NEXT_FREE	cur_blk
+
 class SegmentInfo
 {
 public:
 	DWORD valid_bmp[BITMAP_SIZE];
-	UINT valid_blk_nr;		// 当segment free的时候，作为free链表的指针使用。valid_blk_nr == INVALID_BLK 表示block为free，可以再分配
-	DWORD cur_blk;			// 可以分配的下一个block, 0:表示这个segment未被使用，BLOCK_PER_SEG：表示已经填满，其他：当前segment
+	UINT valid_blk_nr;	// 当segment free的时候，作为free链表的指针使用。valid_blk_nr == INVALID_BLK 表示block为free，可以再分配
+	DWORD cur_blk;		// 可以分配的下一个block, 0:表示这个segment未被使用，BLOCK_PER_SEG：表示已经填满，其他：当前segment
 	// 当block free时， cur_blk表示free指针
-	BLK_TEMP seg_temp;		// 指示segment的温度，用于GC和
+	BLK_TEMP seg_temp;	// 指示segment的温度，用于GC和
 	NID		nids[BLOCK_PER_SEG];
 	WORD	offset[BLOCK_PER_SEG];
+//	SEG_T	free_next, free_prev;	// 构成free链表的双向指针
 };
 
 inline DWORD OffsetToBlock(LBLK_T& start_blk, LBLK_T& end_blk, FSIZE start_lba, FSIZE secs)
@@ -192,13 +216,56 @@ public:
 	void Reset(void);
 
 public:
+	inline static UINT seg_to_lba(SEG_T seg, SEG_T blk) {
+		return ((MAIN_SEG_OFFSET + seg) * BLOCK_PER_SEG + blk);
+	}
+
+	inline static void BlockToSeg(SEG_T& seg_id, BLK_T& blk_id, PHY_BLK phy_blk) {
+		if (phy_blk == INVALID_BLK) { seg_id = INVALID_BLK;				blk_id = INVALID_BLK; }
+		else { seg_id = phy_blk / BLOCK_PER_SEG;	blk_id = phy_blk % BLOCK_PER_SEG; }
+	}
+
+	inline static PHY_BLK PhyBlock(SEG_T seg_id, BLK_T blk_id) {
+		return seg_id * BLOCK_PER_SEG + blk_id;
+	}
+
+	inline static UINT phyblk_to_lba(PHY_BLK phy_blk) {
+		return phy_blk + MAIN_SEG_OFFSET * BLOCK_PER_SEG;
+	}
+
+	inline static void set_bitmap(DWORD* bmp, BLK_T blk) {
+		DWORD mask = (1 << blk);
+		bmp[0] = bmp[0] | mask;
+	}
+
+	inline static void clear_bitmap(DWORD* bmp, BLK_T blk) {
+		DWORD mask = (1 << blk);
+		bmp[0] = bmp[0] & (~mask);
+	}
+
+	inline static DWORD test_bitmap(const DWORD* bmp, BLK_T blk) {
+		DWORD mask = (1 << blk);
+		return bmp[0] & mask;
+	}
+
+	static const size_t bmp_size = sizeof(DWORD) * BITMAP_SIZE;
+
+
+public:
 	// 将必要的数据保存到Storage
 	void SyncSIT(void);
 	void SyncSSA(void);
+	void f2fs_flush_sit_entries(CKPT_BLOCK& checkpoint);
+//	void fill_sit_block(SEG_INFO* seg_info, SEG_T seg);
+	void fill_seg_info(SEG_INFO* seg_info, SEG_T seg);
+	void read_seg_info(SEG_INFO* seg_info, SEG_T seg);
 	// 从storage中读取 
-	bool Load(void);
+	bool Load(CKPT_BLOCK & checkpoint);
 
 public:
+	void reset_dirty_map(void) {
+		memset(m_dirty_map, 0, sizeof(m_dirty_map));
+	}
 	// 查找一个空的segment
 	SEG_T AllocSegment(BLK_TEMP temp);
 
@@ -211,18 +278,24 @@ public:
 	SEG_T get_seg_nr(void) const { return MAIN_SEG_NR; }
 	SEG_T get_free_nr(void) const { return m_free_nr; }
 
-	const SegmentInfo& get_segment(SEG_T id) const
-	{
+	const SegmentInfo& get_segment(SEG_T id) const	{
 		JCASSERT(id < MAIN_SEG_NR);
 		return m_segments[id];
+	}
+
+	inline UINT get_valid_blk_nr(SEG_T seg)	{
+		return m_segments[seg].valid_blk_nr;
+	}
+
+	DWORD is_blk_valid(SEG_T seg_id, BLK_T blk)	{
+		return test_bitmap(m_segments[seg_id].valid_bmp, blk);
 	}
 
 	void GetBlockInfo(NID& nid, WORD& offset, PHY_BLK phy_blk);
 	void SetBlockInfo(NID nid, WORD offset, PHY_BLK phy_blk);
 
 	// 写入data block到segment, file_index 文件id, blk：文件中的相对block，temp温度
-	void CheckGarbageCollection(CF2fsSimulator* fs)
-	{
+	void CheckGarbageCollection(CF2fsSimulator* fs)	{
 		if (m_free_nr < m_gc_lo) GarbageCollection(fs);
 	}
 	// 将page写入磁盘
@@ -237,14 +310,16 @@ public:
 #endif
 
 public:
-	bool is_dirty(SEG_T seg_id);
+	DWORD is_dirty(SEG_T seg_id);
 	void set_dirty(SEG_T seg_id);
+	void clear_dirty(SEG_T seg_id);
 
 	// 一下两段数据是需要保存的
 protected:	// 临时措施，需要考虑如何处理GcPool。(1)将GC作为算法器放入segment management中，(2)提供获取GcPool的接口
 	SegmentInfo m_segments[MAIN_SEG_NR];
 protected:
-	SEG_T m_cur_segs[BT_TEMP_NR];
+//	SEG_T m_cur_segs[BT_TEMP_NR];
+	CURSEG_INFO m_cur_segs[BT_TEMP_NR];
 	SEG_T m_gc_lo, m_gc_hi;
 	// SIT entry的dirty标志，一个bit表示一个SIT entry。一个DWORD表示一个SIT block。
 	DWORD m_dirty_map[SIT_BLK_NR];
@@ -254,51 +329,13 @@ protected:
 	// free
 	SEG_T m_free_nr, m_free_ptr;
 
-public:
-	inline static UINT seg_to_lba(SEG_T seg, SEG_T blk)
-	{
-		return ((MAIN_SEG_OFFSET + seg) * BLOCK_PER_SEG + blk);
-	}
-
-	inline static void BlockToSeg(SEG_T& seg_id, BLK_T& blk_id, PHY_BLK phy_blk)
-	{
-		if (phy_blk == INVALID_BLK)	{seg_id = INVALID_BLK;				blk_id = INVALID_BLK;	}
-		else						{seg_id = phy_blk / BLOCK_PER_SEG;	blk_id = phy_blk % BLOCK_PER_SEG;	}
-	}
-
-	inline static PHY_BLK PhyBlock(SEG_T seg_id, BLK_T blk_id)
-	{
-		return seg_id * BLOCK_PER_SEG + blk_id;
-	}
-
-	inline static UINT phyblk_to_lba(PHY_BLK phy_blk)
-	{
-		return phy_blk + MAIN_SEG_OFFSET * BLOCK_PER_SEG;
-	}
-
-	inline static void set_bitmap(DWORD* bmp, BLK_T blk)
-	{
-		DWORD mask = (1 << blk);
-		bmp[0] = bmp[0] | mask;
-	}
-
-	inline static void clear_bitmap(DWORD* bmp, BLK_T blk)
-	{
-		DWORD mask = (1 << blk);
-		bmp[0] = bmp[0] & (~mask);
-	}
-
-	inline static DWORD test_bitmap(const DWORD* bmp, BLK_T blk)
-	{
-		DWORD mask = (1 << blk);
-		return bmp[0] & mask;
-	}
 
 protected:
 	CF2fsSimulator* m_fs;
 	CStorage* m_storage;
 	// system cache manager
 	CPageAllocator* m_pages;
+	CKPT_BLOCK*		m_checkpoint;
 
 protected:
 	FsHealthInfo* m_health_info = nullptr;
@@ -306,7 +343,6 @@ protected:
 
 	// for debug
 public:
-	void DumpSegmentBlocks(const std::wstring& fn);
 #ifdef GC_TRACE
 	std::vector<GC_TRACE> gc_trace;
 #endif

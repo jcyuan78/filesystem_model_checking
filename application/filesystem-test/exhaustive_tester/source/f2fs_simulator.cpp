@@ -15,6 +15,8 @@ LOG_CLASS_SIZE(SIT_BLOCK);
 LOG_CLASS_SIZE(BLOCK_DATA);
 LOG_CLASS_SIZE(SUMMARY);
 LOG_CLASS_SIZE(SUMMARY_BLOCK);
+LOG_CLASS_SIZE(CKPT_BLOCK);
+LOG_CLASS_SIZE(CF2fsSimulator);
 //LOG_CLASS_SIZE();
 //LOG_CLASS_SIZE();
 
@@ -28,6 +30,7 @@ const char* BLK_TEMP_NAME[] = { "COLD_DATA", "COLD_NODE", "WARM_DATA", "WARM_NOD
 CF2fsSimulator::CF2fsSimulator(void)
 	:m_segments(this), m_storage(this), m_pages(this), m_nat(this)
 {
+	m_ref = 1;
 }
 
 CF2fsSimulator::~CF2fsSimulator(void)
@@ -65,6 +68,7 @@ void CF2fsSimulator::InternalCopyFrom(const CF2fsSimulator* _src)
 	memcpy_s(m_open_files, sizeof(m_open_files), _src->m_open_files, sizeof(m_open_files));
 	m_free_ptr = _src->m_free_ptr;
 	m_open_nr = _src->m_open_nr;
+	memcpy_s(&m_checkpoint, sizeof(m_checkpoint), &_src->m_checkpoint, sizeof(m_checkpoint));
 }
 
 bool CF2fsSimulator::Initialzie(const boost::property_tree::wptree& config, const std::wstring & log_path)
@@ -100,7 +104,9 @@ bool CF2fsSimulator::Initialzie(const boost::property_tree::wptree& config, cons
 	// 初始化root
 	CPageInfo* page = m_pages.allocate(true);
 	BLOCK_DATA* root_node = m_pages.get_data(page);
-	InitInode(root_node, page, F2FS_FILE_DIR);
+	if (!InitInode(root_node, page, F2FS_FILE_DIR))	{
+		THROW_FS_ERROR(ERR_NODE_FULL, L"node full during initializing");
+	}
 	root_node->node.m_ino = ROOT_FID;
 	root_node->node.m_nid = ROOT_FID;
 	page->nid = ROOT_FID;
@@ -112,11 +118,14 @@ bool CF2fsSimulator::Initialzie(const boost::property_tree::wptree& config, cons
 
 	m_health_info.m_dir_num = 1;
 	m_health_info.m_file_num = 0;
+	memset(&m_checkpoint, 0, sizeof(m_checkpoint));
+
 	// 初始化结束
-	m_segments.SyncSIT();
-	m_nat.Sync();
 	m_segments.SyncSSA();
-//	FsSync();
+	m_segments.SyncSIT();
+	m_segments.reset_dirty_map();
+	m_nat.Sync();
+	f2fs_write_checkpoint();
 	m_storage.Sync();
 
 	// set log path
@@ -164,7 +173,9 @@ NODE_INFO& CF2fsSimulator::ReadNode(NID nid, CPageInfo * & page)
 	else
 	{	// 从磁盘中读取
 		PHY_BLK blk = m_nat.get_phy_blk(nid);
-		if (blk == INVALID_BLK) THROW_ERROR(ERR_APP, L"invalid nid=%d in reading node", nid);
+		if (is_invalid(blk)) {
+			THROW_FS_ERROR(ERR_INVALID_NID, L"invalid nid=%d in reading node", nid);
+		}
 		page = m_pages.allocate(true);
 		m_storage.BlockRead(CF2fsSegmentManager::phyblk_to_lba(blk), page);
 		page->phy_blk = blk;
@@ -438,9 +449,10 @@ ERROR_CODE CF2fsSimulator::add_link(NODE_INFO* parent, const char* fn, NID fid)
 		mask <<= 1;
 	}
 
-	FileWriteInternal(*parent, blk_offset, blk_offset+1, &dentry_page);
+	UINT written = FileWriteInternal(*parent, blk_offset, blk_offset+1, &dentry_page);
 	m_pages.free(dentry_page);
-	return ERR_OK;
+	if (written == 0) return ERR_NODE_FULL;
+	else return ERR_OK;
 }
 
 void CF2fsSimulator::unlink(NID fid, CPageInfo * parent_page)
@@ -479,12 +491,15 @@ void CF2fsSimulator::unlink(NID fid, CPageInfo * parent_page)
 				}
 			}
 			if (entries.bitmap == 0) FileTruncateInternal(parent_page, ii, ii + 1);
-			else if (page->dirty) FileWriteInternal(parent, ii, ii + 1, &page);
+			else if (page->dirty) {
+				UINT written = FileWriteInternal(parent, ii, ii + 1, &page);
+				if (written == 0) THROW_FS_ERROR(ERR_DELETE_DIR, L"no resource when delete link");
+			}
 			m_pages.free(page);
 		}
 	}
 	if (!found) THROW_ERROR(ERR_APP, L"cannot find fid:%d in parent", fid);
-	FsSync();
+	sync_fs();
 }
 
 UINT CF2fsSimulator::GetChildNumber(NODE_INFO* inode)
@@ -527,7 +542,7 @@ ERROR_CODE CF2fsSimulator::InternalCreatreFile(NID & fid, const std::string& fn,
 		return ERR_WRONG_PATH;
 	}
 	*ptr = 0;
-	CPageInfo* page = nullptr; // m_pages.allocate(true);
+	CPageInfo* page = nullptr; // m_pages.allocate_index(true);
 	NID parent_fid = FileOpenInternal(full_path, page);	// 返回需要添加的父目录的nid，parent_page是祖父目录的page
 	CloseInode(page);
 	if (parent_fid == INVALID_BLK)
@@ -550,12 +565,18 @@ ERROR_CODE CF2fsSimulator::InternalCreatreFile(NID & fid, const std::string& fn,
 	page = m_pages.allocate(true);
 	BLOCK_DATA* inode_block = m_pages.get_data(page);
 	F2FS_FILE_TYPE file_type = is_dir ? F2FS_FILE_DIR : F2FS_FILE_REG;
-	InitInode(inode_block, page, file_type);
+	if (!InitInode(inode_block, page, file_type)) {
+		CloseInode(parent_page);
+		m_pages.free(page);
+		return ERR_NODE_FULL;
+	}
+		
 	fid = inode_block->node.m_nid;
 	// 添加到父节点dentry中
 	ERROR_CODE ir = add_link(&parent, name, fid);
 	if (ir != ERR_OK) {
 		LOG_ERROR(L"[err] failed on add child to parent");
+		CloseInode(parent_page);
 		m_nat.put_node(fid);
 		m_pages.free(page);
 		fid = INVALID_BLK;
@@ -571,7 +592,7 @@ ERROR_CODE CF2fsSimulator::InternalCreatreFile(NID & fid, const std::string& fn,
 	InterlockedIncrement(&(inode_block->node.inode.ref_count));
 	CloseInode(parent_page);
 
-	FsSync();
+	sync_fs();
 
 	return ERR_OK;
 }
@@ -580,7 +601,6 @@ ERROR_CODE CF2fsSimulator::FileCreate(NID & fid, const std::string& fn)
 {
 	if (m_open_nr >= MAX_OPEN_FILE) {
 		fid = INVALID_BLK;
-//		THROW_FS_ERROR(ERR_MAX_OPEN_FILE, L"oped file reached max (%d)", m_open_nr);
 		return ERR_MAX_OPEN_FILE;
 	}
 
@@ -596,7 +616,7 @@ ERROR_CODE CF2fsSimulator::FileCreate(NID & fid, const std::string& fn)
 	// 放入open list中
 	m_health_info.m_file_num++;
 
-	CPageInfo* page = nullptr; // m_pages.allocate(true);
+	CPageInfo* page = nullptr; // m_pages.allocate_index(true);
 	NODE_INFO *inode = &ReadNode(fid, page);		// now, the ipage points to the opened file.
 	// 放入open list
 	AddFileToOpenList(fid, page);
@@ -644,7 +664,7 @@ ERROR_CODE CF2fsSimulator::FileOpen(NID &fid, const std::string& fn, bool delete
 	char full_path[MAX_PATH_SIZE + 1];
 	strcpy_s(full_path, fn.c_str());
 
-	CPageInfo* page = nullptr; // m_pages.allocate(true);
+	CPageInfo* page = nullptr; // m_pages.allocate_index(true);
 	fid = FileOpenInternal(full_path, page);
 	CloseInode(page);
 	if (fid == INVALID_BLK)	{	return ERR_OPEN_FILE; }
@@ -673,12 +693,94 @@ ERROR_CODE CF2fsSimulator::FileOpen(NID &fid, const std::string& fn, bool delete
 	return ERR_OK;
 }
 
+void CF2fsSimulator::ReadNodeNoCache(NODE_INFO& node, NID nid)
+{
+	if (is_valid(m_nat.node_catch[nid]))
+	{
+		CPageInfo * page = m_pages.page(m_nat.node_catch[nid]);
+		BLOCK_DATA * blk_data = m_pages.get_data(page);
+		memcpy_s(&node, sizeof(NODE_INFO), &blk_data->node, sizeof(NODE_INFO));
+	}
+	else
+	{
+		PHY_BLK blk = m_nat.get_phy_blk(nid);
+		if (blk >= MAIN_BLK_NR) {
+			THROW_FS_ERROR(ERR_LOST_NID, L"nid [%d], not allocated or invalid phy block: %d", nid, blk);
+		}
+		CPageInfo page;
+		m_storage.BlockRead(CF2fsSegmentManager::phyblk_to_lba(blk), &page);
+		BLOCK_DATA* blk_data = m_pages.get_data(&page);
+		if (blk_data->m_type != BLOCK_DATA::BLOCK_INODE && blk_data->m_type != BLOCK_DATA::BLOCK_INDEX) {
+			THROW_FS_ERROR(ERR_WRONG_BLOCK_TYPE, L"nid [%d] block type (%d) is not INODE", nid, blk_data->m_type);
+		}
+		if (blk_data->node.m_nid != nid) {
+			THROW_FS_ERROR(ERR_INVALID_NID, L"nid [%d] does not match, nid in node= %d", nid, blk_data->node.m_nid);
+		}
+		memcpy_s(&node, sizeof(NODE_INFO), &blk_data->node, sizeof(NODE_INFO));
+	}
+}
+
+void CF2fsSimulator::ReadBlockNoCache(BLOCK_DATA& data, PHY_BLK blk)
+{
+	CPageInfo page;
+	m_storage.BlockRead(CF2fsSegmentManager::phyblk_to_lba(blk), &page);
+	BLOCK_DATA* src = m_pages.get_data(&page);
+	memcpy_s(&data, sizeof(BLOCK_DATA), src, sizeof(BLOCK_DATA));
+}
+
+void CF2fsSimulator::GetFileDirNum(NID fid, UINT& file_nr, UINT& dir_nr)
+{
+	file_nr = 0; dir_nr = 0;
+	// 打开inode fid
+	NODE_INFO inode;
+	ReadNodeNoCache(inode, fid);
+
+	// 如果是file，则返回
+	if (inode.inode.file_type != F2FS_FILE_DIR) {
+		file_nr = 1;
+		dir_nr = 0;
+		return;
+	}
+	// 如果是dir，检查所有dentry
+	dir_nr++;
+	for (int ii = 0; ii < INDEX_TABLE_SIZE; ++ii)
+	{
+		NID index_nid = inode.inode.index[ii];
+		if (is_invalid(index_nid)) continue;
+
+		NODE_INFO index;
+		ReadNodeNoCache(index, index_nid);
+		for (int jj = 0; jj < INDEX_SIZE; ++jj)
+		{
+			PHY_BLK data_blk = index.index.index[jj];
+			if (is_invalid(data_blk)) continue;
+			BLOCK_DATA dentry_blk;
+			ReadBlockNoCache(dentry_blk, data_blk);
+			if (dentry_blk.m_type != BLOCK_DATA::BLOCK_DENTRY) {
+				THROW_FS_ERROR(ERR_WRONG_BLOCK_TYPE, L"data [%d, %d], phy=%d block type (%d) unmatch, expected: BLOCK_DENTRY", index_nid, jj, data_blk, dentry_blk.m_type);
+			}
+
+			DENTRY_BLOCK& entries = dentry_blk.dentry;
+			for (int ii = 0; ii < DENTRY_PER_BLOCK; ++ii) {
+				if ( is_invalid(entries.dentries[ii].ino) ) continue;
+				// 对于获得的ino，进行递归调用
+				UINT sub_file_nr = 0, sub_dir_nr = 0;
+				GetFileDirNum(entries.dentries[ii].ino, sub_file_nr, sub_dir_nr);
+				file_nr += sub_file_nr;
+				dir_nr += sub_dir_nr;
+			}
+		}
+	}
+	// 如果dentry项目是目录，递归检查，
+}
+
 bool CF2fsSimulator::Mount(void)
 {
-	m_segments.Load();
-	m_nat.Load();
+	get_checkpoint();
+	m_segments.Load(m_checkpoint);
+	m_nat.Load(m_checkpoint);
 	// load root
-	CPageInfo* page = nullptr;	//m_pages.allocate(true);
+	CPageInfo* page = nullptr;	//m_pages.allocate_index(true);
 	NODE_INFO & root_node = ReadNode(ROOT_FID, page);
 	root_node.inode.ref_count = 1;
 	m_nat.node_catch[root_node.m_nid] = m_pages.page_id(page);	// page->page_id;
@@ -695,7 +797,7 @@ bool CF2fsSimulator::Unmount(void)
 			ForceClose(m_open_files + ii);
 		}
 	}
-	FsSync();
+	sync_fs();
 	m_storage.Sync();
 	return true;
 }
@@ -716,9 +818,7 @@ bool CF2fsSimulator::Reset(UINT rollback)
 	return true;
 }
 
-
-
-void CF2fsSimulator::FsSync(void)
+void CF2fsSimulator::sync_fs(void)
 {
 	// 保存index, 可能是因为gc打开的index page
 	for (int ii = 0; ii < NODE_NR; ++ii)
@@ -730,16 +830,48 @@ void CF2fsSimulator::FsSync(void)
 			if (page->dirty)
 			{
 				// <DONE> page的nid和offset应该在page申请时设置
-				LOG_DEBUG(L"save node page, node=%d", ii);
 				PHY_BLK phy = m_segments.WriteBlockToSeg(page);
+//				LOG_TRACK(L"write_node", L"save node[%d] to block:%d", ii, phy);
 				m_nat.set_phy_blk(ii, phy);
 				page->dirty = false;
 			}
 		}
 	}
-	m_segments.SyncSIT();
-	m_nat.Sync();
 	m_segments.SyncSSA();
+	f2fs_write_checkpoint();
+}
+
+void CF2fsSimulator::f2fs_write_checkpoint()
+{
+	// flush_nat : 把nat的变化写入journal
+	m_nat.f2fs_flush_nat_entries(m_checkpoint);
+	// flush_sit
+	m_segments.f2fs_flush_sit_entries(m_checkpoint);
+	// do_checkpoint
+	// 1. 复制每个curseg
+	size_t curseg_size = sizeof(CURSEG_INFO) * BT_TEMP_NR;
+
+	memcpy_s(m_checkpoint.cur_segs, curseg_size, m_segments.m_cur_segs, curseg_size);
+	// 2. curseg的summary (summary block不复制，依靠fsck重建）
+	
+	// 3. write to storage
+	CPageInfo* page = m_pages.allocate(true);
+	BLOCK_DATA* data = m_pages.get_data(page);
+	memcpy_s(&data->ckpt, sizeof(CKPT_BLOCK), &m_checkpoint, sizeof(CKPT_BLOCK));
+	data->m_type = BLOCK_DATA::BLOCK_CKPT;
+
+	m_storage.BlockWrite(CKPT_START_BLK, page);
+	m_pages.free(page);
+}
+
+bool CF2fsSimulator::get_checkpoint()
+{
+	CPageInfo* page = m_pages.allocate(true);
+	CKPT_BLOCK* ckpt = &m_pages.get_data(page)->ckpt;
+	m_storage.BlockRead(CKPT_START_BLK, page);
+	memcpy_s(&m_checkpoint, sizeof(CKPT_BLOCK), ckpt, sizeof(CKPT_BLOCK));
+	m_pages.free(page);
+	return true;
 }
 
 
@@ -798,11 +930,11 @@ void CF2fsSimulator::FileClose(NID fid)
 {
 	// find opne file
 	OPENED_FILE* file = FindOpenFile(fid);
-	if (file == nullptr) THROW_ERROR(ERR_USER, L"file fid=%d is not opened", fid);
+	if (file == nullptr) THROW_FS_ERROR(ERR_OPEN_FILE, L"file fid=%d is not opened", fid);
 	CPageInfo* ipage = m_pages.page(file->ipage);
 	INODE& inode = m_pages.get_data(ipage)->node.inode;
 
-	if (inode.ref_count <= 0) THROW_ERROR(ERR_USER, L"file's refrence == 0, fid=%d", fid);
+	if (inode.ref_count <= 0) THROW_FS_ERROR(ERR_OPEN_FILE, L"file's refrence == 0, fid=%d", fid);
 	inode.ref_count--;
 	if (inode.ref_count == 0)
 	{
@@ -819,7 +951,7 @@ void CF2fsSimulator::FileClose(NID fid)
 
 }
 
-void CF2fsSimulator::FileWrite(NID fid, FSIZE offset, FSIZE len)
+FSIZE CF2fsSimulator::FileWrite(NID fid, FSIZE offset, FSIZE len)
 {
 	// find opne file
 	OPENED_FILE* file = FindOpenFile(fid);
@@ -827,21 +959,15 @@ void CF2fsSimulator::FileWrite(NID fid, FSIZE offset, FSIZE len)
 	CPageInfo* ipage = m_pages.page(file->ipage);
 	NODE_INFO & inode = m_pages.get_data(ipage)->node;
 
-	// set file size
-	UINT end_pos = offset + len;
-	if (end_pos > inode.inode.file_size)
-	{
-		inode.inode.file_size = end_pos;
-		ipage->dirty = true;
-	}
-
 	// 计算起始block和结束block，end_block是最后要写入的下一个。blk_nr=end_block - start_block
 	DWORD start_blk, end_blk;
 	OffsetToBlock(start_blk, end_blk, offset, len);
-//	LOG_TRACK(L"fs", L",WriteFile,fid=%d,offset=%d,len=%d", fid, start_blk, (end_blk - start_blk));
 
-	if (end_blk > MaxFileSize()) 
-		THROW_ERROR(ERR_APP, L"file size is too large, blks=%d, max_size=%d", end_blk, MaxFileSize());
+	if (end_blk > MaxFileSize()) {
+		//THROW_ERROR(ERR_APP, L"file size is too large, blks=%d, max_size=%d", end_blk, MaxFileSize())
+		LOG_ERROR(L"file size is too large, blks=%d, max_size=%d", end_blk, MaxFileSize());
+		return 0;
+	}
 	DWORD blk_num = end_blk - start_blk;
 	PPAGE pages[MAX_FILE_BLKS];
 	for (UINT ii=0, bb = start_blk; bb < end_blk; ++ii, ++bb)
@@ -852,11 +978,18 @@ void CF2fsSimulator::FileWrite(NID fid, FSIZE offset, FSIZE len)
 		data->file.fid = fid;
 		data->file.offset = bb;
 	}
-	FileWriteInternal(inode, start_blk, end_blk, pages);
+	UINT written = FileWriteInternal(inode, start_blk, end_blk, pages);
 	for (UINT ii = 0; ii < blk_num; ++ii) m_pages.free(pages[ii]);
+	// 设置新的文件大小
+	UINT end_pos = offset + len;
+	if (start_blk + written < end_blk) end_pos = (start_blk + written) * BLOCK_SIZE;
+	// 文件有增长，检查实际长度
+	if (end_pos > inode.inode.file_size) {	inode.inode.file_size = end_pos;	}
+	ipage->dirty = true;
+	return (end_pos - offset);
 }
 
-void CF2fsSimulator::FileWriteInternal(NODE_INFO& inode, FSIZE start_blk, FSIZE end_blk, CPageInfo* pages[])
+UINT CF2fsSimulator::FileWriteInternal(NODE_INFO& inode, FSIZE start_blk, FSIZE end_blk, CPageInfo* pages[])
 {
 	CIndexPath ipath(&inode);
 	CPageInfo* ipage = m_pages.page(inode.page_id);
@@ -875,7 +1008,9 @@ void CF2fsSimulator::FileWriteInternal(NODE_INFO& inode, FSIZE start_blk, FSIZE 
 		// 查找PHY_BLK定位到
 		if (ipath.level < 0)
 		{
-			OffsetToIndex(ipath, start_blk, true);
+			if (!OffsetToIndex(ipath, start_blk, true))			{
+				return page_index;
+			}
 			// 获取index的位置，需要更新index
 			di_node = ipath.node[ipath.level];
 			di_page = ipath.page[ipath.level];
@@ -894,8 +1029,6 @@ void CF2fsSimulator::FileWriteInternal(NODE_INFO& inode, FSIZE start_blk, FSIZE 
 		dpage->offset = offset;
 		PHY_BLK new_phy_blk = m_segments.WriteBlockToSeg(dpage);
 		di_node->index.index[offset] = new_phy_blk;
-//		LOG_DEBUG(L"write data page: fid=%d, index_nid=%d, lblk=%d, phy=%d,", inode.m_ino, di_node->m_nid, start_blk, new_phy_blk);
-//		LOG_DEBUG(L"write fid:%d, lblk:%d, phy blk:%d", inode.m_ino, start_blk, new_phy_blk);
 
 		if (phy_blk == INVALID_BLK)
 		{	// 这个逻辑块没有被写过，增加逻辑饱和度，增加inode的block number。对于写过的block，在WriteBlockToSeg()中invalidate 旧block
@@ -917,8 +1050,7 @@ void CF2fsSimulator::FileWriteInternal(NODE_INFO& inode, FSIZE start_blk, FSIZE 
 		NextOffset(ipath);
 	}
 	// node block 会延迟到调用fsync()时更新
-//	CPageInfo* ipage = m_pages.page(inode.page_id);
-//	UpdateInode(ipage, "WRITE");
+	return page_index;
 } 
 
 void CF2fsSimulator::FileReadInternal(CPageInfo * pages[], NODE_INFO& inode, FSIZE start_blk, FSIZE end_blk)
@@ -1091,7 +1223,7 @@ void CF2fsSimulator::FileDelete(const std::string& fn)
 	if (fid == INVALID_BLK)
 	{
 		CloseInode(parent_page);
-		THROW_ERROR(ERR_APP, L"[err] file %S is not existing", fn.c_str());
+		THROW_FS_ERROR(ERR_DELETE_FILE, L"[err] file %S is not existing", fn.c_str());
 	}
 	// find opne file
 	CPageInfo* ipage = nullptr;
@@ -1116,7 +1248,7 @@ ERROR_CODE CF2fsSimulator::DirDelete(const std::string& fn)
 	if (fid == INVALID_BLK)
 	{
 		CloseInode(parent_page);
-		THROW_ERROR(ERR_APP, L"[err] dir %S is not existing", fn.c_str());
+		THROW_FS_ERROR(ERR_DELETE_DIR, L"[err] dir %S is not existing", fn.c_str());
 	}
 
 	CPageInfo* ipage = nullptr;
@@ -1257,7 +1389,9 @@ PHY_BLK CF2fsSimulator::UpdateInode(CPageInfo * ipage, const char* caller)
 FSIZE CF2fsSimulator::GetFileSize(NID fid)
 {
 	OPENED_FILE* file = FindOpenFile(fid);
-	if (file == nullptr) THROW_ERROR(ERR_USER, L"file fid=%d is not opened", fid);
+	if (file == nullptr) {
+		THROW_FS_ERROR(ERR_OPEN_FILE, L"file fid=%d is not opened", fid);
+	}
 	CPageInfo* ipage = m_pages.page(file->ipage);
 	INODE& inode = m_pages.get_data(ipage)->node.inode;
 	UINT file_size = inode.file_size;
@@ -1289,8 +1423,8 @@ void CF2fsSimulator::GetFsInfo(FS_INFO& space_info)
 	space_info.physical_blks = m_health_info.m_physical_saturation;
 	space_info.max_file_nr = NODE_NR/2;
 
-	space_info.dir_nr = m_health_info.m_dir_num;
-	space_info.file_nr = m_health_info.m_file_num;
+	//space_info.dir_nr = m_health_info.m_dir_num;
+	//space_info.file_nr = m_health_info.m_file_num;
 
 	space_info.total_host_write = m_health_info.m_total_host_write;
 	space_info.total_media_write = m_health_info.m_total_media_write;
@@ -1347,7 +1481,7 @@ bool CF2fsSimulator::InvalidBlock(const char* reason, PHY_BLK phy_blk)
 	return free_seg;
 }
 
-void CF2fsSimulator::OffsetToIndex(CIndexPath& ipath, LBLK_T offset, bool alloc)
+bool CF2fsSimulator::OffsetToIndex(CIndexPath& ipath, LBLK_T offset, bool alloc)
 {
 	// 从inode中把已经有的index block填入node[]中
 	ipath.level = 1;
@@ -1363,7 +1497,11 @@ void CF2fsSimulator::OffsetToIndex(CIndexPath& ipath, LBLK_T offset, bool alloc)
 		{	// 创建新的 node
 			index_page = m_pages.allocate(true);
 			BLOCK_DATA * block = m_pages.get_data(index_page);
-			InitIndexNode(block, inode->m_ino, index_page);
+			if (!InitIndexNode(block, inode->m_ino, index_page)) {
+//				THROW_FS_ERROR(ERR_NODE_FULL, L"node full during allocate index block");
+				LOG_ERROR(L"node full during allocate index block");
+				return false;
+			}
 			index_node = &block->node;
 			nid = block->node.m_nid;
 			inode->inode.index[ipath.offset[0]] = nid;
@@ -1381,6 +1519,7 @@ void CF2fsSimulator::OffsetToIndex(CIndexPath& ipath, LBLK_T offset, bool alloc)
 	ipath.node[1] = index_node;
 	ipath.offset[1] = offset % INDEX_SIZE;
 	// 计算每一层的偏移量
+	return true;
 }
 
 void CF2fsSimulator::NextOffset(CIndexPath& ipath)
@@ -1474,7 +1613,7 @@ void CF2fsSimulator::DumpBlockWAF(const std::wstring& fn)
 
 size_t CF2fsSimulator::DumpFileIndex(NID index[], size_t buf_size, NID fid)
 {
-	CPageInfo* ipage = nullptr; // m_pages.allocate(true);
+	CPageInfo* ipage = nullptr; // m_pages.allocate_index(true);
 	NODE_INFO &inode = ReadNode(fid, ipage);
 	memcpy_s(index, sizeof(NID) * buf_size, inode.inode.index, sizeof(NID) * INDEX_TABLE_SIZE);
 	return inode.index.valid_data;
@@ -1486,7 +1625,7 @@ void CF2fsSimulator::DumpSegments(const std::wstring& fn, bool sanity_check)
 
 void CF2fsSimulator::DumpSegmentBlocks(const std::wstring& fn)
 {
-	m_segments.DumpSegmentBlocks(fn);
+//	m_segments.DumpSegmentBlocks(fn);
 }
 
 #define FLUSH_FILE_MAP(phy)	{\
@@ -1504,3 +1643,54 @@ void CF2fsSimulator::DumpFileMap_no_merge(FILE* out, NID fid)
 }
 
 
+bool CF2fsSimulator::InitInode(BLOCK_DATA* block, CPageInfo* page, F2FS_FILE_TYPE type)
+{
+	memset(block, 0xFF, sizeof(BLOCK_DATA));
+	block->m_type = BLOCK_DATA::BLOCK_INODE;
+
+	NODE_INFO* node = &(block->node);
+	node->m_nid = m_nat.get_node();
+	if (node->m_nid == INVALID_BLK) {
+		//			THROW_ERROR(ERR_APP, L"node is full");
+		LOG_ERROR(L"node is full");
+		return false;
+	}
+
+	//node->valid_data = 0;
+	node->page_id = m_pages.page_id(page);// page->page_id;
+	node->m_ino = node->m_nid;
+
+	node->inode.blk_num = 0;
+	node->inode.file_size = 0;
+	node->inode.ref_count = 0;
+	node->inode.nlink = 0;
+	node->inode.file_type = type;
+
+	page->nid = node->m_nid;
+	page->offset = INVALID_BLK;
+	page->dirty = true;
+	return true;
+}
+
+bool CF2fsSimulator::InitIndexNode(BLOCK_DATA* block, NID parent, CPageInfo* page)
+{
+	memset(block, 0xFF, sizeof(BLOCK_DATA));
+	block->m_type = BLOCK_DATA::BLOCK_INDEX;
+
+	NODE_INFO* node = &(block->node);
+	node->m_nid = m_nat.get_node();
+	if (node->m_nid == INVALID_BLK) {
+		LOG_ERROR(L"node is full");
+		//			THROW_ERROR(ERR_APP, L"node is full");
+		return false;
+	}
+
+	node->m_ino = parent;
+	node->index.valid_data = 0;
+	node->page_id = m_pages.page_id(page); // page->page_id;
+
+	page->nid = node->m_nid;
+	page->offset = INVALID_BLK;
+	page->dirty = true;
+	return true;
+}

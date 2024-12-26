@@ -235,18 +235,26 @@ const wchar_t* CFsException::ErrCodeToString(ERROR_CODE code)
 	case ERR_READ_FILE:			return L"Failed on reading file";		// 读文件时出错: 
 	case ERR_WRONG_FILE_SIZE:	return L"Wrong file size";				// :
 	case ERR_WRONG_FILE_DATA:	return L"Wrong file data";
+	case ERR_NODE_FULL:			return L"Node full";
+
 		//			case ERR_UNKNOWN, :
 	case ERR_PENDING:			return L"Test is running";				// 测试还在进行中: 
 	case ERR_DENTRY_FULL:		return L"Dentry reaches max level";		// 文件夹的dentry已经满了: 
 	case ERR_MAX_OPEN_FILE:		return L"Reached max open file";		// 打开的文件超过数量
 	case ERR_PARENT_NOT_EXIST:	return L"Parent directory not exist";	// 打开文件或者创建文件时，父目录不存在
 	case ERR_WRONG_PATH:		return L"Wrong path format";			// 文件名格式不对，要求从\\开始
-	case ERR_VERIFY_FILE_LEN:	return L"Wrong file length";			// 文件比较时，长度不对
+	case ERR_VERIFY_FILE:		return L"File compare fail";			// 文件比较时，长度不对
+
 	case ERR_WRONG_BLOCK_TYPE:	return L"Wrong block type";				// block的类型不符
 	case ERR_WRONG_FILE_TYPE:	return L"Wrong file/dir type";
+	case ERR_WRONG_FILE_NUM:	return L"Wrong file number";			// 文件或者目录数量不匹配
+
 	case ERR_SIT_MISMATCH:		return L"SIT mismatch";
 	case ERR_PHY_ADDR_MISMATCH:	return L"Physical address mismatch";
 	case ERR_INVALID_INDEX:		return L"Invalid index number";
+	case ERR_INVALID_CHECKPOINT:return L"Invalid Checkpoint";
+	case ERR_JOURNAL_OVERFLOW:	return L"Journal Overflow";
+
 	case ERR_DEAD_NID:			return L"Dead NID";
 	case ERR_LOST_NID:			return L"Lost NID";
 	case ERR_DOUBLED_NID:		return L"Doubled NID"; 
@@ -271,6 +279,11 @@ CFsException::CFsException(ERROR_CODE code, const wchar_t* func, int line, const
 	va_start(argptr, msg);
 	vswprintf_s(str + ptr, EXCEPTION_BUF - ptr, msg, argptr);
 	m_err_msg = str;
+}
+
+ERROR_CODE CFsException::get_error_code(void) const
+{
+	return ERROR_CODE(m_err_id & jcvos::CJCException::ERR_CODE_MASK);
 }
 
 

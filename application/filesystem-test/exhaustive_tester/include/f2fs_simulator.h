@@ -45,10 +45,11 @@ class CNodeAddressTable
 public:
 	CNodeAddressTable(CF2fsSimulator* fs);
 	NID Init(PHY_BLK root);
-	void build_free(void);
+	// 返回空闲的 node数量
+	int build_free(void);
 	void CopyFrom(const CNodeAddressTable* src);
 public:
-	bool Load(void);
+	bool Load(CKPT_BLOCK & checkpoint);
 	void Sync(void);
 	void Reset(void);
 
@@ -56,8 +57,11 @@ public:
 	void put_node(NID node);
 	PHY_BLK get_phy_blk(NID nid);
 	void set_phy_blk(NID nid, PHY_BLK phy_blk);
+	void f2fs_flush_nat_entries(CKPT_BLOCK & checkpoint);
 
 	void set_dirty(NID nid);
+	void clear_dirty(NID nid);
+	DWORD is_dirty(NID nid);
 public:
 	PAGE_INDEX node_catch[NODE_NR];
 protected:
@@ -83,11 +87,25 @@ struct F2FS_FSCK;
 // == file system  ==
 class CF2fsSimulator : public IFsSimulator
 {
-public:
+protected:
 	CF2fsSimulator(void);
 	virtual ~CF2fsSimulator(void);
+
+public:
 	virtual void Clone(IFsSimulator*& dst);
 	virtual void CopyFrom(const IFsSimulator* src);
+	virtual void add_ref(void) {
+		m_ref++;
+	}
+	virtual void release(void) {
+		m_ref--;
+		if (m_ref == 0) delete this;
+	}
+	static IFsSimulator* factory(void) {
+		CF2fsSimulator* fs = new CF2fsSimulator;
+		return static_cast<IFsSimulator*>(fs);
+	}
+
 protected:
 	void InternalCopyFrom(const CF2fsSimulator* src);
 
@@ -97,7 +115,7 @@ public:
 	virtual ERROR_CODE  DirCreate(NID & fid, const std::string& fn);
 
 	virtual void SetFileSize(NID fid, FSIZE secs) {}
-	virtual void FileWrite(NID fid, FSIZE offset, FSIZE len);
+	virtual FSIZE FileWrite(NID fid, FSIZE offset, FSIZE len);
 	virtual size_t FileRead(FILE_DATA blks[], NID fid, FSIZE offset, FSIZE secs);
 	// 可以truncate部分文件
 	virtual void FileTruncate(NID fid, FSIZE offset, FSIZE secs);
@@ -112,10 +130,25 @@ public:
 	// 用于调试，不需要打开文件。size：文件大小。node block：包括inode在内，index block数量；data_blk：实际占用block数量
 	virtual void GetFileInfo(NID fid, FSIZE& size, FSIZE& node_blk, FSIZE& data_blk);
 
+	virtual void GetConfig(boost::property_tree::wptree& config, const std::wstring& config_name);
+	// 返回最大支持文件大小的block数量
+	virtual DWORD MaxFileSize(void) const { return MAX_FILE_BLKS - 10; }
+
+	//	virtual void SetLogFolder(const std::wstring& fn);
+	virtual void GetFsInfo(FS_INFO& space_info);
+	virtual void GetHealthInfo(FsHealthInfo& info) const {};
+
+	// 对storage，用于storage相关测试
+	virtual UINT GetCacheNum(void) { return m_storage.GetCacheNum(); }
+	// 返回fid目录下的子目录和文件总数
+	virtual void GetFileDirNum(NID fid, UINT& file_nr, UINT& dir_nr);
+
 	virtual bool Mount(void);
 	virtual bool Unmount(void);
 	virtual bool Reset(UINT rollback);
 	virtual ERROR_CODE fsck(bool fix);
+
+
 
 	// 以下接口用于测试。
 	virtual void DumpSegments(const std::wstring& fn, bool sanity_check);
@@ -125,6 +158,7 @@ public:
 	virtual void DumpAllFileMap(const std::wstring& fn);
 	virtual void DumpBlockWAF(const std::wstring& fn);
 	virtual size_t DumpFileIndex(NID index[], size_t buf_size, NID fid);
+	void DumpFileMap_no_merge(FILE* out, NID fid);
 
 	virtual void GetGcTrace(std::vector<GC_TRACE>& gc) { 
 #ifdef GC_TRACE
@@ -132,16 +166,7 @@ public:
 #endif
 	};
 
-	virtual void GetConfig(boost::property_tree::wptree& config, const std::wstring& config_name);
-	// 返回最大支持文件大小的block数量
-	virtual DWORD MaxFileSize(void) const { return MAX_FILE_BLKS -10; }
 
-//	virtual void SetLogFolder(const std::wstring& fn);
-	virtual void GetFsInfo(FS_INFO& space_info);
-	virtual void GetHealthInfo(FsHealthInfo& info) const {};
-
-	// 对storage，用于storage相关测试
-	virtual UINT GetCacheNum(void) { return m_storage.GetCacheNum(); }
 
 
 #ifdef ENABLE_FS_TRACE
@@ -165,6 +190,10 @@ protected:
 	DWORD f2fs_set_nat_bitmap(F2FS_FSCK* fsck, NID nid);
 	DWORD f2fs_test_node_bitmap(F2FS_FSCK* fsck, NID nid);
 	DWORD f2fs_set_node_bitmap(F2FS_FSCK* fsck, NID nid);
+
+	// 根据nid读取node，但是不会cache node， 仅复制数据
+	void ReadNodeNoCache(NODE_INFO& node, NID nid);
+	void ReadBlockNoCache(BLOCK_DATA& data, PHY_BLK blk);
 
 	template <typename T>
 	static inline bool is_valid(const T val) { return val != (T)(-1); }
@@ -194,10 +223,15 @@ protected:
 
 	// pages: out 读取到的page_id，调用者申请内存
 	void FileReadInternal(CPageInfo * pages[], NODE_INFO& inode, FSIZE start_blk, FSIZE end_blk);
-	void FileWriteInternal(NODE_INFO& inode, FSIZE start_blk, FSIZE end_blk, CPageInfo* pages[]);
+	// 返回实际写入的 block 数量
+	UINT FileWriteInternal(NODE_INFO& inode, FSIZE start_blk, FSIZE end_blk, CPageInfo* pages[]);
 	void FileTruncateInternal(CPageInfo * ipage, LBLK_T start_blk, LBLK_T end_blk);
 	void FileSyncInternal(CPageInfo* ipage);
-	void FsSync(void);
+	void sync_fs(void);
+
+	void f2fs_write_checkpoint();
+	// 从磁盘读取checkpoint
+	bool get_checkpoint();
 
 	inline WORD FileNameHash(const char* fn)
 	{
@@ -225,9 +259,8 @@ protected:
 	// 根据当前的算法计算block的温度。
 	BLK_TEMP GetAlgorithmBlockTemp(CPageInfo* page, BLK_TEMP temp);
 	// 在输出file map时，不合并连续的物理block
-	void DumpFileMap_no_merge(FILE* out, NID fid);
 	bool InvalidBlock(const char* reason, PHY_BLK phy_blk);
-	void OffsetToIndex(CIndexPath& path, LBLK_T offset, bool alloc);
+	bool OffsetToIndex(CIndexPath& path, LBLK_T offset, bool alloc);
 	// 将index_path移动到下一个block位置。用于加速offset到index的转化。如果index block发生变化，则清除path, 需要重新计算。
 	void NextOffset(CIndexPath& path);
 	// 检查inode中的所有index block和inode block，如果没有在磁盘上，测保存, 返回inode的phy blk
@@ -236,47 +269,9 @@ protected:
 	// 在输出file map时，并连续的物理block
 	void DumpFileMap_merge(FILE* out, NID fid);
 
-	void InitInode(BLOCK_DATA* block, CPageInfo * page, F2FS_FILE_TYPE type)
-	{
-		memset(block, 0xFF, sizeof(BLOCK_DATA));
-		block->m_type = BLOCK_DATA::BLOCK_INODE;
+	bool InitInode(BLOCK_DATA* block, CPageInfo* page, F2FS_FILE_TYPE type);
 
-		NODE_INFO* node = &(block->node);
-		node->m_nid = m_nat.get_node();
-		if (node->m_nid == INVALID_BLK) THROW_ERROR(ERR_APP, L"node is full");
-
-		//node->valid_data = 0;
-		node->page_id = m_pages.page_id(page);// page->page_id;
-		node->m_ino = node->m_nid;
-
-		node->inode.blk_num = 0;
-		node->inode.file_size = 0;
-		node->inode.ref_count = 0;
-		node->inode.nlink = 0;
-		node->inode.file_type = type;
-
-		page->nid = node->m_nid;
-		page->offset = INVALID_BLK;
-		page->dirty = true;
-	}
-
-	void InitIndexNode(BLOCK_DATA* block, NID parent, CPageInfo * page)
-	{
-		memset(block, 0xFF, sizeof(BLOCK_DATA));
-		block->m_type = BLOCK_DATA::BLOCK_INDEX;
-
-		NODE_INFO* node = &(block->node);
-		node->m_nid = m_nat.get_node();
-		if (node->m_nid == INVALID_BLK) THROW_ERROR(ERR_APP, L"node is full");
-
-		node->m_ino = parent;
-		node->index.valid_data = 0;
-		node->page_id = m_pages.page_id(page); // page->page_id;
-
-		page->nid = node->m_nid;
-		page->offset = INVALID_BLK;
-		page->dirty = true;
-	}
+	bool InitIndexNode(BLOCK_DATA* block, NID parent, CPageInfo* page);
 
 	void InitDentry(BLOCK_DATA* block)
 	{
@@ -304,9 +299,10 @@ protected:
 	// 文件系统状态变量（Clone时，需要复制的变量）
 protected:
 	// 模拟磁盘layout
+	CKPT_BLOCK			m_checkpoint;
 	CF2fsSegmentManager m_segments;
-	CNodeAddressTable m_nat;
-	CStorage m_storage;
+	CNodeAddressTable	m_nat;
+	CStorage			m_storage;
 	FsHealthInfo m_health_info;
 
 protected:
@@ -334,5 +330,7 @@ protected:
 	FILE* m_gc_trace = nullptr;
 	FILE* m_inode_trace = nullptr;
 #endif
+
+	UINT m_ref;	//引用计数
 };
 

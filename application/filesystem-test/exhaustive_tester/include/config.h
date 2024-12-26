@@ -4,6 +4,17 @@
 // 文件系统规模
 //#define INDEX_TABLE_SIZE			128
 
+// Metadata 分布
+#define CKPT_START_BLK			(0)
+#define CKPT_BLK_NR				(1)
+#define SIT_START_BLK			(CKPT_START_BLK + CKPT_BLK_NR)	// 1
+#define SIT_BLK_NR				(10)		// 总共10个SIT block(120个main segment)
+#define NAT_START_BLK			(SIT_START_BLK + SIT_BLK_NR)	// 11
+#define NAT_BLK_NR				(8)								// NAT block的数量
+#define SSA_START_BLK			(NAT_START_BLK + NAT_BLK_NR)	// 19
+#define SSA_BLK_NUM				(MAIN_SEG_NR)					// 118
+#define MAIN_START_BLK			// 19+118= 237 < 320
+
 #define BLOCK_PER_SEG			(32)					// 一个segment有多少块
 #define BITMAP_SIZE				(BLOCK_PER_SEG /32)		// 512 blocks / 32 bit
 #define SEG_NUM					(128)
@@ -11,20 +22,17 @@
 #define MAIN_SEG_NR				(SEG_NUM - MAIN_SEG_OFFSET)
 #define MAIN_BLK_NR				(MAIN_SEG_NR * BLOCK_PER_SEG)
 
+// checkpoint and journal
+#define JOURNAL_NR				(32)
+
 // 每个SIT block拥有的segment数量
 #define SIT_ENTRY_PER_BLK		(12)		// 每个SIT block存放 12 个segment entry
-#define SIT_BLK_NR				(10)		// 总共10个SIT block(120个main segment)
-#define SIT_START_BLK			(1)
-#define SSA_START_BLK			(NAT_START_BLK + NAT_BLK_NR)
 #define SUMMARY_PER_BLK			(BLOCK_PER_SEG)		// 
-#define SSA_BLK_NUM				(MAIN_SEG_NR)		//
 #define GC_THRESHOLD_LO			(5)
 #define GC_THRESHOLD_HI			(15)
 
 // NAT
-#define NAT_START_BLK			(SIT_START_BLK + SIT_BLK_NR)
 #define NAT_ENTRY_PER_BLK		(32)			// 每个NAT block的entry数量
-#define NAT_BLK_NR				(8)				// NAT block的数量
 #define NODE_NR					(256)			// inode和index node的数量
 
 // SSD 空间

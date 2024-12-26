@@ -23,7 +23,7 @@ enum ERROR_CODE
 	OK_ALREADY_EXIST,	// 文件或者目录已经存在，但是结果返回true
 	ERR_CREATE_EXIST,	// 对于已经存在的文件，重复创建。
 	ERR_CREATE,			// 文件或者目录不存在，但是创建失败
-	ERR_OPEN_FILE,		// 试图打开一个已经存在的文件是出错
+	ERR_OPEN_FILE,		// 试图打开一个已经存在的文件时出错
 	ERR_GET_INFOMATION,	// 获取File Informaiton时出错
 	ERR_DELETE_FILE,	// 删除文件时出错
 	ERR_DELETE_DIR,		// 删除目录时出错
@@ -31,21 +31,25 @@ enum ERROR_CODE
 	ERR_READ_FILE,		// 读文件时出错
 	ERR_WRONG_FILE_SIZE,	// 
 	ERR_WRONG_FILE_DATA,
-//	ERR_UNKNOWN,
-	ERR_PENDING,		// 测试还在进行中
+	ERR_NODE_FULL,
+	ERR_PENDING,		// 测试还在进行
 
 	ERR_DENTRY_FULL,	// 文件夹的dentry已经满了
 	ERR_MAX_OPEN_FILE,	// 打开的文件超过数量
 	ERR_PARENT_NOT_EXIST,	//打开文件或者创建文件时，父目录不存在
 	ERR_WRONG_PATH,	// 文件名格式不对，要求从\\开始
 
-	ERR_VERIFY_FILE_LEN,		// 文件比较时，长度不对
+	ERR_VERIFY_FILE,		// 文件比较时错误，长度不对，内容不对等
+//	ERR_VERIFY_FILE_CONTENT,	
 
 	ERR_WRONG_BLOCK_TYPE,		// block的类型不符
 	ERR_WRONG_FILE_TYPE, 
+	ERR_WRONG_FILE_NUM,			// 文件或者目录数量不匹配
 	ERR_SIT_MISMATCH,
 	ERR_PHY_ADDR_MISMATCH,
 	ERR_INVALID_INDEX,
+	ERR_INVALID_CHECKPOINT,
+	ERR_JOURNAL_OVERFLOW,
 
 	ERR_DEAD_NID,
 	ERR_LOST_NID,
@@ -115,7 +119,9 @@ struct FS_INFO
 	FSIZE physical_blks;	// 物理饱和度
 
 	UINT max_file_nr;	// 最大支持的文件数量
-	UINT dir_nr, file_nr;		// 目录数量和文件数量
+	// 考虑到crash, 无法通过跟踪准确获取文件数量
+	//	UINT dir_nr, file_nr;		// 目录数量和文件数量
+
 	LONG64 total_host_write;
 	LONG64 total_media_write;
 
@@ -141,8 +147,12 @@ struct GC_TRACE
 
 class IFsSimulator //: public IJCInterface
 {
-public:
+protected:
 	virtual ~IFsSimulator(void) {}
+
+public:
+	virtual void add_ref(void) = 0;
+	virtual void release(void) = 0;
 	// 文件系统初始化
 	virtual bool Initialzie(const boost::property_tree::wptree& config, const std::wstring & log_path) = 0;
 		// 获取文件系统的配置
@@ -161,8 +171,8 @@ public:
 	// 设置和获取文件大小，以sector为单位。
 	virtual void SetFileSize(NID fid, FSIZE secs) = 0;
 	virtual FSIZE GetFileSize(NID fid) = 0;
-
-	virtual void FileWrite(NID fid, FSIZE offset, FSIZE secs) = 0;
+	// 返回实际写入的 byte
+	virtual FSIZE FileWrite(NID fid, FSIZE offset, FSIZE secs) = 0;
 	// 返回读取到的 page数量
 	virtual size_t FileRead(FILE_DATA blks[], NID fid, FSIZE offset, FSIZE secs) = 0;
 	virtual void FileTruncate(NID fid, FSIZE offset, FSIZE secs) = 0;
@@ -184,6 +194,7 @@ public:
 
 	// 对storage，用于storage相关测试
 	virtual UINT GetCacheNum(void) = 0;
+	virtual void GetFileDirNum(NID fid, UINT& file_nr, UINT& dir_nr)=0;
 
 	// for debug
 
@@ -201,6 +212,7 @@ class CFsException : public jcvos::CJCException
 {
 public:
 	CFsException(ERROR_CODE code, const wchar_t * func, int line, const wchar_t* msg, ...);
+	ERROR_CODE get_error_code(void) const;
 	static const wchar_t* ErrCodeToString(ERROR_CODE code);
 };
 

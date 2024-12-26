@@ -25,6 +25,7 @@ int GenerateFn(char* fn, int len)
 //== Exahustive Tester ==
 CExTester::CExTester(void)
 {
+	m_states.Initialize(0);
 }
 
 CExTester::~CExTester(void)
@@ -94,9 +95,9 @@ int CExTester::PreTest(void)
 	CFsState* init_state = m_states.get();
 	IFsSimulator* fs = nullptr;
 	m_fs_factory->Clone(fs);
-
 	init_state->Initialize("\\", fs);
-	init_state->m_ref = 1;
+
+//	init_state->m_ref = 1;
 	m_open_list.push_front(init_state);
 
 	// 获取文件系统参数
@@ -123,7 +124,7 @@ int CExTester::PreTest(void)
 		{
 			m_works[ii].tester = this;
 			m_works[ii].state = nullptr;
-			m_works[ii].ir = ERR_UNKNOWN;
+			m_works[ii].result = ERR_UNKNOWN;
 #ifdef THREAD_POOL
 			m_works[ii].hevent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
 			m_work_events[ii] = m_works[ii].hevent;
@@ -148,6 +149,45 @@ int CExTester::PreTest(void)
 	}
 	srand(GetCurrentThreadId());
 	return 0;
+}
+
+void CExTester::FinishTest(void)
+{
+	auto it = m_open_list.begin();
+	for (; it != m_open_list.end(); ++it)
+	{
+		CFsState* state = *it;
+		m_states.put(state);
+	}
+	m_open_list.clear();
+	//停止线程
+
+	if (m_thread_num > 1)
+	{
+#ifdef THREAD_QUEUE
+		CloseHandle(m_sub_doorbell);
+		CloseHandle(m_cmp_doorbell);
+		DeleteCriticalSection(&m_sub_crit);
+		DeleteCriticalSection(&m_cmp_crit);
+		for (UINT ii = 0; ii < m_thread_num; ++ii)
+		{
+			CloseHandle(m_thread_list[ii]);
+		}
+		delete[] m_thread_list;
+#elif defined THREAD_POOL
+		for (int ii = 0; ii < MAX_WORK_NR; ii++)
+		{
+			CloseThreadpoolWork(m_works[ii].work_item);
+			CloseHandle(m_works[ii].hevent);
+			//		CloseHandle(m_works[ii].hstart);
+		}
+		DestroyThreadpoolEnvironment(&m_tp_environ);
+#endif
+		DeleteCriticalSection(&m_trace_crit);
+	}
+
+	LOG_DEBUG(L"max work num=%d", m_max_work);
+	wprintf_s(L"max work num=%d\n", m_max_work);
 }
 
 //void ListIn(std::vector<TRACE_ENTRY>& ops, TRACE_ENTRY & op)
@@ -278,44 +318,6 @@ size_t CExTester::GenerateOps(CFsState* cur_state, std::vector<TRACE_ENTRY>& ops
 	return index;
 }
 
-void CExTester::FinishTest(void)
-{
-	auto it = m_open_list.begin();
-	for (; it != m_open_list.end(); ++it)
-	{
-		CFsState* state = *it;
-		m_states.put(state);
-	}
-	m_open_list.clear();
-	//停止线程
-
-	if (m_thread_num > 1)
-	{
-#ifdef THREAD_QUEUE
-		CloseHandle(m_sub_doorbell);
-		CloseHandle(m_cmp_doorbell);
-		DeleteCriticalSection(&m_sub_crit);
-		DeleteCriticalSection(&m_cmp_crit);
-		for (UINT ii = 0; ii < m_thread_num; ++ii)
-		{
-			CloseHandle(m_thread_list[ii]);
-		}
-		delete[] m_thread_list;
-#elif defined THREAD_POOL
-		for (int ii = 0; ii < MAX_WORK_NR; ii++)
-		{
-			CloseThreadpoolWork(m_works[ii].work_item);
-			CloseHandle(m_works[ii].hevent);
-			//		CloseHandle(m_works[ii].hstart);
-		}
-		DestroyThreadpoolEnvironment(&m_tp_environ);
-#endif
-		DeleteCriticalSection(&m_trace_crit);
-	}
-
-	LOG_DEBUG(L"max work num=%d", m_max_work);
-	wprintf_s(L"max work num=%d\n", m_max_work);
-}
 
 
 ERROR_CODE CExTester::RunTest(void)
@@ -342,29 +344,30 @@ ERROR_CODE CExTester::RunTest(void)
 	std::vector<TRACE_ENTRY> ops;
 	while (!m_open_list.empty())
 	{
-		m_cur_state = m_open_list.front();
-		// (1) 将当前状态加入hash，仅加入hash，不保存状态
-		m_closed.Insert(m_cur_state);
-		// 如果verify出现错误，cur_state会在FinishTest()中被回收
+		CFsState * cur_state = m_open_list.front();
 		m_open_list.pop_front();
+		// 如果verify出现错误，cur_state会在FinishTest()中被回收
+		// (1) 将当前状态加入hash，仅加入hash，不保存状态
+		m_closed.Insert(cur_state);
 
 		// check depth
-		LONG depth = m_cur_state->m_depth;
+		LONG depth = cur_state->m_depth;
 		LONG max_depth = m_max_depth;
 		if (depth > max_depth) {
 			InterlockedExchange(&m_max_depth, depth);
 			if (m_max_depth_state) m_states.put(m_max_depth_state);
-			m_max_depth_state = m_cur_state;
-			InterlockedIncrement(&m_max_depth_state->m_ref);
+			m_max_depth_state = cur_state;
+			cur_state->add_ref();
+//			InterlockedIncrement(&m_max_depth_state->m_ref);
 		}
 		// (2) 扩展当前状态，
 		auto it = m_open_list.begin();
-		if (m_thread_num > 1)		ir = EnumerateOp_Thread_V2(ops, m_cur_state, it);
-		else						ir = EnumerateOpV2(ops, m_cur_state, it);
+		if (m_thread_num > 1)		ir = EnumerateOp_Thread_V2(ops, cur_state, it);
+		else						ir = EnumerateOpV2(ops, cur_state, it);
 		// (3) 移除当前状态      
 		// 清除父节点
-		LOG_DEBUG_(1, L"out => state=%p, ref=%d, parent=%p, parent ref=%d", m_cur_state, m_cur_state->m_ref, m_cur_state->m_parent, (m_cur_state->m_parent ? m_cur_state->m_parent->m_ref : -1));
-		m_states.put(m_cur_state);		// put()中将m_cur_state置 nullptr
+//		LOG_DEBUG_(1, L"out => state=%p, ref=%d, parent=%p, parent ref=%d", m_cur_state, m_cur_state->m_ref, m_cur_state->m_parent, (m_cur_state->m_parent ? m_cur_state->m_parent->m_ref : -1));
+		m_states.put(cur_state);		// put()中将m_cur_state置 nullptr
 		if (ir != ERR_OK) break;
 		// 用户控制停止
 		if (m_stop_test > 0)
@@ -435,10 +438,10 @@ DWORD WINAPI CExTester::_RunTest(PVOID p)
 		ir = ERR_GENERAL;
 		wprintf_s(L"test failed with error code=%d, msg=%S\n", ir, err.what());
 	}
-	if (tester->m_cur_state)
-	{
-		tester->m_states.put(tester->m_cur_state);
-	}
+	//if (tester->m_cur_state)
+	//{
+	//	tester->m_states.put(tester->m_cur_state);
+	//}
 	tester->FinishTest();
 	return ir;
 }
@@ -695,7 +698,7 @@ ERROR_CODE CExTester::FsOperatorCore(CFsState* state, TRACE_ENTRY& op)
 	// (3) 检查测试结果
 	if (ir != ERR_OK && ir != ERR_NO_OPERATION)
 	{
-		THROW_ERROR(ERR_APP, L"run test error (code=%d): %S op=%d, file=%S, ", ir, CFsException::ErrCodeToString(ir), op.op_code, op.file_path.c_str());
+		THROW_FS_ERROR(ir, L"run test error op=%d, file=%S, ", ir, CFsException::ErrCodeToString(ir), op.op_code, op.file_path.c_str());
 	}
 	if (is_power_test)	ir = VerifyForPower(state);
 	else				ir = Verify(state);
@@ -713,7 +716,7 @@ ERROR_CODE CExTester::DoFsOperator(CFsState* cur_state, TRACE_ENTRY& op, std::li
 	// 标准测试流程：
 	// (1) 复制测试状态，复制的状态，要么放入open list，在FinishTest中回收，要么在返回前回收。
 	CFsState* new_state = m_states.duplicate(cur_state);
-	InterlockedIncrement(&(cur_state->m_ref));
+//	InterlockedIncrement(&(cur_state->m_ref));
 
 	new_state->m_op = op;
 	new_state->m_op.op_sn = m_op_sn++;
@@ -724,30 +727,25 @@ ERROR_CODE CExTester::DoFsOperator(CFsState* cur_state, TRACE_ENTRY& op, std::li
 		if (m_closed.Check(new_state))
 		{
 			m_states.put(new_state);
-//			LOG_DEBUG(L"complete work: op=%d, code=%d", opsn, op.op_code);
 			return ERR_OK;
 		}
 		if (new_state && ir== ERR_OK)
 		{
 			m_open_list.insert(insert, new_state);
-//			LOG_DEBUG_(1, L"in => state=%p, ref=%d, parent=%p, parent ref=%d", new_state, new_state->m_ref, new_state->m_parent, (new_state->m_parent ? new_state->m_parent->m_ref : -1));
 			return ERR_OK;
 		}
 	}
 	catch (jcvos::CJCException & err)
 	{
 		TEST_ERROR("test failed with exception: %S", err.WhatT());
-//		LOG_DEBUG_(1, L"test failed, state=%p", new_state);
 		ir = ERR_GENERAL;
 	}
-//	LOG_DEBUG(L"complete work: op=%d, code=%d", opsn, op.op_code);
 
 	if (ir != ERR_OK)
 	{
 		OutputTrace(new_state);
-		m_states.put(new_state);
 	}
-
+	m_states.put(new_state);
 	return ir;
 }
 
@@ -776,9 +774,9 @@ void CExTester::UpdateFsParam(IFsSimulator* fs)
 {
 	FS_INFO src_info;
 	fs->GetFsInfo(src_info);
-	UINT total_item = src_info.dir_nr + src_info.file_nr;
-	max_update(m_total_item_num, total_item);
-	max_update(m_file_num, src_info.file_nr);
+//	UINT total_item = src_info.dir_nr + src_info.file_nr;
+//	max_update(m_total_item_num, total_item);
+//	max_update(m_file_num, src_info.file_nr);
 	max_update(m_logical_blks, src_info.used_blks);
 	m_total_blks = src_info.total_blks;
 	UINT ph_blks = src_info.total_blks - src_info.free_blks;
@@ -808,14 +806,15 @@ ERROR_CODE CExTester::VerifyForPower(CFsState* cur_state)
 		{
 			if (state != cur_state)
 			{	// 用正确的状态覆盖原来状态
-//				cur_state->m_ref_fs = state -> m_ref_fs;
 				cur_state->m_ref_fs.CopyFrom(state->m_ref_fs);
 			}
-			return err;
+			break;
 		}
 		// 对于power off测试，回溯之前状态
 		state = state->m_parent;
 	}
+	// 关闭所有文件，
+	cur_state->m_ref_fs.Demount();
 	return err;
 }
 
@@ -830,17 +829,20 @@ ERROR_CODE CExTester::VerifyState(CReferenceFs & ref_fs, IFsSimulator * real_fs)
 	try {
 		FS_INFO fs_info;
 		real_fs->GetFsInfo(fs_info);
-		UINT total_item = fs_info.dir_nr + fs_info.file_nr;
 		UINT ph_blks = fs_info.total_blks - fs_info.free_blks;
 
-		// TODO: os需要保存file number以供检查
-		//UINT dir_nr = ref.m_dir_num, file_nr = ref.m_file_num;
-		//if (dir_nr != fs_info.dir_nr) {
-		//	THROW_ERROR(ERR_APP, L"directory number does not match, ref:%d, fs:%d", dir_nr, fs_info.dir_nr);
-		//}
-		//if (file_nr != fs_info.file_nr) {
-		//	THROW_ERROR(ERR_APP, L"file number does not match, ref:%d, fs:%d", file_nr, fs_info.file_nr);
-		//}
+		UINT ref_dir_nr = ref_fs.m_dir_num, ref_file_nr = ref_fs.m_file_num;
+		UINT real_file_nr = 0, real_dir_nr = 0;
+		real_fs->GetFileDirNum(0, real_file_nr, real_dir_nr);		// TODO: os需要保存file number以供检查
+
+		if (real_dir_nr != ref_dir_nr) {
+			THROW_FS_ERROR(ERR_WRONG_FILE_NUM, L"directory number does not match, ref:%d, fs:%d",
+				ref_dir_nr, real_dir_nr);
+		}
+		if (real_file_nr != ref_file_nr) {
+			THROW_FS_ERROR(ERR_WRONG_FILE_NUM, L"file number does not match, ref:%d, fs:%d", 
+				ref_file_nr, real_file_nr);
+		}
 		FSIZE total_file_blks = 0;
 
 		char str_encode[MAX_ENCODE_SIZE];
@@ -863,7 +865,7 @@ ERROR_CODE CExTester::VerifyState(CReferenceFs & ref_fs, IFsSimulator * real_fs)
 			else { access |= GENERIC_READ; }
 
 			TEST_LOG("  check %s: %s\n", dir ? "DIR " : "FILE", path.c_str());
-			if (dir) continue;
+//			if (dir) continue;
 			NID fid = INVALID_BLK;
 			ir = real_fs->FileOpen(fid, path);
 			if (ir == ERR_MAX_OPEN_FILE)
@@ -877,6 +879,7 @@ ERROR_CODE CExTester::VerifyState(CReferenceFs & ref_fs, IFsSimulator * real_fs)
 				THROW_FS_ERROR(ir == ERR_OK ? ERR_OPEN_FILE : ir, L"failed on open file=%S", path.c_str());
 			}
 			checked_file++;
+			if (dir) continue;
 			DWORD ref_checksum;
 			FSIZE ref_len, file_secs = real_fs->GetFileSize(fid);
 			ref_fs.GetFileInfo(ref_file, ref_checksum, ref_len);
@@ -886,8 +889,8 @@ ERROR_CODE CExTester::VerifyState(CReferenceFs & ref_fs, IFsSimulator * real_fs)
 			{
 				ir = ERR_WRONG_FILE_SIZE;
 				TEST_ERROR("file length does not match ref=%d, file=%d", ref_len, file_secs);
-//				THROW_ERROR(ERR_APP, L"verify file failed, length does not match");
-				THROW_FS_ERROR(ERR_VERIFY_FILE_LEN, L"file length does not match ref=%d, file=%d", ref_len, file_secs);
+				if (fid != INVALID_BLK) real_fs->FileClose(fid);
+				THROW_FS_ERROR(ERR_VERIFY_FILE, L"file length does not match ref=%d, file=%d", ref_len, file_secs);
 			}
 			FILE_DATA data[MAX_FILE_BLKS];
 			size_t page_nr = real_fs->FileRead(data, fid, 0, file_secs);
@@ -896,12 +899,16 @@ ERROR_CODE CExTester::VerifyState(CReferenceFs & ref_fs, IFsSimulator * real_fs)
 			int compare = 0;
 			for (size_t ii = 0; ii < page_nr; ++ii, ss++)
 			{
-				if (data[ii].fid != fid || data[ii].offset != ss) {
+				if (data[ii].fid != fid || data[ii].offset != ss) {			
+					if (fid != INVALID_BLK) real_fs->FileClose(fid);
 					TEST_ERROR("file data mismatch, fid=%d, lblk=%d, page_fid=%d, page_offset=%d", fid, ss, data[ii].fid, data[ii].offset);
 					compare++;
 				}
 			}
-			if (compare > 0) THROW_ERROR(ERR_USER, L"read file mismatch, %d secs", compare);
+			if (compare > 0) {
+				if (fid != INVALID_BLK) real_fs->FileClose(fid);
+				THROW_FS_ERROR(ERR_VERIFY_FILE, L"read file mismatch, %d secs", compare);
+			}
 			real_fs->FileClose(fid);
 		}
 	}
@@ -917,6 +924,8 @@ ERROR_CODE CExTester::VerifyState(CReferenceFs & ref_fs, IFsSimulator * real_fs)
 
 ERROR_CODE CExTester::TestCreateFile(CFsState* cur_state, const std::string& path)
 {
+	if (path.size() >= MAX_PATH_SIZE) return ERR_NO_OPERATION;
+
 	JCASSERT(cur_state);
 	IFsSimulator* real_fs = cur_state->m_real_fs;
 	JCASSERT(real_fs);
@@ -926,23 +935,14 @@ ERROR_CODE CExTester::TestCreateFile(CFsState* cur_state, const std::string& pat
 
 	// 检查自己点数量是否超标
 	NID fid = INVALID_BLK;
-	try
-	{
-		err = real_fs->FileCreate(fid, path);
-		if (err != ERR_OK) {
-			LOG_ERROR(L"[err] failed on creating file %S, err(%d):%s",
-				path.c_str(), err, CFsException::ErrCodeToString(err));
-		}
-	}
-	catch (jcvos::CJCException& err)
-	{
-		std::wstring err_msg = err.WhatT();
-		THROW_ERROR(ERR_USER, L"failed in creating file %S, err=%s", path.c_str(), err_msg.c_str());
+	err = real_fs->FileCreate(fid, path);
+	if (err != ERR_OK) {
+		LOG_ERROR(L"[err] failed on creating file %S, err(%d):%s", path.c_str(), err, CFsException::ErrCodeToString(err));
 	}
 
-	if (err == ERR_MAX_OPEN_FILE || err == ERR_DENTRY_FULL)
+	if (err == ERR_MAX_OPEN_FILE || err == ERR_DENTRY_FULL || err == ERR_NODE_FULL)
 	{	// 达到文件系统极限
-		return ERR_OK;
+		return ERR_NO_OPERATION;
 	}
 
 	// check if doubled name, update ref fs
@@ -956,13 +956,12 @@ ERROR_CODE CExTester::TestCreateFile(CFsState* cur_state, const std::string& pat
 	{	// create file in fs
 		TEST_LOG("[OPERATE ](%d) CREATE FILE, path=%s, new file\n", cur_state->m_op.op_sn, path.c_str());
 		CReferenceFs::CRefFile * ref_file = ref.AddPath(path, false, fid);
-		ref.OpenFile(*ref_file);
 		if (fid == INVALID_BLK)
 		{
-			err = ERR_CREATE;
-//			THROW_ERROR(ERR_USER, L"failed on creating file fn=%S", path.c_str());
+			if (err == ERR_OK) 	err = ERR_CREATE;
+			return err;
 		}
-//		err = ERR_OK;
+		ref.OpenFile(*ref_file);
 	}
 	return err;
 }
@@ -1032,7 +1031,7 @@ ERROR_CODE CExTester::TestPowerOutage(CFsState* cur_state, UINT rollback)
 	IFsSimulator* real_fs = cur_state->m_real_fs;
 	JCASSERT(real_fs);
 	CReferenceFs& ref = cur_state->m_ref_fs;
-	ref.Demount();
+//	ref.Demount();
 
 	// 获取fs的io list
 
@@ -1050,40 +1049,22 @@ ERROR_CODE CExTester::TestPowerOutage(CFsState* cur_state, UINT rollback)
 
 ERROR_CODE CExTester::TestCreateDir(CFsState* cur_state, const std::string& path)
 {
+	if (path.size() >= MAX_PATH_SIZE) return ERR_NO_OPERATION;
+
 	JCASSERT(cur_state);
 	IFsSimulator* real_fs = cur_state->m_real_fs;
 	JCASSERT(real_fs);
 	CReferenceFs& ref = cur_state->m_ref_fs;
 
 	ERROR_CODE err = ERR_OK;
-	// 检查自己点数量是否超标
-	// create full path name
-		// 随机生成文件名
-	//char fn[MAX_FILENAME_LEN + 1];
-	//GenerateFn(fn, MAX_FILENAME_LEN);
-	//std::string path = (_path.size() > 1) ? (_path + "\\" + fn) : (_path + fn);
-	//cur_state->m_op.file_path = path;
-
 	TEST_LOG("[OPERATE ](%d) CREATE DIR_, path=%s,", cur_state->m_op.op_sn, path.c_str());
 
 	//bool create_result = false;
 	NID fid = INVALID_BLK;
-	try {
-		err = real_fs->DirCreate(fid, path);
+	err = real_fs->DirCreate(fid, path);
+	if (err == ERR_MAX_OPEN_FILE || err == ERR_DENTRY_FULL || err == ERR_NODE_FULL) {
+		return ERR_NO_OPERATION;
 	}
-	catch (jcvos::CJCException& err)
-	{
-		std::wstring err_msg = err.WhatT();
-		THROW_ERROR(ERR_USER, L"failed in creating dir %S, err=%s", path.c_str(), err_msg.c_str());
-	}
-
-	if (err == ERR_MAX_OPEN_FILE || err == ERR_DENTRY_FULL) return ERR_OK;
-
-
-	//if (fid != INVALID_BLK)
-	//{
-	//	create_result = true;
-	//}
 
 	// check if doubled name, update ref fs
 	if (ref.IsExist(path))
@@ -1122,12 +1103,6 @@ ERROR_CODE CExTester::TestWriteFileV2(CFsState* cur_state, NID fid, FSIZE offset
 	ERROR_CODE err = ERR_OK;
 
 	//随机生成读写长度和偏移
-
-	//FSIZE offset = (FSIZE)(_len * ((float)(rand()) / RAND_MAX));
-	//FSIZE len = (FSIZE)((m_max_file_size - offset) * ((float)(rand()) / RAND_MAX));
-	//cur_state->m_op.offset = offset;
-	//cur_state->m_op.length = len;
-
 	//	len &= ~3;		// DWORD对齐
 	TEST_LOG("[OPERATE ](%d) WriteFile, path=%s, offset=%d, size=%d\n", cur_state->m_op.op_sn, path.c_str(), offset, len);
 
@@ -1145,8 +1120,8 @@ ERROR_CODE CExTester::TestWriteFileV2(CFsState* cur_state, NID fid, FSIZE offset
 	FSIZE cur_ref_size;
 	DWORD cur_checksum;
 	ref.GetFileInfo(*ref_file, cur_checksum, cur_ref_size);
-	FS_INFO space_info;
-	real_fs->GetFsInfo(space_info);
+	//FS_INFO space_info;
+	//real_fs->GetFsInfo(space_info);
 
 	// get current file length
 	FSIZE cur_file_size = real_fs->GetFileSize(fid);
@@ -1155,26 +1130,28 @@ ERROR_CODE CExTester::TestWriteFileV2(CFsState* cur_state, NID fid, FSIZE offset
 	}
 
 	// 
-	FSIZE new_file_size = offset + len;
-	if (new_file_size > cur_file_size)
-	{	// 当要写入的文件大小超过空余容量时，缩小写入量。
-		FSIZE incre_blks = ROUND_UP_DIV(new_file_size - cur_file_size, BLOCK_SIZE);
-		if (incre_blks > space_info.free_blks)
-		{
-			incre_blks = space_info.free_blks;
-			new_file_size = cur_file_size + incre_blks * BLOCK_SIZE;
-			if (new_file_size < offset)
-			{
-				len = 0; new_file_size = offset;
-			}
-			else len = new_file_size - offset;
-		}
-	}
-	real_fs->FileWrite(fid, offset, len);
-	if (cur_file_size > new_file_size) new_file_size = cur_file_size;
+	//if (new_file_size > cur_file_size)
+	//{	// 当要写入的文件大小超过空余容量时，缩小写入量。
+	//	FSIZE incre_blks = ROUND_UP_DIV(new_file_size - cur_file_size, BLOCK_SIZE);
+	//	if (incre_blks > space_info.free_blks)
+	//	{
+	//		incre_blks = space_info.free_blks;
+	//		new_file_size = cur_file_size + incre_blks * BLOCK_SIZE;
+	//		if (new_file_size < offset)
+	//		{
+	//			len = 0; new_file_size = offset;
+	//		}
+	//		else len = new_file_size - offset;
+	//	}
+	//}
+	FSIZE written = real_fs->FileWrite(fid, offset, len);
+	FSIZE end_pos = offset + written;
+
+	if (end_pos > cur_file_size) cur_file_size = end_pos;
+//	if (cur_file_size > new_file_size) new_file_size = cur_file_size;
 
 	DWORD checksum = fid;
-	ref.UpdateFile(path, checksum, new_file_size);
+	ref.UpdateFile(path, checksum, cur_file_size);
 //	real_fs->FileClose(fid);
 	return err;
 }

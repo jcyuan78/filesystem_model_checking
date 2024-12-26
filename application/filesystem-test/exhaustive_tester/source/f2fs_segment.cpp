@@ -14,6 +14,7 @@ CF2fsSegmentManager::CF2fsSegmentManager(CF2fsSimulator* fs)
 	m_pages = &m_fs->m_pages;
 	m_storage = &m_fs->m_storage;
 	m_health_info = &m_fs->m_health_info;
+	m_checkpoint = &m_fs->m_checkpoint;
 }
 
 bool CF2fsSegmentManager::InitSegmentManager(SEG_T segment_nr, SEG_T gc_lo, SEG_T gc_hi)
@@ -28,26 +29,9 @@ bool CF2fsSegmentManager::InitSegmentManager(SEG_T segment_nr, SEG_T gc_lo, SEG_
 	memset(m_dirty_map, 0xFF, sizeof(m_dirty_map));
 	// 构建free链表
 	build_free_link();
-	memset(m_cur_segs, 0xFF, sizeof(SEG_T) * BT_TEMP_NR);
+	memset(m_cur_segs, 0xFF, sizeof(m_cur_segs));
 	m_gc_lo = gc_lo, m_gc_hi = gc_hi;
 
-#ifdef ENABLE_FS_TRACE
-	if (m_gc_trace)
-	{
-		// free_before: GG前的free segment，free_after: GC后的free segment, reclaimed_seg: GC释放的segment数量
-		// src_seg: GC中使用的segment数量（和released相比较可以体现GC效率)
-		// 通过GC前后health.media_write计算得到的media write block数量
-		// GC过程中累加的media write block数量（这两者只是计算方法不同，理论上数值应该相同）
-#if (GC_TRACE_TYPE==1)
-		fprintf_s(m_gc_trace, "free_before,free_after,released_seg,src_sge,media_write,media_write_gc\n");
-#elif (GC_TRACE_TYPE ==2)
-		fprintf_s(m_gc_trace, "sort_cnt,low,high,min_vb,max_vb,sort_th,gc_secs\n");
-#endif
-	}
-#endif
-
-	SyncSIT();
-	SyncSSA();
 	return true;
 }
 
@@ -85,14 +69,69 @@ void CF2fsSegmentManager::Reset(void)
 {
 	memset(m_segments, 0xFF, sizeof(SegmentInfo) * MAIN_SEG_NR);
 	memset(m_dirty_map, 0, sizeof(m_dirty_map));
-	memset(m_cur_segs, 0xFF, sizeof(SEG_T) * BT_TEMP_NR);
+	memset(m_cur_segs, 0xFF, sizeof(m_cur_segs) );
 	m_free_nr = 0;
 	m_free_ptr = INVALID_BLK;
 }
 
+void CF2fsSegmentManager::f2fs_flush_sit_entries(CKPT_BLOCK& checkpoint)
+{
+	// 将journal中的sit写入磁盘
+	CPageInfo* pages[SIT_BLK_NR];
+	memset(pages, 0, sizeof(pages));
+	for (UINT ii = 0; ii < checkpoint.sit_journal_nr; ++ii)
+	{
+		//计算segment在sit中的位置
+		SEG_T seg_no = checkpoint.sit_journals[ii].seg_no;
+		UINT sit_blk_id = seg_no / SIT_ENTRY_PER_BLK;
+		UINT offset = seg_no % SIT_ENTRY_PER_BLK;
+		// cache sit page
+		SIT_BLOCK* sit_blk = nullptr;
+		if (pages[sit_blk_id] == nullptr)
+		{
+			pages[sit_blk_id] = m_pages->allocate(true);
+			m_storage->BlockRead(sit_blk_id + SIT_START_BLK, pages[sit_blk_id]);
+		}
+		//更新sit page
+		sit_blk = &m_pages->get_data(pages[sit_blk_id])->sit;
+		memcpy_s(&sit_blk->sit_entries[offset], sizeof(SEG_INFO), &checkpoint.sit_journals[ii].seg_info,
+			sizeof(SEG_INFO));
+	}
+
+	// 将更新的page写入sit block
+	for (UINT blk = 0; blk < SIT_BLK_NR; ++blk)
+	{
+		if (pages[blk] == nullptr) continue;
+		//		LOG_TRACK(L"write_sit", L"write segment[%d] to lba %d", blk * SIT_ENTRY_PER_BLK, blk + SIT_START_BLK);
+		m_storage->BlockWrite(blk + SIT_START_BLK, pages[blk]);
+		m_pages->free(pages[blk]);
+		pages[blk] = nullptr;
+	}
+	checkpoint.sit_journal_nr = 0;
+
+	// 将sit更新写入journal中
+	for (SEG_T seg = 0; seg < MAIN_SEG_NR; seg++)
+	{
+		if (is_dirty(seg))
+		{	// seg添加到journal中
+//			JCASSERT(checkpoint.sit_journal_nr < JOURNAL_NR);
+			if (checkpoint.sit_journal_nr >= JOURNAL_NR)
+				THROW_FS_ERROR(ERR_JOURNAL_OVERFLOW, L"too many sit journal");
+			int index = checkpoint.sit_journal_nr;
+			checkpoint.sit_journals[index].seg_no = seg;
+			fill_seg_info(&checkpoint.sit_journals[index].seg_info, seg);
+			clear_dirty(seg);
+			checkpoint.sit_journal_nr++;
+		}
+	}
+}
+
+
 void CF2fsSegmentManager::SyncSIT(void)
 {
 	// 保存SIT
+//	DWORD dirty_map[SIT_BLK_NR];
+//	memcpy_s(dirty_map, sizeof(dirty_map), m_dirty_map, )
 	UINT blk = 0;
 	size_t bmp_size = sizeof(DWORD) * BITMAP_SIZE;
 	CPageInfo* page = m_pages->allocate(true);
@@ -105,17 +144,15 @@ void CF2fsSegmentManager::SyncSIT(void)
 
 			int copy_nr = SIT_ENTRY_PER_BLK;
 			if (seg_id + copy_nr > MAIN_SEG_NR) copy_nr = MAIN_SEG_NR - seg_id;
-			for (int ii = 0; ii < copy_nr; ++ii, ++seg_id)
-			{
-				memcpy_s(seg_info[ii].valid_bmp, bmp_size, m_segments[seg_id].valid_bmp, bmp_size);
-				seg_info[ii].valid_blk_nr = m_segments[seg_id].valid_blk_nr;
-				seg_info[ii].cur_blk = m_segments[seg_id].cur_blk;
+			for (int ii = 0; ii < copy_nr; ++ii, ++seg_id)		{
+				fill_seg_info(&seg_info[ii], seg_id);
 			}
 			m_storage->BlockWrite(blk + SIT_START_BLK, page);
 		}
 		else seg_id += SIT_ENTRY_PER_BLK;
 	}
 	m_pages->free(page);
+//	memset(m_dirty_map, 0, sizeof(m_dirty_map));
 }
 
 void CF2fsSegmentManager::SyncSSA(void)
@@ -131,19 +168,109 @@ void CF2fsSegmentManager::SyncSSA(void)
 				sum.entries[bb].nid = m_segments[seg_id].nids[bb];
 				sum.entries[bb].offset = m_segments[seg_id].offset[bb];
 			}
-			LOG_DEBUG(L"save SSA, seg id = %d", seg_id);
+//			LOG_TRACK(L"write_ssa", L"save SSA, seg id = %d", seg_id);
 			m_storage->BlockWrite(seg_id+SSA_START_BLK, page);
 		}
 	}
 	m_pages->free(page);
-	memset(m_dirty_map, 0, sizeof(m_dirty_map));
 }
 
-bool CF2fsSegmentManager::Load(void)
+//void CF2fsSegmentManager::fill_sit_block(SEG_INFO * seg_info, SEG_T seg)
+//{
+//	size_t bmp_size = sizeof(DWORD) * BITMAP_SIZE;
+//
+//	SEG_T start_seg = sit_blk_id * SIT_ENTRY_PER_BLK;
+//	SEG_INFO* seg_info = sit_blk->sit_entries;
+//	int copy_nr = SIT_ENTRY_PER_BLK;
+//	if (start_seg + copy_nr > MAIN_SEG_NR) copy_nr = MAIN_SEG_NR - start_seg;
+//	for (int ii = 0; ii < copy_nr; ++ii, ++start_seg)
+//	{
+//		memcpy_s(seg_info[ii].valid_bmp, bmp_size, m_segments[start_seg].valid_bmp, bmp_size);
+//		seg_info[ii].valid_blk_nr = m_segments[start_seg].valid_blk_nr;
+//	}
+//
+//}
+
+void CF2fsSegmentManager::fill_seg_info(SEG_INFO* seg_info, SEG_T seg)
+{
+	memcpy_s(seg_info->valid_bmp, bmp_size, m_segments[seg].valid_bmp, bmp_size);
+	seg_info->valid_blk_nr = m_segments[seg].valid_blk_nr;
+}
+
+void CF2fsSegmentManager::read_seg_info(SEG_INFO* seg_info, SEG_T seg)
+{
+	memcpy_s(m_segments[seg].valid_bmp, bmp_size, seg_info->valid_bmp, bmp_size);
+	m_segments[seg].valid_blk_nr = seg_info->valid_blk_nr;
+}
+
+
+//void CF2fsSegmentManager::f2fs_flush_sit_entries(CKPT_BLOCK& checkpoint)
+//{
+//	// 将journal中的sit写入磁盘
+//	CPageInfo* pages[SIT_BLK_NR];
+//	memset(pages, 0, sizeof(pages));
+//	for (int ii = 0; ii < checkpoint.sit_journal_nr; ++ii)
+//	{
+//		//计算segment在sit中的位置
+//		SEG_T seg_no = checkpoint.sit_journals[ii].seg_no;
+//		UINT sit_blk_id = seg_no / SIT_ENTRY_PER_BLK;
+//		UINT offset = seg_no % SIT_ENTRY_PER_BLK;
+//		// cache sit page
+//		SIT_BLOCK* sit_blk = nullptr;
+//		if (pages[sit_blk_id] == nullptr)
+//		{
+//			pages[sit_blk_id] = m_pages->allocate(true);
+//			m_storage->BlockRead(sit_blk_id + SIT_START_BLK, pages[sit_blk_id]);
+//			sit_blk = &m_pages->get_data(pages[sit_blk_id])->sit;
+//			SEG_T start_seg = sit_blk_id * SIT_ENTRY_PER_BLK;
+//			// make seg_info
+////			fill_sit_block(sit_blk, sit_blk_id);
+//			int copy_nr = SIT_ENTRY_PER_BLK;
+//			if (start_seg + copy_nr > MAIN_SEG_NR) copy_nr = MAIN_SEG_NR - start_seg;
+//			for (int jj = 0; jj < copy_nr; ++jj, ++start_seg) fill_seg_info(&sit_blk->sit_entries[jj], start_seg);
+//		}
+//		//更新sit page
+//		sit_blk = &m_pages->get_data(pages[sit_blk_id])->sit;
+//		if (!is_dirty(seg_no))
+//		{
+//			memcpy_s(&sit_blk->sit_entries[offset], sizeof(SEG_INFO), &checkpoint.sit_journals[ii].seg_info, sizeof(SEG_INFO));
+//		}
+//	}
+//
+//	// 将更新的page写入sit block
+//	for (UINT blk = 0; blk < SIT_BLK_NR; ++blk)
+//	{
+//		if (pages[blk] == nullptr) continue;
+//		m_storage->BlockWrite(blk + SIT_START_BLK, pages[blk]);
+//		m_pages->free(pages[blk]);
+//		pages[blk] = nullptr;
+//		m_dirty_map[blk] = 0;
+//	}
+//
+//	// 将sit更新写入journal中
+//	for (SEG_T seg = 0; seg < MAIN_SEG_NR; seg++)
+//	{
+//		if (is_dirty(seg))
+//		{	// seg添加到journal中
+//			int index = 0;
+//			for (index = 0; index < checkpoint.sit_journal_nr; ++index)
+//			{
+//				if (checkpoint.sit_journals[index].seg_no == seg) break;
+//			}
+//			if (checkpoint.sit_journal_nr <= index) checkpoint.sit_journal_nr = index + 1;
+//			checkpoint.sit_journals[index].seg_no = seg;
+//			fill_seg_info(&checkpoint.sit_journals[index].seg_info, seg);
+//			clear_dirty(seg);
+//		}
+//	}
+//}
+
+
+bool CF2fsSegmentManager::Load(CKPT_BLOCK& checkpoint)
 {
 	// 读取SIT
 	UINT lba = SIT_START_BLK;
-	size_t bmp_size = sizeof(DWORD) * BITMAP_SIZE;
+//	size_t bmp_size = sizeof(DWORD) * BITMAP_SIZE;
 	SEG_T seg_id = 0;
 	CPageInfo* page = m_pages->allocate(true);
 	for (; seg_id < MAIN_SEG_NR; ++lba)
@@ -156,10 +283,24 @@ bool CF2fsSegmentManager::Load(void)
 		if (seg_id + copy_nr > MAIN_SEG_NR) copy_nr = MAIN_SEG_NR - seg_id;
 		for (SEG_T ii = 0; ii < copy_nr; ++ii, ++seg_id)
 		{
-			memcpy_s(m_segments[seg_id].valid_bmp, bmp_size, seg_info[ii].valid_bmp, bmp_size);
-			m_segments[seg_id].valid_blk_nr = seg_info[ii].valid_blk_nr;
-			m_segments[seg_id].cur_blk = seg_info[ii].cur_blk;
+			read_seg_info(&seg_info[ii], seg_id);
+			//memcpy_s(m_segments[seg_id].valid_bmp, bmp_size, seg_info[ii].valid_bmp, bmp_size);
+			//m_segments[seg_id].valid_blk_nr = seg_info[ii].valid_blk_nr;
 		}
+	}
+	// 读取cur_seg
+//	JCASSERT(m_checkpoint);
+	size_t curseg_size = sizeof(CURSEG_INFO) * BT_TEMP_NR;
+	memcpy_s(m_cur_segs, curseg_size, checkpoint.cur_segs, curseg_size);
+
+	// 从journal中恢复最新改动
+	if (checkpoint.sit_journal_nr > JOURNAL_NR) {
+		THROW_FS_ERROR(ERR_INVALID_CHECKPOINT, L"SIT journal size is too large: %d", checkpoint.sit_journal_nr);
+	}
+	for (UINT ii = 0; ii < checkpoint.sit_journal_nr; ++ii)
+	{
+		SEG_T seg_id = checkpoint.sit_journals[ii].seg_no;
+		read_seg_info(&checkpoint.sit_journals[ii].seg_info, seg_id);
 	}
 	
 	lba = SSA_START_BLK;
@@ -181,6 +322,52 @@ bool CF2fsSegmentManager::Load(void)
 	return true;
 }
 
+//bool CF2fsSegmentManager::Load(void)
+//{
+//	// 读取SIT
+//	UINT lba = SIT_START_BLK;
+//	size_t bmp_size = sizeof(DWORD) * BITMAP_SIZE;
+//	SEG_T seg_id = 0;
+//	CPageInfo* page = m_pages->allocate(true);
+//	for (; seg_id < MAIN_SEG_NR; ++lba)
+//	{
+//		m_storage->BlockRead(lba, page);
+//		BLOCK_DATA* data = m_pages->get_data(page);
+//		SEG_INFO* seg_info = data->sit.sit_entries;
+//
+//		SEG_T copy_nr = SIT_ENTRY_PER_BLK;
+//		if (seg_id + copy_nr > MAIN_SEG_NR) copy_nr = MAIN_SEG_NR - seg_id;
+//		for (SEG_T ii = 0; ii < copy_nr; ++ii, ++seg_id)
+//		{
+//			memcpy_s(m_segments[seg_id].valid_bmp, bmp_size, seg_info[ii].valid_bmp, bmp_size);
+//			m_segments[seg_id].valid_blk_nr = seg_info[ii].valid_blk_nr;
+//		}
+//	}
+//	// 读取cur_seg
+//	JCASSERT(m_checkpoint);
+//	size_t curseg_size = sizeof(CURSEG_INFO) * BT_TEMP_NR;
+//	memcpy_s(m_cur_segs, curseg_size, m_checkpoint->cur_segs, curseg_size);
+//
+//	lba = SSA_START_BLK;
+//	// 考虑到一个summary block包含一个segmet的信息。
+//	for (SEG_T seg_id = 0; seg_id < MAIN_SEG_NR; ++seg_id, ++lba)
+//	{
+//		m_storage->BlockRead(lba, page);
+//		SUMMARY_BLOCK& sum = m_pages->get_data(page)->ssa;
+//		for (UINT bb = 0; bb < BLOCK_PER_SEG; ++bb)
+//		{
+//			m_segments[seg_id].nids[bb] = sum.entries[bb].nid;
+//			m_segments[seg_id].offset[bb] = sum.entries[bb].offset;
+//		}
+//	}
+//	m_pages->free(page);
+//	memset(m_dirty_map, 0, sizeof(m_dirty_map));
+//	// 构建free block chain
+//	build_free_link();
+//	return true;
+//}
+
+
 // 查找一个空的segment
 SEG_T CF2fsSegmentManager::AllocSegment(BLK_TEMP temp)
 {
@@ -192,12 +379,12 @@ SEG_T CF2fsSegmentManager::AllocSegment(BLK_TEMP temp)
 	SEG_T new_seg = m_free_ptr;
 	m_free_ptr = m_segments[new_seg].SEG_NEXT_FREE;
 	m_free_nr--;
-//	LOG_DEBUG(L"SEG_MNG: allocate segment: %d", new_seg);
+//	LOG_DEBUG(L"SEG_MNG: allocate_index segment: %d", new_seg);
 	// Initial Segment
 	SegmentInfo& seg = m_segments[new_seg];
 	seg.valid_blk_nr = 0;
 	seg.seg_temp = temp;
-	seg.cur_blk = 0;
+//	seg.cur_blk = 0;
 	memset(seg.valid_bmp, 0, sizeof(SegmentInfo::valid_bmp));
 	memset(seg.nids, 0xFF, sizeof(SegmentInfo::nids));
 	memset(seg.offset, 0xFF, sizeof(SegmentInfo::offset));
@@ -226,8 +413,16 @@ void CF2fsSegmentManager::GetBlockInfo(NID& nid, WORD& offset, PHY_BLK phy_blk)
 	BLK_T blk_id;
 	BlockToSeg(seg_id, blk_id, phy_blk);
 	SegmentInfo& seg = m_segments[seg_id];
-	nid = seg.nids[blk_id];
-	offset = seg.offset[blk_id];
+	if (test_bitmap(seg.valid_bmp, blk_id) == 0)
+	{	// 对于invalid block
+		nid = INVALID_BLK;
+		offset = INVALID_FID;
+	}
+	else
+	{
+		nid = seg.nids[blk_id];
+		offset = seg.offset[blk_id];
+	}
 }
 
 void CF2fsSegmentManager::SetBlockInfo(NID nid, WORD offset, PHY_BLK phy_blk)
@@ -241,8 +436,6 @@ void CF2fsSegmentManager::SetBlockInfo(NID nid, WORD offset, PHY_BLK phy_blk)
 	set_dirty(seg_id);
 }
 
-
-
 PHY_BLK CF2fsSegmentManager::WriteBlockToSeg(CPageInfo * page, bool by_gc)
 {
 	// 计算page的温度，（实际温度，用于统计）
@@ -250,22 +443,29 @@ PHY_BLK CF2fsSegmentManager::WriteBlockToSeg(CPageInfo * page, bool by_gc)
 	BLK_TEMP temp = m_fs->GetAlgorithmBlockTemp(page, page->ttemp);
 
 	// 按照温度（算法温度）给page分配segment。
-	SEG_T& cur_seg_id = m_cur_segs[temp];
-	if (cur_seg_id == INVALID_BLK) cur_seg_id = AllocSegment(temp);
-	SegmentInfo& seg = m_segments[cur_seg_id];
+	CURSEG_INFO& curseg = m_cur_segs[temp];
+	if (CF2fsSimulator::is_invalid(curseg.seg_no)) {
+		curseg.seg_no = AllocSegment(temp);
+		curseg.blk_offset = 0;
+	}
+	SegmentInfo& seg = m_segments[curseg.seg_no];
 
-	BLK_T blk_id = seg.cur_blk;
+//	BLK_T blk_id = seg.cur_blk;
+	BLK_T blk_id = curseg.blk_offset;
+
 	set_bitmap(seg.valid_bmp, blk_id);
 
-	UINT lba = seg_to_lba(cur_seg_id, blk_id);
+	UINT lba = seg_to_lba(curseg.seg_no, blk_id);
 	m_storage->BlockWrite(lba, page);
 
 	seg.nids[blk_id] = page->nid;
 	seg.offset[blk_id] = (WORD) page->offset;
 
 	seg.valid_blk_nr++;
-	seg.cur_blk++;
-	set_dirty(cur_seg_id);
+//	seg.cur_blk++;
+	curseg.blk_offset++;
+	// segment在分配时设置dirty
+	set_dirty(curseg.seg_no);
 
 	InterlockedIncrement64(&m_health_info->m_total_media_write);
 	InterlockedDecrement(&m_health_info->m_free_blk);
@@ -280,7 +480,7 @@ PHY_BLK CF2fsSegmentManager::WriteBlockToSeg(CPageInfo * page, bool by_gc)
 		InvalidBlock(src_seg_id, src_blk_id);
 	}
 
-	SEG_T tar_seg = cur_seg_id;
+	SEG_T tar_seg = curseg.seg_no;
 	BLK_T tar_blk = blk_id;
 	PHY_BLK phy_blk = PhyBlock(tar_seg, tar_blk);
 	page->phy_blk = phy_blk;
@@ -288,9 +488,9 @@ PHY_BLK CF2fsSegmentManager::WriteBlockToSeg(CPageInfo * page, bool by_gc)
 	// 由于WriteBlockToSeg()会在GC中被调用，目前的GC算法针对segment进行GC，GC后并不能清楚dirty标志。
 	if (!by_gc) page->dirty = false;
 
-	if (seg.cur_blk >= BLOCK_PER_SEG)
+	if (curseg.blk_offset >= BLOCK_PER_SEG)
 	{	// 当前segment已经写满
-		cur_seg_id = INVALID_BLK;
+		curseg.seg_no = INVALID_BLK;
 	}
 	return  phy_blk;
 }
@@ -340,8 +540,6 @@ ERROR_CODE CF2fsSegmentManager::GarbageCollection(CF2fsSimulator* fs)
 			if (test_bitmap(src_seg->valid_bmp, bb) == 0) continue;
 			NID nid = src_seg->nids[bb];		// block 所在的inode
 			WORD offset = src_seg->offset[bb];
-//			if (nid == INVALID_BLK) continue;	//检查segment中，这个block是否有效
-
 			// 如果有效，检查block的nid和offset
 			PHY_BLK org_phy = PhyBlock(src_seg_id, bb);
 			UINT lba = phyblk_to_lba(org_phy);
@@ -353,10 +551,6 @@ ERROR_CODE CF2fsSegmentManager::GarbageCollection(CF2fsSimulator* fs)
 
 			CPageInfo* node_page = nullptr;
 			m_fs->ReadNode(nid, node_page);
-			
-//			m_pages->page(m_fs->m_nat.node_catch[nid]);
-
-//			if ((offset >= INVALID_FID) && (m_fs->m_nat.node_catch[nid] != INVALID_BLK))
 			if ( CF2fsSimulator::is_invalid(offset) )
 			{	// node block, page 被cache住
 				PHY_BLK l2p = m_fs->m_nat.get_phy_blk(nid);
@@ -367,7 +561,6 @@ ERROR_CODE CF2fsSegmentManager::GarbageCollection(CF2fsSimulator* fs)
 				PHY_BLK phy_blk = WriteBlockToSeg(node_page, true);
 				node_page->dirty = false;
 				m_fs->m_nat.set_phy_blk(nid, phy_blk);
-//				m_fs->UpdateNat(nid, phy_blk);
 			}
 			else
 			{
@@ -428,10 +621,6 @@ ERROR_CODE CF2fsSegmentManager::GarbageCollection(CF2fsSimulator* fs)
 		m_pages->free(page);
 		claimed_seg++;
 	}
-	//LOG_TRACK(L"gc", L"SUM,free_before=%d,free_after=%d,released_seg=%d,src_nr=%d,host_write=%lld,%lld,media_write=%lld,%lld,delta=%d,media_write=%d",
-	//	free_before_gc, m_free_nr, m_free_nr - free_before_gc, claimed_seg,
-	//	host_write_before, m_health_info->m_total_host_write, media_write_before, m_health_info->m_total_media_write,
-	//	(UINT)(m_health_info->m_total_media_write - media_write_before), media_write_count);
 
 #ifdef ENABLE_FS_TRACE
 	if (m_gc_trace)
@@ -468,8 +657,8 @@ bool CF2fsSegmentManager::InvalidBlock(SEG_T seg_id, BLK_T blk_id)
 	JCASSERT(seg_id < MAIN_SEG_NR);
 	SegmentInfo& seg = m_segments[seg_id];
 	// block的有效性判断以SIT为主
-	if (test_bitmap(seg.valid_bmp, blk_id)==0) THROW_ERROR(ERR_USER, L"double invalid phy block, seg=%d, blk=%d,", seg_id, blk_id);
-//	if (seg.nids[blk_id] == INVALID_BLK) THROW_ERROR(ERR_USER, L"double invalid phy block, seg=%d, blk=%d,", seg_id, blk_id);
+	if (test_bitmap(seg.valid_bmp, blk_id) == 0) THROW_FS_ERROR(ERR_DOUBLED_BLK, L"double invalid phy block, seg=%d, blk=%d,", seg_id, blk_id);
+
 	seg.valid_blk_nr--;
 	clear_bitmap(seg.valid_bmp, blk_id);
 	seg.nids[blk_id] = INVALID_BLK;
@@ -487,7 +676,6 @@ bool CF2fsSegmentManager::InvalidBlock(SEG_T seg_id, BLK_T blk_id)
 			if (test_bitmap(seg.valid_bmp, blk_id) != 0) {
 				THROW_ERROR(ERR_USER, L"try to free a non-empty segment, seg=%d", seg_id);
 			}
-//			if (seg.nids[bb] != INVALID_BLK) THROW_ERROR(ERR_USER, L"try to free a non-empty segment, seg=%d", seg_id);
 		}
 #endif
 		FreeSegment(seg_id);
@@ -499,80 +687,7 @@ bool CF2fsSegmentManager::InvalidBlock(SEG_T seg_id, BLK_T blk_id)
 }
 
 
-void CF2fsSegmentManager::DumpSegmentBlocks(const std::wstring& fn)
-{
-	// for merge
-	NID pre_fid = INVALID_BLK;
-	LBLK_T start_lblk = 0, pre_lblk = 0;
-	BLK_T start_blk = 0;
-
-	FILE* log = nullptr;
-	_wfopen_s(&log, fn.c_str(), L"w+");
-	if (log == nullptr) THROW_ERROR(ERR_APP, L"failed on opening file %s", fn.c_str());
-	fprintf_s(log, "seg,blk,blk_num,valid,type,fid,lblk\n");
-	for (SEG_T ss = 0; ss < MAIN_SEG_NR; ++ss)
-	{
-		SegmentInfo& seg = m_segments[ss];
-		for (BLK_T bb = 0; bb < BLOCK_PER_SEG; ++bb)
-		{
-			NID nid = seg.nids[bb];	// block 所在的inode
-			// 检查segment中，这个block是否有效，
-			if (nid == INVALID_BLK) continue;
-			// 如果有效，检查block所在的inode和offset
-			WORD offset = seg.offset[bb];
-			// 读取page
-			UINT lba = seg_to_lba(ss, bb);
-			CPageInfo* page = m_pages->allocate(true);
-			m_storage->BlockRead(lba, page);
-			page->phy_blk = PhyBlock(ss, bb);
-
-			// 写入page
-			PHY_BLK new_blk = WriteBlockToSeg(page, true);
-			// 更新inode
-			if (offset != 0xFFFF)
-			{	// 这是一个data block，要更新node block中的地址
-
-
-			}
-			else
-			{	// 这是一个node block，更新nat
-				m_fs->UpdateNat(nid, new_blk);
-			}
-//			CPageAllocator::INDEX _pblk = seg.blk_map[bb];
-//			UINT lba = seg.start_lba + bb;
-
-//			CPageInfo* blk = m_pages->page(_pblk);
-			//if (page == nullptr || page->nid == INVALID_BLK)
-			//{	// invalid block：不输出
-			//	FLUSH_SEGMENT_BLOCK_OUT(bb);
-			//	continue;
-			//}
-			if (page->offset == INVALID_BLK)
-			{	// node
-				FLUSH_SEGMENT_BLOCK_OUT(bb);
-				fprintf_s(log, "%d,%d,1,NODE,%d,xxxx\n", ss, bb, page->nid);
-				continue;
-			}
-			// data block
-			//if (pre_fid == page->nid && (pre_lblk + 1) == page->offset)
-			//{	// merge
-			//	pre_lblk++;
-			//}
-			//else
-			//{	// reflush
-			//	FLUSH_SEGMENT_BLOCK_OUT(bb);
-			//	pre_fid = page->nid;
-			//	start_blk = bb;
-			//	start_lblk = page->offset;
-			//	pre_lblk = page->offset;
-			//}
-		}
-//		FLUSH_SEGMENT_BLOCK_OUT(BLOCK_PER_SEG);
-	}
-	fclose(log);
-}
-
-bool CF2fsSegmentManager::is_dirty(SEG_T seg_id)
+DWORD CF2fsSegmentManager::is_dirty(SEG_T seg_id)
 {
 	UINT sit_blk = seg_id / SIT_ENTRY_PER_BLK;
 	UINT offset = seg_id % SIT_ENTRY_PER_BLK;
@@ -586,6 +701,14 @@ void CF2fsSegmentManager::set_dirty(SEG_T seg_id)
 	UINT offset = seg_id % SIT_ENTRY_PER_BLK;
 	DWORD mask = (1 << offset);
 	m_dirty_map[sit_blk] |= mask;
+}
+
+void CF2fsSegmentManager::clear_dirty(SEG_T seg_id)
+{
+	UINT sit_blk = seg_id / SIT_ENTRY_PER_BLK;
+	UINT offset = seg_id % SIT_ENTRY_PER_BLK;
+	DWORD mask = (1 << offset);
+	m_dirty_map[sit_blk] &= (~mask);
 }
 
 

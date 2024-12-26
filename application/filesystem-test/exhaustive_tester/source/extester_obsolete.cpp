@@ -6,7 +6,7 @@
 
 LOCAL_LOGGER_ENABLE(L"extester.obselete", LOGGER_LEVEL_DEBUGINFO);
 
-
+#if 0
 ERROR_CODE CExTester::TestWriteFile(CFsState* cur_state, const std::string& path, FSIZE offset, FSIZE len)
 {
 	JCASSERT(cur_state);
@@ -76,4 +76,6 @@ ERROR_CODE CExTester::TestWriteFile(CFsState* cur_state, const std::string& path
 	//	TEST_CLOSE_LOG;
 	return err;
 }
+
+#endif
 

@@ -38,7 +38,6 @@ struct NODE_INFO
 public:
 	NID m_nid;				// 表示这个node的id
 	NID m_ino;				// 表示这个node的所在的inode
-//	UINT valid_data;		// 子结构中，有多少有效的block
 	PAGE_INDEX page_id;		// 这个node对应的page的id
 	union {
 		INODE inode;
@@ -75,7 +74,9 @@ struct NAT_BLOCK
 
 struct BLOCK_DATA
 {
-	enum BLOCK_TYPE { BLOCK_FREE, BLOCK_INODE, BLOCK_INDEX, BLOCK_DENTRY, BLOCK_SIT, BLOCK_NAT, BLOCK_FILE_DATA } m_type;
+	enum BLOCK_TYPE { 
+		BLOCK_FREE, BLOCK_INODE, BLOCK_INDEX, BLOCK_DENTRY, BLOCK_SIT, BLOCK_NAT, 
+		BLOCK_FILE_DATA, BLOCK_CKPT } m_type;
 	union
 	{
 		NODE_INFO		node;
@@ -84,6 +85,7 @@ struct BLOCK_DATA
 		NAT_BLOCK		nat;
 		SUMMARY_BLOCK	ssa;
 		FILE_DATA		file;
+		CKPT_BLOCK		ckpt;
 	};
 };
 

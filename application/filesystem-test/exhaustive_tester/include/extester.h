@@ -9,6 +9,17 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#define MAX_WORK_NR		64
+//#define MAX_THREAD_NR	8
+
+// 不同类型的多线程处理方式，只能定义一个
+//#define SINGLE_THREAD
+//#define MULTI_THREAD
+// 线程队列处理：允许线程数量少于最大op数量
+#define THREAD_QUEUE
+// 线程池方式处理：预先准备足够的线程
+//#define THREAD_POOL
+//#define STATE_MANAGER_THREAD_SAFE
 
 
 class CFsState
@@ -21,8 +32,11 @@ public:
 	IFsSimulator* m_real_fs = nullptr;
 	TRACE_ENTRY m_op;		// 上一个操作如何执行到这一步
 	CFsState* m_parent = nullptr;
-	UINT m_ref=0;			// 被参考的子节点数量。
 	int m_depth;			// 搜索深度
+	void add_ref() { m_ref++; }
+protected:
+	UINT m_ref=1;			// (被参考的子节)引用计数。
+	friend class CStateManager;
 
 public:
 	void Initialize(const std::string& root_path, IFsSimulator * fs)
@@ -31,7 +45,10 @@ public:
 		m_real_fs = fs;
 	}
 	void OutputState(FILE* log_file);
+	// 复制ref fs和real fs
 	void DuplicateFrom(CFsState* src_state);
+	// 仅复制ref fs, real fs共用一个实体。
+	void DuplicateWithoutFs(CFsState* src_state);
 };
 
 class CStateManager
@@ -39,16 +56,25 @@ class CStateManager
 public:
 	CStateManager(void);
 	~CStateManager(void);
-
+	
 public:
-	void Initialize(size_t size);
+	void Initialize(size_t size, bool duplicate_real_fs = true);
 	CFsState* get(void);
 	void put(CFsState* &state);
 	CFsState* duplicate(CFsState* state);
 
 protected:
 	CFsState* m_free_list=nullptr;		// 被回收的 note 存放在这里
+	// 在复制状态的时候，是否要复制real fs
+	bool m_duplicate_real_fs;
+//#ifdef STATE_MANAGER_THREAD_SAFE
+	CRITICAL_SECTION m_lock;
+//#endif
+public:
 	size_t m_free_nr=0;
+	// for debug
+	//size_t m_buffer_size = 0;
+	//CFsState* states[500];
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -96,16 +122,7 @@ protected:
 
 class CExTester;
 
-#define MAX_WORK_NR		64
-//#define MAX_THREAD_NR	8
 
-// 不同类型的多线程处理方式，只能定义一个
-//#define SINGLE_THREAD
-//#define MULTI_THREAD
-// 线程队列处理：允许线程数量少于最大op数量
-#define THREAD_QUEUE
-// 线程池方式处理：预先准备足够的线程
-//#define THREAD_POOL
 
 
 struct WORK_CONTEXT
@@ -113,12 +130,18 @@ struct WORK_CONTEXT
 	CExTester* tester;
 	CFsState* state;
 	CFsState* src_state;
-	ERROR_CODE ir;
+	ERROR_CODE result;
+	UINT test_id;
+	UINT seed;
+#ifdef THREAD_POOL
 	HANDLE hevent;
 	HANDLE hstart;	//用于触发开始条件
+	PTP_WORK work_item;
+#endif
+#ifdef MULTI_THREAD
 	HANDLE hthread;	//线程句柄，用于自定义工作线程
 	DWORD tid;
-	PTP_WORK work_item;
+#endif
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -166,14 +189,9 @@ protected:
 	}
 	DWORD FsOperator_Queue(void);
 
-//	ERROR_CODE RunTrace(IFsSimulator* fs, const std::string& fn);
-
-
-//	void FsOperator_Thread(work)
-
 	ERROR_CODE TestCreateFile(CFsState* cur_state, const std::string& path);
 	ERROR_CODE TestCreateDir (CFsState* cur_state, const std::string& path);
-	ERROR_CODE TestWriteFile(CFsState * cur_state, const std::string& path, FSIZE offset, FSIZE len);
+//	ERROR_CODE TestWriteFile(CFsState * cur_state, const std::string& path, FSIZE offset, FSIZE len);
 	ERROR_CODE TestWriteFileV2(CFsState * cur_state, NID fid, FSIZE offset, FSIZE len, const std::string &path);
 	ERROR_CODE TestOpenFile(CFsState* cur_state, const std::string& path);
 	ERROR_CODE TestCloseFile(CFsState* cur_state, NID fid, const std::string & path);
@@ -182,10 +200,8 @@ protected:
 	ERROR_CODE TestMount(CFsState * cur_state);
 	ERROR_CODE TestPowerOutage(CFsState* cur_state, UINT rollback);
 
-//	int TestDelete(CFsState* state, CReferenceFs& ref, const std::wstring& path);
 	int TestMove(CFsState* state, CReferenceFs& ref, const std::wstring& path_src, const std::wstring& path_dst);
 
-	//	DWORD AppendChecksum(DWORD cur_checksum, const char* buf, size_t size);
 	ERROR_CODE VerifyForPower(CFsState* cur_state);
 	ERROR_CODE Verify(CFsState* cur_state);
 
@@ -200,11 +216,17 @@ protected:
 	ERROR_CODE EnumerateOp_Thread_V2(std::vector<TRACE_ENTRY>& ops, CFsState* cur_state, 
 		std::list<CFsState*>::iterator& insert);
 
+
+	enum TRACE_OPTION {
+		TRACE_FILES	= 0x00000001,	TRACE_REAL_FS	= 0x00000002,	TRACE_GC	= 0x00000004,
+		TRACE_ENCODE= 0x00000008,	TRACE_REF_FS	= 0x00000010,	TRACE_JSON	= 0x00000020,
+	};
 	// for monitor thread
 	static DWORD WINAPI _RunTest(PVOID p);
-	bool PrintProgress(INT64 ts);
+	virtual bool PrintProgress(INT64 ts);
 	bool OutputTrace(CFsState* state);
-	bool OutputTrace_Thread(CFsState* state, ERROR_CODE ir, const std::string & err);
+	bool OutputTrace_Thread(CFsState* state, ERROR_CODE ir, const std::string & err, DWORD trace_id=0);
+	bool OutputTrace(FILE* out_file, const std::string & json_fn, CFsState* state, DWORD option);
 	void UpdateFsParam(IFsSimulator* fs);
 
 protected:
@@ -248,7 +270,7 @@ protected:
 	HANDLE m_test_thread;
 	HANDLE m_test_event;
 	// 正在扩展的状态，这个状态即不再open list也不在 closed list中。当遇到错误时，需要回收这个状态。
-	CFsState* m_cur_state = nullptr;
+//	CFsState* m_cur_state = nullptr;
 	// 记录当前测试的最大深度，当测试终止时，会输出这个状态的trace。
 	CFsState* m_max_depth_state = nullptr;
 	// 控制测试停止，到该变量设置为1时，测试停止。
@@ -302,14 +324,25 @@ protected:
 	virtual int PreTest(void);
 	virtual ERROR_CODE RunTest(void);
 	virtual void FinishTest(void);
+	virtual bool PrintProgress(INT64 ts);
+	virtual void GetTestSummary(boost::property_tree::wptree& sum);
 
 protected:
 	// 选择一个可执行的操作执行
-	static DWORD WINAPI _OneTest(void);
-	ERROR_CODE OneTest(void);
+//	static DWORD WINAPI _OneTest(PTP_CALLBACK_ENVIRON instance, PVOID context, PTP_WORK work);
+
+	DWORD RunTestQueue(void);
+
+	static DWORD WINAPI _RunTestQueue(PVOID context)
+	{
+		CExStatisticTester* tester = (CExStatisticTester*)context;
+		return tester->RunTestQueue();
+	}
+	ERROR_CODE OneTest(CFsState* init_state, DWORD test_id, int seed, CStateManager * states = nullptr);
 
 protected:
-	int m_test_times;
+	LONG m_test_times;
+	LONG m_tested, m_failed, m_testing;
 	
 
 };

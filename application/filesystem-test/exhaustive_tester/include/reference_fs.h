@@ -8,7 +8,7 @@ typedef UINT FSIZE;
 
 
 #define	MAX_DEPTH		(500)
-#define MAX_PATH_SIZE	(63)
+#define MAX_PATH_SIZE	(255)
 #define MAX_FILE_NUM	(256)
 #define MAX_CHILD_NUM	(64)
 

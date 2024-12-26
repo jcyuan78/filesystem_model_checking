@@ -52,7 +52,6 @@ public:
 
 public:
 	void Init(size_t page_nr);
-	PAGE_INDEX allocate(void);
 	// 申请一个page，data:true，同时申请数据，false，不要数据
 	CPageInfo* allocate(bool data);
 //	void free(PAGE_INDEX index);
@@ -77,5 +76,6 @@ protected:
 	PAGE_INDEX m_free_ptr, m_used_nr;
 	UINT m_page_nr;
 protected:
+	PAGE_INDEX allocate_index(void);
 //	CBufferManager m_buffer;
 };

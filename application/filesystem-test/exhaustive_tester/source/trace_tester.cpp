@@ -91,15 +91,16 @@ int CExTraceTester::PrepareTest(const boost::property_tree::wptree& config, IFsS
 ERROR_CODE CExTraceTester::RunTest(void)
 {
 	printf_s("Running TRACE test\n");
+	InitializeCriticalSection(&m_trace_crit);
 
 	boost::property_tree::ptree & trace=m_trace;
 	boost::property_tree::ptree& ops = trace.get_child("op");
 
 	IFsSimulator* fs = nullptr;
 	m_fs_factory->Clone(fs);
-	m_cur_state = m_states.get();
-	m_cur_state->Initialize("\\", fs);
-	m_cur_state->m_ref = 1;
+	CFsState * cur_state = m_states.get();
+	cur_state->Initialize("\\", fs);
+//	m_cur_state->m_ref = 1;
 
 //	CFsState& state = *m_cur_state;
 
@@ -123,7 +124,8 @@ ERROR_CODE CExTraceTester::RunTest(void)
 			op.offset = prop_op.get<FSIZE>("offset");
 		}
 
-		CFsState* next_state = m_states.duplicate(m_cur_state);
+		printf_s("[setp]=%06d, ", step);
+		CFsState* next_state = m_states.duplicate(cur_state);
 		next_state->m_op = op;
 		bool is_power_off = false;
 		switch (op.op_code)
@@ -142,6 +144,8 @@ ERROR_CODE CExTraceTester::RunTest(void)
 			ir = TestDeleteFile(next_state, op.file_path);
 			break;
 		case OP_CODE::OP_DIR_DELETE:
+			printf_s("[DeleteDir] %s\n", op.file_path.c_str());
+			ir = TestDeleteDir(next_state, op.file_path);
 			break;
 		case OP_CODE::OP_MOVE:			break;
 		case OP_CODE::OP_FILE_WRITE: {
@@ -182,15 +186,19 @@ ERROR_CODE CExTraceTester::RunTest(void)
 		else				ir = Verify(next_state);
 		FS_INFO fs_info;
 		fs->GetFsInfo(fs_info);
-		printf_s("fs: dir=%d, files=%d, logic=%d, phisic=%d, total_blk=%d, free_blk=%d, total_seg=%d, free_seg=%d\n",
-			fs_info.dir_nr, fs_info.file_nr, fs_info.used_blks, fs_info.physical_blks, fs_info.total_blks, fs_info.free_blks, fs_info.total_seg, fs_info.free_seg);
+		printf_s("fs: logic=%d, phisic=%d, total_blk=%d, free_blk=%d, total_seg=%d, free_seg=%d\n",
+			fs_info.used_blks, fs_info.physical_blks, fs_info.total_blks, fs_info.free_blks, fs_info.total_seg, fs_info.free_seg);
 		printf_s("fs: free pages= %d / %d, free data = %d / %d\n",
 			fs_info.free_page_nr, fs_info.total_page_nr, fs_info.free_data_nr, fs_info.total_data_nr);
 		printf_s("\n");
 
-		m_cur_state = next_state;
+		OutputTrace_Thread(next_state, ir, "debug");
+		m_states.put(cur_state);
+		cur_state = next_state;
 	}
-	m_states.put(m_cur_state);
+	m_states.put(cur_state);
+	DeleteCriticalSection(&m_trace_crit);
+
 	return ir;
 }
 
@@ -224,8 +232,8 @@ bool CExTester::OutputTrace(CFsState* state)
 		IFsSimulator* fs = state->m_real_fs;
 		FS_INFO fs_info;
 		fs->GetFsInfo(fs_info);
-		TEST_LOG("\tfs: dir=%d, files=%d, logic=%d, phisic=%d, total_blk=%d, free_blk=%d, total_seg=%d, free_seg=%d\n",
-			fs_info.dir_nr, fs_info.file_nr, fs_info.used_blks, fs_info.physical_blks, fs_info.total_blks, fs_info.free_blks, fs_info.total_seg, fs_info.free_seg);
+		TEST_LOG("\tfs: logic=%d, phisic=%d, total_blk=%d, free_blk=%d, total_seg=%d, free_seg=%d\n",
+			 fs_info.used_blks, fs_info.physical_blks, fs_info.total_blks, fs_info.free_blks, fs_info.total_seg, fs_info.free_seg);
 		TEST_LOG("\tfs: free pages= %d / %d, free data = %d / %d\n",
 			fs_info.free_page_nr, fs_info.total_page_nr, fs_info.free_data_nr, fs_info.total_data_nr);
 
@@ -237,8 +245,6 @@ bool CExTester::OutputTrace(CFsState* state)
 			std::string path;
 			ref.GetFilePath(ref_file, path);
 			bool dir = ref.IsDir(ref_file);
-//			std::string str_encode;
-//			ref_file.GetEncodeString(str_encode);
 			char str_encode[MAX_ENCODE_SIZE];
 			ref_file.GetEncodeString(str_encode, MAX_ENCODE_SIZE);
 			FSIZE ref_len = 0;

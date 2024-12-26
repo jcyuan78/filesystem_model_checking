@@ -30,8 +30,10 @@ int CF2fsSimulator::fsck_init(F2FS_FSCK* fsck)
 ERROR_CODE CF2fsSimulator::fsck(bool fix)
 {
 	// prepare:
-	m_nat.Load();
-	m_segments.Load();
+//	m_nat.Load();
+//	m_segments.Load();
+	Mount();
+
 	F2FS_FSCK fsck;
 	fsck_init(&fsck);
 	fsck.need_to_fix = fix;
@@ -47,9 +49,11 @@ ERROR_CODE CF2fsSimulator::fsck(bool fix)
 	fsck_verify(&fsck);
 	// fix
 	if (fsck.fixed) {
+		// clear journal in checkpoint
 		m_segments.SyncSIT();
 		m_nat.Sync();
 		m_segments.SyncSSA();
+		m_segments.reset_dirty_map();
 		m_storage.Sync();
 	}
 	m_segments.Reset();
@@ -173,24 +177,18 @@ int CF2fsSimulator::fsck_verify(F2FS_FSCK* fsck)
 	SEG_T total_seg_nr = m_segments.get_seg_nr();
 	for (SEG_T ii = 0; ii < total_seg_nr; ++ii)
 	{
-		const SegmentInfo& seg = m_segments.get_segment(ii);
-		if (seg.valid_blk_nr != 0)
+		if (m_segments.get_valid_blk_nr(ii) == 0) continue;
+		DWORD mask = 1;
+		for (BLK_T bb = 0; bb < BLOCK_PER_SEG; ++bb, mask <<= 1)
 		{
-			DWORD mask = 1;
-			for (BLK_T bb = 0; bb < BLOCK_PER_SEG; ++bb, mask <<= 1)
-			{
-				PHY_BLK blk = CF2fsSegmentManager::PhyBlock(ii, bb);
-//				if (seg.nids[bb] != (-1) && f2fs_test_main_bitmap(fsck, blk) == 0) {
-				if (is_valid(seg.nids[bb]) && f2fs_test_main_bitmap(fsck, blk) == 0) {
-					if (fsck->need_to_fix) {
-						m_segments.InvalidBlock(blk);
-						fsck->fixed = true;
-					}
-					else {
-						THROW_FS_ERROR(ERR_DEAD_BLK, L"block [%d, %d] phy=%d, allocated but not used.", 
-							seg.nids[bb], seg.offset[bb], blk);
-
-					}
+			PHY_BLK blk = CF2fsSegmentManager::PhyBlock(ii, bb);
+			if (m_segments.is_blk_valid(ii, bb) && f2fs_test_main_bitmap(fsck, blk) == 0) {
+				if (fsck->need_to_fix) {
+					m_segments.InvalidBlock(ii, bb);
+					fsck->fixed = true;
+				}
+				else {
+					THROW_FS_ERROR(ERR_DEAD_BLK, L"phy block [%d, %d] phy=%d, allocated but not used.",	ii, bb, blk);
 				}
 			}
 		}
@@ -236,7 +234,7 @@ int CF2fsSimulator::fsck_chk_data_blk(F2FS_FSCK* fsck, NID nid, WORD offset, PHY
 	if (block->m_type != BLOCK_DATA::BLOCK_DENTRY) {
 		m_pages.free(page);
 		THROW_FS_ERROR(ERR_WRONG_BLOCK_TYPE, L"data [%d, %d], phy=%d block type (%d) unmatch, expected: BLOCK_DENTRY",
-			nid, offset, block->m_type);
+			nid, offset, blk, block->m_type);
 	}
 	DENTRY_BLOCK& entries = block->dentry;
 	for (int ii = 0; ii < DENTRY_PER_BLOCK; ++ii) {
@@ -330,10 +328,6 @@ int CF2fsSimulator::fsck_chk_inode_blk(F2FS_FSCK* fsck, NID ino, PHY_BLK blk, F2
 	// 检查main bitmap，确保无重复 （sanity check中已经检查）。
 	f2fs_set_main_bitmap(fsck, blk);
 
-	//if (node_data.inode.file_type != file_type) {
-	//	THROW_FS_ERROR(ERR_WRONG_FILE_TYPE, L"nid [%d] file type (%d) unmatch, expected=%d", 
-	//		ino, node_data.inode.file_type, file_type);
-	//}
 	file_type = node_data.inode.file_type;
 	if (node_data.m_ino != node_data.m_nid) {
 		THROW_FS_ERROR(ERR_INVALID_NID, L"nid [%d] inode id (%d) does not match", ino, node_data.m_ino);
@@ -343,10 +337,8 @@ int CF2fsSimulator::fsck_chk_inode_blk(F2FS_FSCK* fsck, NID ino, PHY_BLK blk, F2
 	for (int ii = 0; ii < INDEX_TABLE_SIZE; ++ii)
 	{
 		NID  index_nid = node_data.inode.index[ii];
-//		if ( index_nid != (-1))
 		if ( is_valid(index_nid) )
 		{
-//			valid_index++;
 			fsck_chk_node_blk(fsck, index_nid, file_type, BLOCK_DATA::BLOCK_INDEX, blk_cnt);
 		}
 	}

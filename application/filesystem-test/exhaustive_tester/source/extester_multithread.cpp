@@ -130,9 +130,9 @@ ERROR_CODE CExTester::EnumerateOp_Thread(std::vector<TRACE_ENTRY>& ops, CFsState
 		DWORD ir = WaitForMultipleObjects(context_id, m_work_events, FALSE, 10000);
 		if (ir >= (context_id)) THROW_WIN32_ERROR(L"Time out on wating fs operation");
 		//		{	// 处理测试结果
-		if (m_works[ir].ir != ERR_OK)
+		if (m_works[ir].result != ERR_OK)
 		{	// error handling
-			THROW_ERROR(ERR_APP, L"test failed, code=%d", m_works[ir].ir);
+			THROW_ERROR(ERR_APP, L"test failed, code=%d", m_works[ir].result);
 		}
 		CFsState* state = m_works[ir].state;
 		JCASSERT(state);
@@ -141,7 +141,7 @@ ERROR_CODE CExTester::EnumerateOp_Thread(std::vector<TRACE_ENTRY>& ops, CFsState
 			m_states.put(state);
 		}
 		else m_open_list.insert(insert, state);
-		m_works[ir].ir = ERR_UNKNOWN;
+		m_works[ir].result = ERR_UNKNOWN;
 		ii--;
 	}
 #elif 0
@@ -158,22 +158,19 @@ ERROR_CODE CExTester::EnumerateOp_Thread(std::vector<TRACE_ENTRY>& ops, CFsState
 	// 保持搜索结果稳定
 	for (UINT ii = 0; ii < context_id; ++ii)
 	{
-		if (m_works[ii].ir != ERR_OK)
+		if (m_works[ii].result != ERR_OK)
 		{	// error handling
-//			THROW_ERROR(ERR_APP, L"test failed, code=%d", m_works[ii].ir);
 			OutputTrace(m_works[ii].state);
 			m_states.put(m_works[ii].state);
-//			return m_works[ii].ir;
 			continue;
 		}
 		CFsState* state = m_works[ii].state;
 		if (m_closed.Check(state))
 		{
 			m_states.put(state);
-			//m_works[index].state = nullptr;
 		}
 		else m_open_list.insert(insert, state);
-		m_works[ii].ir = ERR_UNKNOWN;
+		m_works[ii].result = ERR_UNKNOWN;
 		// 更新file system参数
 		UpdateFsParam(m_works[ii].state->m_real_fs);
 	}
@@ -221,11 +218,9 @@ ERROR_CODE CExTester::EnumerateOp_Thread_V2(std::vector<TRACE_ENTRY>& ops, CFsSt
 		Op2String(str, state->m_op);
 		LOG_DEBUG(L"operation: %S", str);
 
-		if (result->ir != ERR_OK)
+		if (result->result != ERR_OK)
 		{	// error handling
 			m_states.put(state);
-//			err = result->ir;
-//			continue;
 		}
 		else {
 			if (m_closed.Check(state))		{		m_states.put(state);	}
@@ -234,7 +229,7 @@ ERROR_CODE CExTester::EnumerateOp_Thread_V2(std::vector<TRACE_ENTRY>& ops, CFsSt
 				UpdateFsParam(state->m_real_fs);
 			}
 		}
-		result->ir = ERR_UNKNOWN;
+		result->result = ERR_UNKNOWN;
 	}
 #else
 	// 等待所有任务完成，并且保持搜索结果稳定
@@ -249,9 +244,9 @@ ERROR_CODE CExTester::EnumerateOp_Thread_V2(std::vector<TRACE_ENTRY>& ops, CFsSt
 		DWORD ir = WaitForMultipleObjects(context_id, m_work_events, FALSE, 10000);
 		if (ir >= (context_id)) THROW_WIN32_ERROR(L"Time out on wating fs operation");
 		//		{	// 处理测试结果
-		if (m_works[ir].ir != ERR_OK)
+		if (m_works[ir].result != ERR_OK)
 		{	// error handling
-			THROW_ERROR(ERR_APP, L"test failed, code=%d", m_works[ir].ir);
+			THROW_ERROR(ERR_APP, L"test failed, code=%d", m_works[ir].result);
 		}
 		CFsState* state = m_works[ir].state;
 		JCASSERT(state);
@@ -260,7 +255,7 @@ ERROR_CODE CExTester::EnumerateOp_Thread_V2(std::vector<TRACE_ENTRY>& ops, CFsSt
 			m_states.put(state);
 		}
 		else m_open_list.insert(insert, state);
-		m_works[ir].ir = ERR_UNKNOWN;
+		m_works[ir].result = ERR_UNKNOWN;
 		ii--;
 	}
 #elif 0
@@ -282,13 +277,14 @@ bool CExTester::DoFsOperator_Queue(CFsState* cur_state, TRACE_ENTRY& op, WORK_CO
 	LOG_STACK_PERFORM(L"");
 	//	context->state = m_states.duplicate(cur_state);
 	context->src_state = cur_state;
-	InterlockedIncrement(&(cur_state->m_ref));
+	cur_state->add_ref();
+//	InterlockedIncrement(&(cur_state->m_ref));
 
 	context->state = m_states.get();
 	context->state->m_op = op;
 	context->state->m_op.op_sn = m_op_sn++;
-	context->ir = ERR_PENDING;
-	LOG_DEBUG_(1, L"submit work: context=%p, op=%d, code=%d, work=%p", context, m_op_sn - 1, op.op_code, context->work_item);
+	context->result = ERR_PENDING;
+	LOG_DEBUG_(1, L"submit work: context=%p, op=%d, code=%d", context, m_op_sn - 1, op.op_code);
 	EnterCriticalSection(&m_sub_crit);
 	m_sub_q.push_back(context);
 	LeaveCriticalSection(&m_sub_crit);
@@ -298,6 +294,7 @@ bool CExTester::DoFsOperator_Queue(CFsState* cur_state, TRACE_ENTRY& op, WORK_CO
 
 bool CExTester::DoFsOperator_Thread(CFsState* cur_state, TRACE_ENTRY& op, WORK_CONTEXT* context)
 {
+#ifdef MULTI_THREAD
 	LOG_STACK_PERFORM(L"");
 	context->src_state = cur_state;
 	InterlockedIncrement(&(cur_state->m_ref));
@@ -305,14 +302,16 @@ bool CExTester::DoFsOperator_Thread(CFsState* cur_state, TRACE_ENTRY& op, WORK_C
 	context->state = m_states.get();
 	context->state->m_op = op;
 	context->state->m_op.op_sn = m_op_sn++;
-	context->ir = ERR_PENDING;
+	context->result = ERR_PENDING;
 	LOG_DEBUG(L"submit work: context=%p, op=%d, code=%d, work=%p", context, m_op_sn - 1, op.op_code, context->work_item);
 	SetEvent(context->hstart);
+#endif
 	return true;
 }
 
 bool CExTester::DoFsOperator_Pool(CFsState* cur_state, TRACE_ENTRY& op, WORK_CONTEXT* context)
 {
+#ifdef THREAD_POOL
 	LOG_STACK_PERFORM(L"");
 	//	context->state = m_states.duplicate(cur_state);
 	context->src_state = cur_state;
@@ -321,10 +320,11 @@ bool CExTester::DoFsOperator_Pool(CFsState* cur_state, TRACE_ENTRY& op, WORK_CON
 	context->state = m_states.get();
 	context->state->m_op = op;
 	context->state->m_op.op_sn = m_op_sn++;
-	context->ir = ERR_PENDING;
+	context->result = ERR_PENDING;
 	LOG_DEBUG(L"submit work: context=%p, op=%d, code=%d, work=%p", context, m_op_sn - 1, op.op_code, context->work_item);
 	//	BOOL br = TrySubmitThreadpoolCallback(FsOperator_Callback, context , &m_tp_environ);
 	SubmitThreadpoolWork(context->work_item);
+#endif
 	return true;
 }
 
@@ -353,6 +353,7 @@ DWORD CExTester::FsOperator_Queue(void)
 
 DWORD __stdcall CExTester::FsOperator_Thread(PVOID _context)
 {
+#ifdef MULTI_THREAD
 	WORK_CONTEXT* context = (WORK_CONTEXT*)(_context);
 	while (1)
 	{
@@ -360,16 +361,19 @@ DWORD __stdcall CExTester::FsOperator_Thread(PVOID _context)
 		FsOperator_Callback(context);
 		SetEvent(context->hevent);
 	}
+#endif
 	return 0;
 }
 
 VOID CExTester::FsOperator_Pool(PTP_CALLBACK_INSTANCE instance, PVOID _context, PTP_WORK work)
 {
+#ifdef THREAD_POOL
 	LOG_STACK_PERFORM(L"");
 	//	LOG_DEBUG(L"start work: context=%p, work=%p", context, work);
 	WORK_CONTEXT* context = (WORK_CONTEXT*)(_context);
 	FsOperator_Callback(context);
 	SetEvent(context->hevent);
+#endif
 }
 
 VOID CExTester::FsOperator_Callback(WORK_CONTEXT* context)
@@ -395,117 +399,140 @@ VOID CExTester::FsOperator_Callback(WORK_CONTEXT* context)
 	{
 		tester->OutputTrace_Thread(context->state, ir, err_msg);
 	}
-	context->ir = ir;
+	context->result = ir;
 //	LOG_DEBUG(L"complete work: context=%p, op=%d, code=%d", context, op.op_sn, op.op_code);
 }
 
-bool CExTester::OutputTrace_Thread(CFsState* state, ERROR_CODE ir, const std::string & err)
+bool CExTester::OutputTrace_Thread(CFsState* state, ERROR_CODE ir, const std::string& err, DWORD tid)
 {
-	EnterCriticalSection(&m_trace_crit);
-	DWORD tid = GetCurrentThreadId();
+	LOG_STACK_PERFORM(L"OutputTrace");
+//	EnterCriticalSection(&m_trace_crit);
+	if (tid == 0) tid = GetCurrentThreadId();
 	char str_fn[MAX_PATH];
 	sprintf_s(str_fn, "%S\\error_log_%d.txt", m_log_path.c_str(), tid);
 	FILE* fp = nullptr;
 	fopen_s(&fp, str_fn, "w+");
-	fprintf_s(fp, "Test failed, error code=%d, due to: %s\n", ir, err.c_str());
+	fprintf_s(fp, "error code=%d, due to: %s\n", ir, err.c_str());
+	sprintf_s(str_fn, "%S\\trace_%d.json", m_log_path.c_str(), tid);
+	DWORD option = TRACE_REF_FS | TRACE_REAL_FS;
+	if (ir != ERR_OK) {
+		option |= (TRACE_FILES | /*TRACE_ENCODE |*/ TRACE_JSON);
+	}
+	OutputTrace(fp, str_fn, state, option);
+	fclose(fp);
+
+	printf_s("dump trace for:%s to %s\n", err.c_str(), str_fn);
+//	LeaveCriticalSection(&m_trace_crit);
+	return true;
+}
+
+bool CExTester::OutputTrace(FILE* fp, const std::string& json_fn, CFsState* state, DWORD option)
+{
 	std::list<CFsState*> stack;
 	char str_encode[MAX_ENCODE_SIZE];
+	memset(str_encode, 0, sizeof(str_encode));
 	while (state)
 	{
 		FSIZE logic_blk = 0;
-		fprintf_s(fp,"state=%p, parent=%p, depth=%d\n", state, state->m_parent, state->m_depth);
-		CReferenceFs& ref = state->m_ref_fs;
-		ref.Encode(str_encode, MAX_ENCODE_SIZE);
+		fprintf_s(fp, "state=%p, parent=%p, depth=%d\n", state, state->m_parent, state->m_depth);
 		IFsSimulator* fs = state->m_real_fs;
-		FS_INFO fs_info;
-		fs->GetFsInfo(fs_info);
-		fprintf_s(fp,"\tfs: dir=%d, files=%d, logic=%d, phisic=%d, total_blk=%d, free_blk=%d, total_seg=%d, free_seg=%d\n",
-			fs_info.dir_nr, fs_info.file_nr, fs_info.used_blks, fs_info.physical_blks, fs_info.total_blks, fs_info.free_blks, fs_info.total_seg, fs_info.free_seg);
-		fprintf_s(fp,"\tfs: encode=%s, free pages= %d / %d\n",
-			str_encode, fs_info.free_page_nr, fs_info.total_page_nr);
+		CReferenceFs& ref_fs = state->m_ref_fs;
 
-		auto endit = ref.End();
-		for (auto it = ref.Begin(); it != endit; ++it)
-		{
-			const CReferenceFs::CRefFile& ref_file = ref.GetFile(it);
-			std::string path;
-			ref.GetFilePath(ref_file, path);
-			bool dir = ref.IsDir(ref_file);
-			ref_file.GetEncodeString(str_encode, MAX_ENCODE_SIZE);
-			FSIZE ref_len = 0;
-			if (!dir)
-			{
-				DWORD ref_checksum;
-				ref.GetFileInfo(ref_file, ref_checksum, ref_len);
-			}
-			static const size_t str_size = (INDEX_TABLE_SIZE * 10);
-			char str_index[str_size];
-#if 0
-			NID index[INDEX_TABLE_SIZE];		// 磁盘数据，
-			size_t nr = fs->DumpFileIndex(index, INDEX_TABLE_SIZE, ref_file.get_fid());
-			size_t ptr = 0;
-			for (size_t ii = 0; ii < INDEX_TABLE_SIZE; ++ii)
-			{
-				if (index[ii] == INVALID_BLK) break;
-				ptr += sprintf_s(str_index + ptr, str_size - ptr, "%03X ", index[ii]);
-			}
-#else
-			str_index[0] = 0;
-#endif
-			FSIZE file_size = ref_len, file_blk_nr=0, file_index_nr=0;		// 文件占用的block数量，包括inode和index node
-//			fs->GetFileInfo(ref_file.get_fid(), file_size, file_blk_nr, file_index_nr);
-			logic_blk += (file_blk_nr + file_index_nr);
-			fprintf_s(fp,"\t\t<check %s> (fid=%03d) %s,\t\t blk_nr=%d, size=%d, (%s)\n",
-				dir ? "dir " : "file", ref_file.get_fid(), path.c_str(), (file_blk_nr+file_index_nr), file_size, 
-				str_encode);
+		if (option & TRACE_REAL_FS) {
+			FS_INFO fs_info;
+			fs->GetFsInfo(fs_info);
+			fprintf_s(fp,"\treal_fs: dir=%d, files=%d, logic=%d, physic=%d, seg:free/total=%d / %d, blk:free/total=%d / %d, \n",
+				0, 0, fs_info.used_blks, fs_info.physical_blks, fs_info.free_seg, fs_info.total_seg, 
+				fs_info.free_blks, fs_info.total_blks);
+//			fprintf_s(fp, "\tfs: encode=%s, free pages= %d / %d\n",
+//				str_encode, fs_info.free_page_nr, fs_info.total_page_nr);
+		}
+		if (option & TRACE_REF_FS) {
+			UINT ref_dir_nr = ref_fs.m_dir_num, ref_file_nr = ref_fs.m_file_num;
+			if (option & TRACE_ENCODE)	ref_fs.Encode(str_encode, MAX_ENCODE_SIZE);
+			else str_encode[0] = 0;
+			fprintf_s(fp, "\tref_fs: dir=%d, file=%d, encode=%s\n ", ref_dir_nr, ref_file_nr, str_encode);
+		}
 
-			std::vector<GC_TRACE> gc;
-			fs->GetGcTrace(gc);
-			if (!gc.empty())
+		if (option & TRACE_FILES) {
+			auto endit = ref_fs.End();
+			for (auto it = ref_fs.Begin(); it != endit; ++it)
 			{
-				fprintf_s(fp,"gc:\n");
-				for (auto ii = gc.begin(); ii != gc.end(); ++ii)
+				const CReferenceFs::CRefFile& ref_file = ref_fs.GetFile(it);
+				if (option & TRACE_ENCODE)		ref_file.GetEncodeString(str_encode, MAX_ENCODE_SIZE);
+
+				std::string path;
+				ref_fs.GetFilePath(ref_file, path);
+				bool dir = ref_fs.IsDir(ref_file);
+				FSIZE ref_len = 0;
+				if (!dir)
 				{
-					fprintf_s(fp,"(%d,%d): %d=>%d\n", ii->fid, ii->offset, ii->org_phy, ii->new_phy);
+					DWORD ref_checksum;
+					ref_fs.GetFileInfo(ref_file, ref_checksum, ref_len);
 				}
+				static const size_t str_size = (INDEX_TABLE_SIZE * 10);
+#if 0
+				char str_index[str_size];
+				NID index[INDEX_TABLE_SIZE];		// 磁盘数据，
+				size_t nr = fs->DumpFileIndex(index, INDEX_TABLE_SIZE, ref_file.get_fid());
+				size_t ptr = 0;
+				for (size_t ii = 0; ii < INDEX_TABLE_SIZE; ++ii)
+				{
+					if (index[ii] == INVALID_BLK) break;
+					ptr += sprintf_s(str_index + ptr, str_size - ptr, "%03X ", index[ii]);
+			}
+				str_index[0] = 0;
+#endif
+				FSIZE file_size = ref_len, file_blk_nr = 0, file_index_nr = 0;		// 文件占用的block数量，包括inode和index node
+				logic_blk += (file_blk_nr + file_index_nr);
+				fprintf_s(fp, "\t\t<check %s> (fid=%03d) %s,\t\t blk_nr=%d, size=%d, (%s)\n",
+					dir ? "dir " : "file", ref_file.get_fid(), path.c_str(), (file_blk_nr + file_index_nr), file_size,
+					str_encode);
 			}
 		}
-		fprintf_s(fp, "\ttotal logic block=%d\n", logic_blk);
-		//	TRACE_ENTRY& op = state->m_op;
+		if (option & TRACE_GC) {
+			//std::vector<GC_TRACE> gc;
+			//fs->GetGcTrace(gc);
+			//if (!gc.empty())
+			//{
+			//	fprintf_s(fp,"gc:\n");
+			//	for (auto ii = gc.begin(); ii != gc.end(); ++ii)
+			//	{
+			//		fprintf_s(fp,"(%d,%d): %d=>%d\n", ii->fid, ii->offset, ii->org_phy, ii->new_phy);
+			//	}
+			//}
+		}
+//		fprintf_s(fp, "\ttotal logic block=%d\n", logic_blk);
 		char str[256];
 		Op2String(str, state->m_op);
 		fprintf_s(fp,"\t%s\n", str);
-		stack.push_front(state);
+		if (option & TRACE_JSON)	stack.push_front(state);
 		state = state->m_parent;
 	}
-	fclose(fp);
 
-	// 将trace 转化为json文件，便于后续调试
-	boost::property_tree::ptree prop_trace;
-	boost::property_tree::ptree prop_op_array;
+	if (option & TRACE_JSON) {
 
-	int step = 0;
-	for (auto ii = stack.begin(); ii != stack.end(); ++ii, ++step)
-	{
-		TRACE_ENTRY& op = (*ii)->m_op;
-		// op to propeyty
-		boost::property_tree::ptree prop_op;
-		prop_op.add("step", step);
-		prop_op.add<std::string>("op_name", OpName(op.op_code));
-		prop_op.add<std::string>("path", op.file_path);
-		prop_op.add("offset", op.offset);
-		prop_op.add("length", op.length);
-		prop_op_array.push_back(std::make_pair("", prop_op));
+		// 将trace 转化为json文件，便于后续调试
+		boost::property_tree::ptree prop_trace;
+		boost::property_tree::ptree prop_op_array;
+
+		int step = 0;
+		for (auto ii = stack.begin(); ii != stack.end(); ++ii, ++step)
+		{
+			TRACE_ENTRY& op = (*ii)->m_op;
+			// op to propeyty
+			boost::property_tree::ptree prop_op;
+			prop_op.add("step", step);
+			prop_op.add<std::string>("op_name", OpName(op.op_code));
+			prop_op.add<std::string>("path", op.file_path);
+			prop_op.add("offset", op.offset);
+			prop_op.add("length", op.length);
+			prop_op_array.push_back(std::make_pair("", prop_op));
+		}
+		prop_trace.add_child("op", prop_op_array);
+
+		boost::property_tree::write_json(json_fn, prop_trace);
 	}
-	prop_trace.add_child("op", prop_op_array);
 
-	sprintf_s(str_fn, "%S\\trace_%d.json", m_log_path.c_str(), tid);
-	boost::property_tree::write_json(str_fn, prop_trace);
-
-	printf_s("dump trace for:%s to %s\n", err.c_str(), str_fn);
-	LeaveCriticalSection(&m_trace_crit);
-
-
-
-	return false;
+	return true;
 }
