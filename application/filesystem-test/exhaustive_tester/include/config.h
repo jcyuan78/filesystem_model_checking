@@ -6,14 +6,16 @@
 
 // Metadata 分布
 #define CKPT_START_BLK			(0)
-#define CKPT_BLK_NR				(1)
+#define CKPT_BLK_NR				(6)		// 1个cur_seg，1个NIT journal 4个SIT journal
+#define SIT_JOURNAL_BLK			(4)
+
 #define SIT_START_BLK			(CKPT_START_BLK + CKPT_BLK_NR)	// 1
 #define SIT_BLK_NR				(10)		// 总共10个SIT block(120个main segment)
 #define NAT_START_BLK			(SIT_START_BLK + SIT_BLK_NR)	// 11
 #define NAT_BLK_NR				(8)								// NAT block的数量
 #define SSA_START_BLK			(NAT_START_BLK + NAT_BLK_NR)	// 19
 #define SSA_BLK_NUM				(MAIN_SEG_NR)					// 118
-#define MAIN_START_BLK			// 19+118= 237 < 320
+#define END_META_BLK			(SSA_START_BLK + SSA_BLK_NUM)	// 19+118= 237 < 320
 
 #define BLOCK_PER_SEG			(32)					// 一个segment有多少块
 #define BITMAP_SIZE				(BLOCK_PER_SEG /32)		// 512 blocks / 32 bit
@@ -21,6 +23,7 @@
 #define MAIN_SEG_OFFSET			(10)
 #define MAIN_SEG_NR				(SEG_NUM - MAIN_SEG_OFFSET)
 #define MAIN_BLK_NR				(MAIN_SEG_NR * BLOCK_PER_SEG)
+
 
 // checkpoint and journal
 #define JOURNAL_NR				(32)
@@ -30,10 +33,11 @@
 #define SUMMARY_PER_BLK			(BLOCK_PER_SEG)		// 
 #define GC_THRESHOLD_LO			(5)
 #define GC_THRESHOLD_HI			(15)
+#define RESERVED_SEG			(6)						// 保留的segmeng数量，用于在close, delete, sync时的写入
 
 // NAT
 #define NAT_ENTRY_PER_BLK		(32)			// 每个NAT block的entry数量
-#define NODE_NR					(256)			// inode和index node的数量
+#define NODE_NR					(128)			// inode和index node的数量
 
 // SSD 空间
 #define TOTAL_BLOCK_NR			(SEG_NUM * BLOCK_PER_SEG)

@@ -156,6 +156,7 @@
   <ItemGroup>
     <ClInclude Include="include\config.h" />
     <ClInclude Include="include\extester.h" />
+    <ClInclude Include="include\ext_simulator.h" />
     <ClInclude Include="include\f2fs_segment.h" />
     <ClInclude Include="include\f2fs_simulator.h" />
     <ClInclude Include="include\fs_simulator.h" />

@@ -13,8 +13,6 @@ class CPageInfo;
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // == page info and page allocator ==
 
-typedef DWORD SEG_T;
-typedef DWORD BLK_T;
 typedef void* DATA_BLK;
 
 class CStorage;
@@ -27,7 +25,7 @@ struct SEG_INFO
 public:
 	// block存放在storage中，
 	DWORD valid_bmp[BITMAP_SIZE];
-	// 当segment free的时候，作为free链表的指针使用。valid_blk_nr == INVALID_BLK 表示block为free，可以再分配
+	// 当segment free的时候，作为free链表的指针使用。valid_blk_nr == -1 表示block为free，可以再分配
 	DWORD valid_blk_nr;		
 //	DWORD cur_blk;			// 可以分配的下一个block, 0:表示这个segment未被使用，BLOCK_PER_SEG：表示已经填满，其他：当前segment
 							// 当block free时， cur_blk表示free指针
@@ -65,6 +63,21 @@ struct SIT_JOURNAL_ENTRY {
 	SEG_INFO seg_info;
 };
 
+struct CKPT_CURSEG
+{
+	CURSEG_INFO cur_segs[BT_TEMP_NR];
+	UINT nat_journal_nr, sit_journal_nr;
+};
+struct CKPT_NAT_JOURNAL
+{
+	NAT_JOURNAL_ENTRY nat_journals[JOURNAL_NR];
+};
+
+struct CKPT_SIT_JOURNAL
+{
+	SIT_JOURNAL_ENTRY sit_journals[JOURNAL_NR/SIT_JOURNAL_BLK];
+};
+
 struct CKPT_BLOCK
 {
 	CURSEG_INFO cur_segs[BT_TEMP_NR];
@@ -76,19 +89,19 @@ struct CKPT_BLOCK
 // Segment Info的内存数据结构：
 //	free segment的表示：valid_blk_nr == 0；
 //	free link: cur_blk
-#define SEG_NEXT_FREE	cur_blk
+//#define SEG_NEXT_FREE	cur_blk
 
 class SegmentInfo
 {
 public:
 	DWORD valid_bmp[BITMAP_SIZE];
-	UINT valid_blk_nr;	// 当segment free的时候，作为free链表的指针使用。valid_blk_nr == INVALID_BLK 表示block为free，可以再分配
-	DWORD cur_blk;		// 可以分配的下一个block, 0:表示这个segment未被使用，BLOCK_PER_SEG：表示已经填满，其他：当前segment
+	UINT valid_blk_nr;	// 当segment free的时候，作为free链表的指针使用。valid_blk_nr == -1 表示block为free，可以再分配
+//	DWORD cur_blk;		// 可以分配的下一个block, 0:表示这个segment未被使用，BLOCK_PER_SEG：表示已经填满，其他：当前segment
 	// 当block free时， cur_blk表示free指针
 	BLK_TEMP seg_temp;	// 指示segment的温度，用于GC和
 	NID		nids[BLOCK_PER_SEG];
 	WORD	offset[BLOCK_PER_SEG];
-//	SEG_T	free_next, free_prev;	// 构成free链表的双向指针
+	SEG_T	free_next;	// 构成free链表的双向指针
 };
 
 inline DWORD OffsetToBlock(LBLK_T& start_blk, LBLK_T& end_blk, FSIZE start_lba, FSIZE secs)
@@ -221,7 +234,7 @@ public:
 	}
 
 	inline static void BlockToSeg(SEG_T& seg_id, BLK_T& blk_id, PHY_BLK phy_blk) {
-		if (phy_blk == INVALID_BLK) { seg_id = INVALID_BLK;				blk_id = INVALID_BLK; }
+		if (is_invalid(phy_blk) ) { seg_id = INVALID_BLK;				blk_id = INVALID_BLK; }
 		else { seg_id = phy_blk / BLOCK_PER_SEG;	blk_id = phy_blk % BLOCK_PER_SEG; }
 	}
 
@@ -256,27 +269,35 @@ public:
 	void SyncSIT(void);
 	void SyncSSA(void);
 	void f2fs_flush_sit_entries(CKPT_BLOCK& checkpoint);
-//	void fill_sit_block(SEG_INFO* seg_info, SEG_T seg);
+	void f2fs_out_sit_journal(SIT_JOURNAL_ENTRY* journal, UINT &journal_nr);
 	void fill_seg_info(SEG_INFO* seg_info, SEG_T seg);
 	void read_seg_info(SEG_INFO* seg_info, SEG_T seg);
 	// 从storage中读取 
 	bool Load(CKPT_BLOCK & checkpoint);
 
+protected:
+	// 查找一个空的segment: force：可以使用保留区域
+	SEG_T AllocSegment(BLK_TEMP temp, bool by_gc, bool force);
+	// 回收一个segment
+	void FreeSegment(SEG_T seg_id);
+	// 将segment ii添加到free queue (head)中
+	void free_en_queue(SEG_T ii);
+	SEG_T free_de_queue(void);
+	void build_free_link(void);
+
 public:
 	void reset_dirty_map(void) {
 		memset(m_dirty_map, 0, sizeof(m_dirty_map));
 	}
-	// 查找一个空的segment
-	SEG_T AllocSegment(BLK_TEMP temp);
+public:
 
-	// 回收一个segment
-	void FreeSegment(SEG_T seg_id);
 	bool InvalidBlock(PHY_BLK phy_blk);
 	bool InvalidBlock(SEG_T seg_id, BLK_T blk_id);
 
 	// 将src_seg, src_blk中的block，移动到temp相关的当前segment，返回目标(segment,block)
 	SEG_T get_seg_nr(void) const { return MAIN_SEG_NR; }
 	SEG_T get_free_nr(void) const { return m_free_nr; }
+	PHY_BLK get_free_blk_nr(void) const { return MAIN_SEG_NR * BLOCK_PER_SEG - m_used_blk_nr; }
 
 	const SegmentInfo& get_segment(SEG_T id) const	{
 		JCASSERT(id < MAIN_SEG_NR);
@@ -295,11 +316,11 @@ public:
 	void SetBlockInfo(NID nid, WORD offset, PHY_BLK phy_blk);
 
 	// 写入data block到segment, file_index 文件id, blk：文件中的相对block，temp温度
-	void CheckGarbageCollection(CF2fsSimulator* fs)	{
-		if (m_free_nr < m_gc_lo) GarbageCollection(fs);
-	}
+	//void CheckGarbageCollection(CF2fsSimulator* fs)	{
+	//	if (m_free_nr < m_gc_lo) GarbageCollection(fs);
+	//}
 	// 将page写入磁盘
-	PHY_BLK WriteBlockToSeg(CPageInfo * page, bool by_gc=false);
+	PHY_BLK WriteBlockToSeg(CPageInfo * page, bool force, bool by_gc=false);
 
 	ERROR_CODE GarbageCollection(CF2fsSimulator * fs);
 	inline SEG_T SegId(SegmentInfo* seg) const {return (SEG_T)(seg - m_segments);}
@@ -325,10 +346,9 @@ protected:
 	DWORD m_dirty_map[SIT_BLK_NR];
 
 protected:
-	void build_free_link(void);
 	// free
-	SEG_T m_free_nr, m_free_ptr;
-
+	SEG_T m_free_tail, m_free_head, m_free_nr; // head指向链表最后，用于en-queue; tail指向链表头，用于de-queue
+	PHY_BLK	m_used_blk_nr;
 
 protected:
 	CF2fsSimulator* m_fs;
@@ -339,13 +359,11 @@ protected:
 
 protected:
 	FsHealthInfo* m_health_info = nullptr;
-
-
-	// for debug
-public:
-#ifdef GC_TRACE
-	std::vector<GC_TRACE> gc_trace;
-#endif
+	struct DATA_PAGE_CACHE {
+		NID nid;
+		UINT offset;
+		CPageInfo* page;
+	} m_data_cache;
 };
 
 const char* BLK_TEMP_NAME[];

@@ -14,7 +14,7 @@ typedef UINT FSIZE;
 
 #define MAX_ENCODE_SIZE (MAX_FILE_NUM *2)
 
-#define INVALID_BLK		(0xFFFFFFFF)
+//#define INVALID_BLK		(0xFFFFFFFF)
 
 enum OP_CODE
 {
@@ -31,12 +31,12 @@ enum OP_CODE
 class TRACE_ENTRY
 {
 public:
-	UINT64 ts;
+//	UINT64 ts;
 	OP_CODE op_code = OP_CODE::OP_NOP;
-	DWORD thread_id;
+//	DWORD thread_id;
 	std::string file_path;
 	UINT fid;				// 对于已经打开的文件，传递文件号
-	UINT64 duration = 0;	// 操作所用的时间
+//	UINT64 duration = 0;	// 操作所用的时间
 	UINT op_sn;
 	union {
 		struct {

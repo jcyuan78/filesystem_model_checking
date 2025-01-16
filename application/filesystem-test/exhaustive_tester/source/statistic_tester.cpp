@@ -54,6 +54,7 @@ int CExStatisticTester::PreTest(void)
 
 	return 0;
 }
+
 void CExStatisticTester::FinishTest(void)
 {
 //	DestroyThreadpoolEnvironment(&m_tp_environ);
@@ -110,44 +111,54 @@ ERROR_CODE CExStatisticTester::RunTest(void)
 	CFsState init_state;
 	init_state.m_real_fs = m_fs_factory;
 	m_fs_factory->add_ref();
-//	memset(&init_state, 0, sizeof(CFsState));
 	
 	m_tested = 0;
 	m_failed = 0;
 	m_testing = 0;
 	LONG test = 0;
-//	for (UINT test = 0; test < m_test_times; ++test)
-	while (1)
-	{
-		DWORD ir = WaitForSingleObject(m_cmp_doorbell, INFINITE);
-		if (ir != 0) THROW_WIN32_ERROR(L"failed on waiting completion doorbell");
-		// 取出Queue
-		EnterCriticalSection(&m_cmp_crit);
-		WORK_CONTEXT* work = m_cmp_q.front();
-		m_cmp_q.pop_front();
-		LeaveCriticalSection(&m_cmp_crit);
-		if (work->test_id != (UINT)-1)
-		{	// 处理结果
-//			m_states.put()
-			m_tested++;
-			if (work->result != ERR_OK) m_failed++;
-//			printf_s("cmp:dqueue, test_id=%d\n", work->test_id);
-		}
-		if (m_tested >= m_test_times) break;
-
-		// 准备新的测试
-		if (test < m_test_times)
+	if (m_thread_num > 1) {
+		while (1)
 		{
-//			m_fs_factory->add_ref();
-			work->test_id = test;
-			work->src_state = &init_state;
-			work->result = ERR_UNKNOWN;
-			EnterCriticalSection(&m_sub_crit);
-			m_sub_q.push_back(work);
-			LeaveCriticalSection(&m_sub_crit);
-			ReleaseSemaphore(m_sub_doorbell, 1, nullptr);
-//			printf_s("sub:enqueue, test_id=%d\n", work->test_id);
-			test++;
+			DWORD ir = WaitForSingleObject(m_cmp_doorbell, INFINITE);
+			if (ir != 0) THROW_WIN32_ERROR(L"failed on waiting completion doorbell");
+			// 取出Queue
+			EnterCriticalSection(&m_cmp_crit);
+			WORK_CONTEXT* work = m_cmp_q.front();
+			m_cmp_q.pop_front();
+			LeaveCriticalSection(&m_cmp_crit);
+			if (work->test_id != (UINT)-1)
+			{	// 处理结果
+				m_tested++;
+				if (work->result != ERR_OK) m_failed++;
+			}
+			if (m_tested >= m_test_times) break;
+
+			// 准备新的测试
+			if (test < m_test_times)
+			{
+				work->test_id = test;
+				work->src_state = &init_state;
+				work->result = ERR_UNKNOWN;
+				EnterCriticalSection(&m_sub_crit);
+				m_sub_q.push_back(work);
+				LeaveCriticalSection(&m_sub_crit);
+				ReleaseSemaphore(m_sub_doorbell, 1, nullptr);
+				test++;
+			}
+		}
+	}
+	else {
+		CStateManager states;
+		states.Initialize(0, false);
+		for (; test < m_test_times; test++) {
+			DWORD tid = GetCurrentThreadId();
+			srand(tid+test);
+			CFsState* ss = states.get();
+			IFsSimulator* fs = nullptr;
+			init_state.m_real_fs->Clone(fs);
+			ss->Initialize("\\", fs);
+
+			ERROR_CODE ir = OneTest(ss, test, tid+test, &states);
 		}
 	}
 	return ERR_OK;
@@ -179,11 +190,9 @@ DWORD CExStatisticTester::RunTestQueue(void)
 		CFsState* src_state = context->src_state;
 
 		CFsState* init_state = states.get();
-//		init_state->m_ref = 1;
 		IFsSimulator* fs = nullptr;
 		// 此处的m_real_fs是m_fs_factory;
 		src_state->m_real_fs->Clone(fs);
-//		fs->add_ref();
 		init_state->Initialize("\\", fs);
 		int seed = tid + rand();
 
@@ -212,11 +221,12 @@ ERROR_CODE CExStatisticTester::OneTest(CFsState* src_state, DWORD test_id, int s
 	ERROR_CODE ir = ERR_OK;
 	std::string err_msg = "Succeeded";
 //	CFsState* cur_state = init_state;
-	std::vector<TRACE_ENTRY> ops;
+//	std::vector<TRACE_ENTRY> ops;
+	TRACE_ENTRY ops[MAX_WORK_NR];
 	InterlockedIncrement(&m_testing);
 	for (int depth = 0; depth < m_test_depth; depth++)
 	{
-		size_t op_nr = GenerateOps(cur_state, ops);
+		size_t op_nr = GenerateOps(cur_state, ops, MAX_WORK_NR);
 		// 返回的op_nr 可能比ops.size()小。
 		// 从可能的操作中随机选择一个操作，并执行
 		int rr = rand();
@@ -236,17 +246,22 @@ ERROR_CODE CExStatisticTester::OneTest(CFsState* src_state, DWORD test_id, int s
 		catch (jcvos::CJCException& err)
 		{
 			err_msg = err.what();
-			printf_s("Test id=%d, Thread id=%d, Test failed with exception: %s\n", test_id, tid, err_msg.c_str());
-//			printf_s("Test id=%d, Thread id=%d, Test failed with exception\n", test_id, tid);
+			char str[256];
+			Op2String(str, cur_state->m_op);
+
+			printf_s("Test Failed: test id=%d, thread id=%d, step=%d, op=%s\n", test_id, tid, depth, str);
+			printf_s("\t reason: % s\n",  err_msg.c_str());
 
 			CFsException* fs_err = dynamic_cast<CFsException*>(&err);
 			if (fs_err) ir = fs_err->get_error_code();
 			else 		ir = ERR_GENERAL;
+			break;
 		}
 
-		if (ir != ERR_OK)	{	break;	}
+		if (ir > ERR_NO_SPACE)	{	break;	}
 		UpdateFsParam(cur_state->m_real_fs);
 	}
+	if (ir <= ERR_NO_SPACE) ir = ERR_OK;
 //	printf_s("Output trace, test_id=%d, thread_id=%d\n", test_id, tid);
 	// out error message
 	char str[512];

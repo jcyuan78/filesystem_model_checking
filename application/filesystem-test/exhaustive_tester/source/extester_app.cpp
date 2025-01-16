@@ -7,7 +7,7 @@
 #include <boost/property_tree/json_parser.hpp>
 
 #ifdef _DEBUG
-#include <vld.h>
+//#include <vld.h>
 #endif
 
 LOCAL_LOGGER_ENABLE(L"simulation.app", LOGGER_LEVEL_DEBUGINFO);
@@ -49,6 +49,9 @@ int CExhaustiveTesterApp::Initialize(void)
 {
 	//	EnableSrcFileParam('i');
 	EnableDstFileParam('o');
+	DWORD col = CJCLogger::Instance()->GetColumnSelect();
+	col |= CJCLogger::COL_THREAD_ID;
+	CJCLogger::Instance()->SetColumnSelect(col);
 	return 0;
 }
 

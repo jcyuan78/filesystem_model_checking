@@ -48,6 +48,9 @@
     <ClInclude Include="include\pages.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="include\ext_simulator.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="source\extester_app.cpp">

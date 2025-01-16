@@ -16,10 +16,10 @@ LOCAL_LOGGER_ENABLE(L"extester.multithread", LOGGER_LEVEL_DEBUGINFO);
 #define DoFsOperator_ DoFsOperator_Thread
 #endif
 
-ERROR_CODE CExTester::EnumerateOp_Thread(std::vector<TRACE_ENTRY>& ops, CFsState* cur_state, std::list<CFsState*>::iterator& insert)
+ERROR_CODE CExTester::EnumerateOp_Thread(TRACE_ENTRY* ops, size_t op_size, CFsState* cur_state, std::list<CFsState*>::iterator& insert)
 {
 	LOG_STACK_TRACE();
-	size_t op_nr = GenerateOps(cur_state, ops);
+	size_t op_nr = GenerateOps(cur_state, ops, op_size);
 
 	UINT context_id = 0;
 	for (size_t ii = 0; ii < op_nr; ++ii)
@@ -180,20 +180,32 @@ ERROR_CODE CExTester::EnumerateOp_Thread(std::vector<TRACE_ENTRY>& ops, CFsState
 	return ERR_OK;
 }
 
-ERROR_CODE CExTester::EnumerateOp_Thread_V2(std::vector<TRACE_ENTRY>& ops, CFsState* cur_state, 
+ERROR_CODE CExTester::EnumerateOp_Thread_V2(TRACE_ENTRY* ops, size_t op_size, CFsState* cur_state,
 		std::list<CFsState*>::iterator& insert)
 {
 	LOG_STACK_TRACE();
-	size_t op_nr = GenerateOps(cur_state, ops);
+	size_t op_nr = GenerateOps(cur_state, ops, op_size);
 
 	UINT context_id = 0;
 //	LOG_DEBUG(L"op num= %d", ops.size());
 	// 从可能的操作中随机选择一个操作，并执行
-	for (int ii = 0; ii < m_branch; ++ii)
-	{
-		int index = rand() % op_nr;
-		TRACE_ENTRY& op = ops[index];
-		DoFsOperator_(cur_state, op, m_works + (context_id++));
+	if (m_branch > 0)
+	{	// 随机测试
+		for (int ii = 0; ii < m_branch; ++ii)
+		{
+			int index = rand() % op_nr;
+			TRACE_ENTRY& op = ops[index];
+			DoFsOperator_(cur_state, op, m_works + (context_id++));
+		}
+	}
+	else
+	{	//全面测试
+		for (size_t ii = 0; ii < op_nr; ++ii)
+		{
+			TRACE_ENTRY& op = ops[ii];
+			DoFsOperator_(cur_state, op, m_works + (context_id++));
+			if (context_id >= MAX_WORK_NR) break;
+		}
 	}
 
 	// 等待线程结束
@@ -226,9 +238,11 @@ ERROR_CODE CExTester::EnumerateOp_Thread_V2(std::vector<TRACE_ENTRY>& ops, CFsSt
 			if (m_closed.Check(state))		{		m_states.put(state);	}
 			else		{
 				m_open_list.insert(insert, state);
+				m_closed.Insert(state);
 				UpdateFsParam(state->m_real_fs);
 			}
 		}
+		m_states.put(result->src_state);
 		result->result = ERR_UNKNOWN;
 	}
 #else
@@ -278,7 +292,6 @@ bool CExTester::DoFsOperator_Queue(CFsState* cur_state, TRACE_ENTRY& op, WORK_CO
 	//	context->state = m_states.duplicate(cur_state);
 	context->src_state = cur_state;
 	cur_state->add_ref();
-//	InterlockedIncrement(&(cur_state->m_ref));
 
 	context->state = m_states.get();
 	context->state->m_op = op;
@@ -391,19 +404,26 @@ VOID CExTester::FsOperator_Callback(WORK_CONTEXT* context)
 	}
 	catch (jcvos::CJCException& err)
 	{
+		CFsException* _err = dynamic_cast<CFsException*>(&err);
+		if (_err) ir = _err->get_error_code();
+		else ir = ERR_UNKNOWN;
 		err_msg = err.what();
-		printf_s("Test failed with exception: %s\n", err_msg.c_str());
-		ir = ERR_GENERAL;
+		printf_s("Test failed with code=%d, (%S) exception: %s\n", ir, CFsException::ErrCodeToString(ir), err.what());
+//		ir = ERR_GENERAL;
 	}
-	if (ir != ERR_OK)
+	if (ir != ERR_OK && ir != ERR_NO_OPERATION)
 	{
-		tester->OutputTrace_Thread(context->state, ir, err_msg);
+		if (context->state->m_depth < tester->m_error_list[ir])
+		{
+			InterlockedExchange(&tester->m_error_list[ir], context->state->m_depth);
+			tester->OutputTrace_Thread(context->state, ir, err_msg, (DWORD)(ir), TRACE_REF_FS | TRACE_REAL_FS | TRACE_FILES | TRACE_JSON);
+		}
 	}
 	context->result = ir;
 //	LOG_DEBUG(L"complete work: context=%p, op=%d, code=%d", context, op.op_sn, op.op_code);
 }
 
-bool CExTester::OutputTrace_Thread(CFsState* state, ERROR_CODE ir, const std::string& err, DWORD tid)
+bool CExTester::OutputTrace_Thread(CFsState* state, ERROR_CODE ir, const std::string& err, DWORD tid, DWORD _option)
 {
 	LOG_STACK_PERFORM(L"OutputTrace");
 //	EnterCriticalSection(&m_trace_crit);
@@ -414,9 +434,12 @@ bool CExTester::OutputTrace_Thread(CFsState* state, ERROR_CODE ir, const std::st
 	fopen_s(&fp, str_fn, "w+");
 	fprintf_s(fp, "error code=%d, due to: %s\n", ir, err.c_str());
 	sprintf_s(str_fn, "%S\\trace_%d.json", m_log_path.c_str(), tid);
-	DWORD option = TRACE_REF_FS | TRACE_REAL_FS;
-	if (ir != ERR_OK) {
-		option |= (TRACE_FILES | /*TRACE_ENCODE |*/ TRACE_JSON);
+	DWORD option = _option;
+	if (option == 0) {
+		option = TRACE_REF_FS | TRACE_SUMMARY;
+		if (ir != ERR_OK) {
+			option |= (TRACE_FILES | /*TRACE_ENCODE |*/ TRACE_JSON);
+		}
 	}
 	OutputTrace(fp, str_fn, state, option);
 	fclose(fp);
@@ -426,11 +449,45 @@ bool CExTester::OutputTrace_Thread(CFsState* state, ERROR_CODE ir, const std::st
 	return true;
 }
 
+void CExTester::RealFsState(FILE* out_file, IFsSimulator* real_fs, bool file_nr)
+{
+	FS_INFO fs_info;
+	UINT real_file_nr = 0, real_dir_nr = 0;
+	FsHealthInfo health_info;
+	try {
+		real_fs->GetFsInfo(fs_info);
+		real_fs->GetHealthInfo(health_info);
+		if (file_nr) real_fs->GetFileDirNum(0, real_file_nr, real_dir_nr);		
+	}
+	catch (jcvos::CJCException& err)
+	{
+		CFsException* fs_err = dynamic_cast<CFsException*>(&err);
+		ERROR_CODE ir = ERR_UNKNOWN;
+		if (fs_err) {
+			ir = fs_err->get_error_code();
+		}
+		fprintf_s(out_file, "[err] (code=%d, %S), error happended during getting file system info\n", ir, CFsException::ErrCodeToString(ir) );
+	}
+
+	fprintf_s(out_file, "\treal_fs: dir=%d, files=%d, logic=%d, physic=%d, seg:free/total=%d / %d, blk:free/total=%d / %d, \n",
+		real_dir_nr, real_file_nr, fs_info.used_blks, fs_info.physical_blks, fs_info.free_seg, fs_info.total_seg,
+		fs_info.free_blks, fs_info.total_blks);
+	fprintf_s(out_file, "\t\t node:free/total=%d / %d\n", health_info.m_free_node_nr, health_info.m_node_nr);
+	fprintf_s(out_file, "\t\t sit_journal=%d, nat_journal=%d, gc_count=%d\n",
+		health_info.sit_journal_overflow, health_info.nat_journal_overflow, health_info.gc_count);
+}
+
+
 bool CExTester::OutputTrace(FILE* fp, const std::string& json_fn, CFsState* state, DWORD option)
 {
 	std::list<CFsState*> stack;
 	char str_encode[MAX_ENCODE_SIZE];
 	memset(str_encode, 0, sizeof(str_encode));
+	if (option | TRACE_SUMMARY) {
+		IFsSimulator* real_fs = state->m_real_fs;
+		fprintf_s(fp, "summary:\n");
+		RealFsState(fp, real_fs, true);
+	}
 	while (state)
 	{
 		FSIZE logic_blk = 0;
@@ -440,12 +497,24 @@ bool CExTester::OutputTrace(FILE* fp, const std::string& json_fn, CFsState* stat
 
 		if (option & TRACE_REAL_FS) {
 			FS_INFO fs_info;
-			fs->GetFsInfo(fs_info);
+			UINT real_file_nr = 0, real_dir_nr = 0;
+			try {
+				fs->GetFsInfo(fs_info);
+				fs->GetFileDirNum(0, real_file_nr, real_dir_nr);		// TODO: os需要保存file number以供检查
+			}
+			catch (jcvos::CJCException& err)
+			{
+				CFsException* _err = dynamic_cast<CFsException*>(&err);
+				ERROR_CODE ir = ERR_UNKNOWN;
+				if (_err) ir = _err->get_error_code();
+//				else ir = ERR_UNKNOWN;
+//				err_msg = err.what();
+				printf_s("Test failed with code=%d, (%S) exception: %s\n", ir, CFsException::ErrCodeToString(ir), err.what());
+			}
+
 			fprintf_s(fp,"\treal_fs: dir=%d, files=%d, logic=%d, physic=%d, seg:free/total=%d / %d, blk:free/total=%d / %d, \n",
-				0, 0, fs_info.used_blks, fs_info.physical_blks, fs_info.free_seg, fs_info.total_seg, 
+				real_dir_nr, real_file_nr, fs_info.used_blks, fs_info.physical_blks, fs_info.free_seg, fs_info.total_seg, 
 				fs_info.free_blks, fs_info.total_blks);
-//			fprintf_s(fp, "\tfs: encode=%s, free pages= %d / %d\n",
-//				str_encode, fs_info.free_page_nr, fs_info.total_page_nr);
 		}
 		if (option & TRACE_REF_FS) {
 			UINT ref_dir_nr = ref_fs.m_dir_num, ref_file_nr = ref_fs.m_file_num;
@@ -471,18 +540,6 @@ bool CExTester::OutputTrace(FILE* fp, const std::string& json_fn, CFsState* stat
 					ref_fs.GetFileInfo(ref_file, ref_checksum, ref_len);
 				}
 				static const size_t str_size = (INDEX_TABLE_SIZE * 10);
-#if 0
-				char str_index[str_size];
-				NID index[INDEX_TABLE_SIZE];		// 磁盘数据，
-				size_t nr = fs->DumpFileIndex(index, INDEX_TABLE_SIZE, ref_file.get_fid());
-				size_t ptr = 0;
-				for (size_t ii = 0; ii < INDEX_TABLE_SIZE; ++ii)
-				{
-					if (index[ii] == INVALID_BLK) break;
-					ptr += sprintf_s(str_index + ptr, str_size - ptr, "%03X ", index[ii]);
-			}
-				str_index[0] = 0;
-#endif
 				FSIZE file_size = ref_len, file_blk_nr = 0, file_index_nr = 0;		// 文件占用的block数量，包括inode和index node
 				logic_blk += (file_blk_nr + file_index_nr);
 				fprintf_s(fp, "\t\t<check %s> (fid=%03d) %s,\t\t blk_nr=%d, size=%d, (%s)\n",
@@ -505,7 +562,7 @@ bool CExTester::OutputTrace(FILE* fp, const std::string& json_fn, CFsState* stat
 //		fprintf_s(fp, "\ttotal logic block=%d\n", logic_blk);
 		char str[256];
 		Op2String(str, state->m_op);
-		fprintf_s(fp,"\t%s\n", str);
+		fprintf_s(fp,"\t%s, result=%d, %S\n", str, state->m_result, CFsException::ErrCodeToString(state->m_result) );
 		if (option & TRACE_JSON)	stack.push_front(state);
 		state = state->m_parent;
 	}

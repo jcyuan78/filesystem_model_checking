@@ -30,10 +30,13 @@ void CPageAllocator::Reset(void)
 
 void CPageAllocator::Init(size_t page_nr)
 {
+//	memset(m_pages, 0xFF, sizeof(m_pages));
 	// 构建free链表
 	for (UINT ii = 0; ii < m_page_nr; ++ii)
 	{
 		m_pages[ii].free_link = ii + 1;
+		m_pages[ii].in_use = false;
+//		m_pages[ii].data.m_type = BLOCK_DATA::BLOCK_FREE;
 	}
 	m_pages[m_page_nr - 1].free_link = INVALID_BLK;
 	m_free_ptr = 0;
@@ -61,11 +64,12 @@ CPageInfo* CPageAllocator::allocate(bool data)
 void CPageAllocator::free(CPageInfo* page)
 {
 	if (page == nullptr) THROW_ERROR(ERR_USER, L"page %d has been released.", page);
-
 	PAGE_INDEX page_id = this->page_id(page);
+	if (page->in_use == false) THROW_ERROR(ERR_USER, L"double free page, index=%d", page_id);
 	m_pages[page_id].free_link = m_free_ptr;
 	m_free_ptr = page_id;
 	if (m_used_nr == 0) THROW_ERROR(ERR_APP, L"over free page");
+	page->in_use = false;
 	m_used_nr--;
 }
 
@@ -85,5 +89,6 @@ void CPageInfo::Init()
 	offset = INVALID_BLK;
 	// 数据(对于inode 或者 direct node)
 	dirty = false;
-	host_write = 0;
+	in_use = true;
+//	host_write = 0;
 }

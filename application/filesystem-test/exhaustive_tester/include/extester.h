@@ -5,11 +5,12 @@
 #include "reference_fs.h"
 #include <list>
 #include <boost/unordered_set.hpp>
+#include <boost/unordered_map.hpp>
 #include <boost/date_time/posix_time/posix_time.hpp>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#define MAX_WORK_NR		64
+#define MAX_WORK_NR		512
 //#define MAX_THREAD_NR	8
 
 // 不同类型的多线程处理方式，只能定义一个
@@ -32,8 +33,10 @@ public:
 	IFsSimulator* m_real_fs = nullptr;
 	TRACE_ENTRY m_op;		// 上一个操作如何执行到这一步
 	CFsState* m_parent = nullptr;
-	int m_depth;			// 搜索深度
-	void add_ref() { m_ref++; }
+	UINT m_depth;			// 搜索深度
+	bool		m_stable = false;	// true: 表示这是一个稳定状态。Power Loss的修复不能跨过这个状态。
+	void add_ref() {	InterlockedIncrement(&m_ref);	}
+	ERROR_CODE m_result;
 protected:
 	UINT m_ref=1;			// (被参考的子节)引用计数。
 	friend class CStateManager;
@@ -117,7 +120,8 @@ public:
 	}
 	size_t size(void) { return m_fs_state.size(); }
 protected:
-	boost::unordered_set<ENCODE> m_fs_state;
+//	boost::unordered_set<ENCODE> m_fs_state;
+	boost::unordered_map<ENCODE, int> m_fs_state;
 };
 
 class CExTester;
@@ -168,7 +172,8 @@ protected:
 	// 公共方法
 protected:
 	// 根据现在的状态，枚举所有可能的操作，结果放入ops中
-	size_t GenerateOps(CFsState* cur_state, std::vector<TRACE_ENTRY> &ops);
+	//size_t GenerateOps(CFsState* cur_state, std::vector<TRACE_ENTRY> &ops);
+	size_t GenerateOps(CFsState* cur_state, TRACE_ENTRY * ops, size_t op_size);
 
 protected:
 	virtual void ShowTestFailure(FILE* log);
@@ -210,24 +215,26 @@ protected:
 	// 针对每个子项，枚举所有可能的操作。
 	//bool EnumerateOp(CFsState * cur_state, std::list<CFsState*>::iterator & insert);
 	// 枚举子操作时，将Open和Write分开，实现可以同时打开多个文件。
-	ERROR_CODE EnumerateOpV2(std::vector<TRACE_ENTRY>& ops, CFsState* cur_state, std::list<CFsState*>::iterator& insert);
+	ERROR_CODE EnumerateOpV2(TRACE_ENTRY * ops, size_t op_size, CFsState* cur_state, std::list<CFsState*>::iterator& insert);
 
-	ERROR_CODE EnumerateOp_Thread(std::vector<TRACE_ENTRY>& ops, CFsState* cur_state, std::list<CFsState*>::iterator& insert);
-	ERROR_CODE EnumerateOp_Thread_V2(std::vector<TRACE_ENTRY>& ops, CFsState* cur_state, 
+	ERROR_CODE EnumerateOp_Thread(TRACE_ENTRY* ops, size_t op_size, CFsState* cur_state, std::list<CFsState*>::iterator& insert);
+	ERROR_CODE EnumerateOp_Thread_V2(TRACE_ENTRY* ops, size_t op_size, CFsState* cur_state,
 		std::list<CFsState*>::iterator& insert);
 
 
 	enum TRACE_OPTION {
 		TRACE_FILES	= 0x00000001,	TRACE_REAL_FS	= 0x00000002,	TRACE_GC	= 0x00000004,
 		TRACE_ENCODE= 0x00000008,	TRACE_REF_FS	= 0x00000010,	TRACE_JSON	= 0x00000020,
+		TRACE_SUMMARY=0x00000040,
 	};
 	// for monitor thread
 	static DWORD WINAPI _RunTest(PVOID p);
 	virtual bool PrintProgress(INT64 ts);
 	bool OutputTrace(CFsState* state);
-	bool OutputTrace_Thread(CFsState* state, ERROR_CODE ir, const std::string & err, DWORD trace_id=0);
+	bool OutputTrace_Thread(CFsState* state, ERROR_CODE ir, const std::string & err, DWORD trace_id=0, DWORD option=0);
 	bool OutputTrace(FILE* out_file, const std::string & json_fn, CFsState* state, DWORD option);
 	void UpdateFsParam(IFsSimulator* fs);
+	void RealFsState(FILE* out_file, IFsSimulator* real_fs, bool file_nr );
 
 protected:
 	// make fs, mount fs, 和unmount fs是可选项。暂不支持。
@@ -255,6 +262,7 @@ protected:
 	int m_test_depth;						// 最大测试深度
 	size_t m_volume_size;					// 文件系统大小
 	int m_branch;							// 统计测试时，抽选的分支数量
+	bool m_check_power_loss;				
 
 	std::vector<OP_CODE> m_file_op_set;		// 对于文件，允许的操作
 	std::vector<OP_CODE> m_dir_op_set;		// 对于目录，允许的操作
@@ -269,8 +277,6 @@ protected:
 	DWORD m_test_thread_id;
 	HANDLE m_test_thread;
 	HANDLE m_test_event;
-	// 正在扩展的状态，这个状态即不再open list也不在 closed list中。当遇到错误时，需要回收这个状态。
-//	CFsState* m_cur_state = nullptr;
 	// 记录当前测试的最大深度，当测试终止时，会输出这个状态的trace。
 	CFsState* m_max_depth_state = nullptr;
 	// 控制测试停止，到该变量设置为1时，测试停止。
@@ -285,13 +291,13 @@ protected:
 	UINT m_logical_blks = 0, m_physical_blks = 0, m_total_blks, m_free_blks = -1;	// 逻辑饱和度，物理饱和度，空闲块
 	LONG64 m_host_write=0, m_media_write=0;
 	// 文件系统参数，用于限制测试范围
-	UINT m_max_opened_file_nr;
 
 	// log support
 	std::wstring m_log_path;
 	FILE* m_log_file = nullptr;
 	char m_log_buf[1024];
 	FILE* m_log_performance;
+	UINT m_error_list[ERR_ERROR_NR];	// 用于记录不同error code发生的深度，保存每个error code最下深度的trace。
 
 	// 其他
 	IFsSimulator* m_fs_factory = nullptr;		// 这里的fs作为文件系统初始状态，以及的factory，用于创建文件测试用的文件系统。

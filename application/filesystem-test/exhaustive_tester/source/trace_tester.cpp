@@ -128,71 +128,82 @@ ERROR_CODE CExTraceTester::RunTest(void)
 		CFsState* next_state = m_states.duplicate(cur_state);
 		next_state->m_op = op;
 		bool is_power_off = false;
-		switch (op.op_code)
-		{
-		case OP_CODE::OP_NOP:			break;
-		case OP_CODE::OP_FILE_CREATE:
-			printf_s("[CreateFile] %s\n", op.file_path.c_str());
-			ir = TestCreateFile(next_state, op.file_path);
-			break;
-		case OP_CODE::OP_DIR_CREATE:
-			printf_s("[CreateDir] %s\n", op.file_path.c_str());
-			ir = TestCreateDir(next_state, op.file_path);
-			break;
-		case OP_CODE::OP_FILE_DELETE:
-			printf_s("[DeleteFile] %s\n", op.file_path.c_str());
-			ir = TestDeleteFile(next_state, op.file_path);
-			break;
-		case OP_CODE::OP_DIR_DELETE:
-			printf_s("[DeleteDir] %s\n", op.file_path.c_str());
-			ir = TestDeleteDir(next_state, op.file_path);
-			break;
-		case OP_CODE::OP_MOVE:			break;
-		case OP_CODE::OP_FILE_WRITE: {
-			CReferenceFs::CRefFile* ref_file = next_state->m_ref_fs.FindFile(op.file_path);
-			NID fid = ref_file->get_fid();
-			printf_s("[WriteFile] %s, fid=%d, offset=%d, len=%d\n", op.file_path.c_str(), fid, op.offset, op.length);
-			ir = TestWriteFileV2(next_state, fid, op.offset, op.length, op.file_path);
-			break; }
-		case OP_CODE::OP_FILE_OPEN:			
-			printf_s("[OpenFile] %s\n", op.file_path.c_str());
-			ir =TestOpenFile(next_state, op.file_path);
-			break;
+		fs = next_state->m_real_fs;
+		std::string err_msg = "";
+		try {
+			switch (op.op_code)
+			{
+			case OP_CODE::OP_NOP:			break;
+			case OP_CODE::OP_FILE_CREATE:
+				printf_s("[CreateFile] %s\n", op.file_path.c_str());
+				ir = TestCreateFile(next_state, op.file_path);
+				break;
+			case OP_CODE::OP_DIR_CREATE:
+				printf_s("[CreateDir] %s\n", op.file_path.c_str());
+				ir = TestCreateDir(next_state, op.file_path);
+				break;
+			case OP_CODE::OP_FILE_DELETE:
+				printf_s("[DeleteFile] %s\n", op.file_path.c_str());
+				ir = TestDeleteFile(next_state, op.file_path);
+				break;
+			case OP_CODE::OP_DIR_DELETE:
+				printf_s("[DeleteDir] %s\n", op.file_path.c_str());
+				ir = TestDeleteDir(next_state, op.file_path);
+				break;
+			case OP_CODE::OP_MOVE:			break;
+			case OP_CODE::OP_FILE_WRITE: {
+				CReferenceFs::CRefFile* ref_file = next_state->m_ref_fs.FindFile(op.file_path);
+				NID fid = ref_file->get_fid();
+				printf_s("[WriteFile] %s, fid=%d, offset=%d, len=%d\n", op.file_path.c_str(), fid, op.offset, op.length);
+				ir = TestWriteFileV2(next_state, fid, op.offset, op.length, op.file_path);
+				break; }
+			case OP_CODE::OP_FILE_OPEN:
+				printf_s("[OpenFile] %s\n", op.file_path.c_str());
+				ir = TestOpenFile(next_state, op.file_path);
+				break;
 
-		case OP_CODE::OP_FILE_CLOSE: {
-			CReferenceFs::CRefFile* ref_file = next_state->m_ref_fs.FindFile(op.file_path);
-			NID fid = ref_file->get_fid();
-			printf_s("[CloseFile] %s, fid=%d\n", op.file_path.c_str(), fid);
-			ir = TestCloseFile(next_state, fid, op.file_path);
-			break; }
+			case OP_CODE::OP_FILE_CLOSE: {
+				CReferenceFs::CRefFile* ref_file = next_state->m_ref_fs.FindFile(op.file_path);
+				NID fid = ref_file->get_fid();
+				printf_s("[CloseFile] %s, fid=%d\n", op.file_path.c_str(), fid);
+				ir = TestCloseFile(next_state, fid, op.file_path);
+				break; }
 
-		case OP_CODE::OP_DEMOUNT_MOUNT:
-			printf_s("[Mount] \n");
-			ir =TestMount(next_state);
-			break;
-		case OP_CODE::OP_POWER_OFF_RECOVER:	
-			printf_s("[Power] \n");
-			is_power_off = true;
-			ir = TestPowerOutage(next_state, op.rollback);
-			break;
+			case OP_CODE::OP_DEMOUNT_MOUNT:
+				printf_s("[Mount] \n");
+				ir = TestMount(next_state);
+				break;
+			case OP_CODE::OP_POWER_OFF_RECOVER:
+				printf_s("[Power] \n");
+				is_power_off = true;
+				ir = TestPowerOutage(next_state, op.rollback);
+				break;
 
-		case OP_CODE::OP_FILE_VERIFY: 
-			ir = Verify(next_state);
-			 break;
-		default:						break;
+			case OP_CODE::OP_FILE_VERIFY:
+				ir = Verify(next_state);
+				break;
+			default:						break;
+			}
 		}
-		printf_s("[Verify] \n");
-		if (is_power_off)	ir = VerifyForPower(next_state);
-		else				ir = Verify(next_state);
-		FS_INFO fs_info;
-		fs->GetFsInfo(fs_info);
-		printf_s("fs: logic=%d, phisic=%d, total_blk=%d, free_blk=%d, total_seg=%d, free_seg=%d\n",
-			fs_info.used_blks, fs_info.physical_blks, fs_info.total_blks, fs_info.free_blks, fs_info.total_seg, fs_info.free_seg);
-		printf_s("fs: free pages= %d / %d, free data = %d / %d\n",
-			fs_info.free_page_nr, fs_info.total_page_nr, fs_info.free_data_nr, fs_info.total_data_nr);
+		catch (jcvos::CJCException& err)
+		{
+			JCASSERT(0);
+			char str[256];
+			Op2String(str, next_state->m_op);
+
+			err_msg = err.what();
+			printf_s("Step=%d, op=(%s), Test failed with exception: %s\n", step, str, err_msg.c_str());
+			CFsException* fs_err = dynamic_cast<CFsException*>(&err);
+			if (fs_err) ir = fs_err->get_error_code();
+			else 		ir = ERR_GENERAL;
+		}
+		//printf_s("[Verify] \n");
+		//if (is_power_off)	ir = VerifyForPower(next_state);
+		//else				ir = Verify(next_state);
+		RealFsState(stdout, fs, false);
 		printf_s("\n");
 
-		OutputTrace_Thread(next_state, ir, "debug");
+		OutputTrace_Thread(next_state, ir, "debug", 100, TRACE_REF_FS | TRACE_REAL_FS | TRACE_FILES);
 		m_states.put(cur_state);
 		cur_state = next_state;
 	}
@@ -234,8 +245,7 @@ bool CExTester::OutputTrace(CFsState* state)
 		fs->GetFsInfo(fs_info);
 		TEST_LOG("\tfs: logic=%d, phisic=%d, total_blk=%d, free_blk=%d, total_seg=%d, free_seg=%d\n",
 			 fs_info.used_blks, fs_info.physical_blks, fs_info.total_blks, fs_info.free_blks, fs_info.total_seg, fs_info.free_seg);
-		TEST_LOG("\tfs: free pages= %d / %d, free data = %d / %d\n",
-			fs_info.free_page_nr, fs_info.total_page_nr, fs_info.free_data_nr, fs_info.total_data_nr);
+		TEST_LOG("\tfs: free pages= %d / %d\n",	fs_info.free_page_nr, fs_info.total_page_nr);
 
 		CReferenceFs& ref = state->m_ref_fs;
 		auto endit = ref.End();
@@ -255,19 +265,8 @@ bool CExTester::OutputTrace(CFsState* state)
 			}
 			static const size_t str_size = (INDEX_TABLE_SIZE * 10);
 			char str_index[str_size];
-#if 0
-			NID index[INDEX_TABLE_SIZE];		// ´ÅÅÌÊý¾Ý£¬
-			size_t nr = fs->DumpFileIndex(index, INDEX_TABLE_SIZE, ref_file.get_fid());
-			size_t ptr = 0;
-			for (size_t ii = 0; ii < INDEX_TABLE_SIZE; ++ii)
-			{
-				if (index[ii] == INVALID_BLK) break;
-				ptr += sprintf_s(str_index+ptr, str_size-ptr, "%03X ", index[ii]);
-			}
-#else
-			str_index[0] = 0;
-#endif
 
+			str_index[0] = 0;
 			TEST_LOG("\t\t<check %s> (fid=%02d) %s [%s], (%s), size=%d\n",
 				dir ? "dir " : "file", ref_file.get_fid(), path.c_str(), str_index, str_encode, ref_len);
 

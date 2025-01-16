@@ -1,6 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //#include "pch.h"
 #include "../include/reference_fs.h"
+#include "../include/fs_simulator.h"
 #include <boost/cast.hpp>
 
 LOCAL_LOGGER_ENABLE(L"ref_fs", LOGGER_LEVEL_DEBUGINFO);
@@ -173,7 +174,7 @@ void CReferenceFs::Demount(void)
 {	// 关闭所有文件
 	for (int ii=0; ii<MAX_FILE_NUM; ++ii)
 	{
-		if (m_files[ii].fid != INVALID_BLK)
+		if (is_valid(m_files[ii].fid))
 		{
 			m_files[ii].m_is_open = false;
 		}

@@ -7,11 +7,11 @@
 struct StorageEntry
 {
 public:
-	UINT lba;
+	LBLK_T lba;
 	BLOCK_DATA data;
 	// 仅用于storage。在power outage测试专用，标志数据的更新链。数据在cache中可以被多次更新。
 	// 对于每个数据块，构成一个双向链表。prev指向数据的前一个版本，next指向数据的新版本。storage中的block时链表头。
-	WORD cache_next, cache_prev;
+	LBLK_T cache_next, cache_prev;
 };
 
 class CStorage
@@ -23,16 +23,16 @@ public:
 	void Initialize(void);
 	void CopyFrom(const CStorage* src);
 public:
-	void BlockWrite(UINT lba, CPageInfo * page);
-	void BlockRead(UINT lba, CPageInfo * page);
+	void BlockWrite(LBLK_T lba, CPageInfo * page);
+	void BlockRead(LBLK_T lba, CPageInfo * page);
 	void Sync(void);
-	UINT GetCacheNum(void);
-	void Rollback(UINT nr);
+	LBLK_T GetCacheNum(void);
+	void Rollback(LBLK_T nr);
 	void Reset(void);
 
 protected:
-	void cache_enque(UINT lba, UINT cache_index);						// 节点插入cache
-	void cache_deque(UINT cache_index);		// cache index的节点移出
+	void cache_enque(LBLK_T lba, LBLK_T cache_index);						// 节点插入cache
+	void cache_deque(LBLK_T cache_index);		// cache index的节点移出
 
 protected:
 	StorageEntry m_data[TOTAL_BLOCK_NR];
@@ -42,5 +42,5 @@ protected:
 	// 模拟power outage时，通过rollback()函数删除部分cache内容。
 	// 
 	StorageEntry m_cache[SSD_CACHE_SIZE];
-	UINT m_cache_head, m_cache_tail, m_cache_size;
+	LBLK_T m_cache_head, m_cache_tail, m_cache_size;
 };

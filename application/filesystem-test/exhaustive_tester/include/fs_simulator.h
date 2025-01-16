@@ -9,18 +9,32 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // == pages  ==
-#define INVALID_BLK		(0xFFFFFFFF)
-#define NID_IN_USE		(0xFFFFFFF0)
-#define INVALID_FID		(0xFFFF)
+#define INVALID_BLK		(-1)
+#define NID_IN_USE		(0xFFFE)
+//#define INVALID_FID		(-1)
 #define BLOCK_SIZE		(512)			// 块的大小
+
+template <typename T>
+inline bool is_valid(const T val) { return val != (T)(-1); }
+template <typename T>
+inline bool is_invalid(const T val) { return val == (T)(-1); }
+
 
 
 enum ERROR_CODE
 {
 	ERR_OK = 0,
-	ERR_NO_OPERATION,	// 测试过程中，正常情况下，当前操作无法被执行。
+	ERR_NO_OPERATION =1,	// 测试过程中，正常情况下，当前操作无法被执行。
+//	ERR_NO_SPACE=2,	// 由于资源不够放弃操作
+	ERR_NO_SPACE,		// GC时发现空间不够，无法回收更多segment
+//	ERR_NO_SPACE,
+//	ERR_NO_SPACE,	// 文件夹的dentry已经满了
+	ERR_MAX_OPEN_FILE,	// 打开的文件超过数量
+
 	ERR_GENERAL,
+
 	OK_ALREADY_EXIST,	// 文件或者目录已经存在，但是结果返回true
+
 	ERR_CREATE_EXIST,	// 对于已经存在的文件，重复创建。
 	ERR_CREATE,			// 文件或者目录不存在，但是创建失败
 	ERR_OPEN_FILE,		// 试图打开一个已经存在的文件时出错
@@ -31,11 +45,9 @@ enum ERROR_CODE
 	ERR_READ_FILE,		// 读文件时出错
 	ERR_WRONG_FILE_SIZE,	// 
 	ERR_WRONG_FILE_DATA,
-	ERR_NODE_FULL,
 	ERR_PENDING,		// 测试还在进行
+	ERR_SYNC,			// sync fs时出错
 
-	ERR_DENTRY_FULL,	// 文件夹的dentry已经满了
-	ERR_MAX_OPEN_FILE,	// 打开的文件超过数量
 	ERR_PARENT_NOT_EXIST,	//打开文件或者创建文件时，父目录不存在
 	ERR_WRONG_PATH,	// 文件名格式不对，要求从\\开始
 
@@ -62,14 +74,18 @@ enum ERROR_CODE
 	ERR_INVALID_BLK,		// 不合法的physical block id
 
 	ERR_UNKNOWN,
+	ERR_ERROR_NR,
 };
 //typedef UINT FSIZE;
 
 //typedef DWORD FID;
-typedef DWORD NID;		// node id
-typedef DWORD PHY_BLK;
-typedef DWORD LBLK_T;
-typedef UINT	PAGE_INDEX;
+typedef WORD NID;		// node id
+typedef WORD PHY_BLK;
+typedef WORD LBLK_T;
+typedef UINT PAGE_INDEX;
+typedef WORD SEG_T;
+typedef WORD BLK_T;
+
 
 enum BLK_TEMP
 {
@@ -82,7 +98,7 @@ enum BLK_TEMP
 struct FILE_DATA
 {
 	NID		fid;
-	UINT	offset;
+	WORD	offset;
 	UINT	ver;
 };
 
@@ -91,22 +107,28 @@ struct FILE_DATA
 /// </summary>
 struct FsHealthInfo
 {
-	UINT m_seg_nr;	// 总的segment数量
-	UINT m_blk_nr;	// 总的block数量
-	UINT m_logical_blk_nr;			// 逻辑块总是。makefs时申请的逻辑块数量
-	UINT m_free_blk;		// 空闲逻辑块数量。不是一个精确数值，初始值为允许的逻辑饱和度。当过量写的时候，可能导致负数。
+	SEG_T m_seg_nr;	// 总的segment数量
+	PHY_BLK m_blk_nr;	// 总的block数量
+	LBLK_T m_logical_blk_nr;			// 逻辑块总是。makefs时申请的逻辑块数量
+	PHY_BLK m_free_blk;		// 空闲逻辑块数量。不是一个精确数值，初始值为允许的逻辑饱和度。当过量写的时候，可能导致负数。
 
 	LONG64 m_total_host_write;	// 以块为单位，host的写入总量。（快的大小由根据文件系统调整，一般为4KB）
 	LONG64 m_total_media_write;	// 写入介质的数据总量，以block为单位
 	//LONG64 m_media_write_node;
 	//LONG64 m_media_write_data;
 
-	UINT m_logical_saturation;	// 逻辑饱和度。被写过的逻辑块数量，不包括metadata
-	UINT m_physical_saturation;	// 物理饱和度。有效的物理块数量，
+	LBLK_T m_logical_saturation;	// 逻辑饱和度。被写过的逻辑块数量，不包括metadata
+	PHY_BLK m_physical_saturation;	// 物理饱和度。有效的物理块数量，
 
-	UINT m_node_nr;		// nid, direct node的总数
-	UINT m_used_node;	// 被使用的node总数
-	UINT m_file_num, m_dir_num;		// 文件数量和目录数量
+	WORD m_node_nr;		// nid, direct node的总数
+	WORD m_free_node_nr;
+//	UINT m_used_node;	// 被使用的node总数
+//	UINT m_file_num, m_dir_num;		// 文件数量和目录数量
+
+	// file system events
+	UINT sit_journal_overflow;
+	UINT nat_journal_overflow;
+	UINT gc_count;
 };
 
 
@@ -118,19 +140,20 @@ struct FS_INFO
 	FSIZE free_blks;
 	FSIZE physical_blks;	// 物理饱和度
 
-	UINT max_file_nr;	// 最大支持的文件数量
+//	UINT max_file_nr;	// 最大支持的文件数量
 	// 考虑到crash, 无法通过跟踪准确获取文件数量
 	//	UINT dir_nr, file_nr;		// 目录数量和文件数量
 
-	LONG64 total_host_write;
-	LONG64 total_media_write;
+//	LONG64 total_host_write;
+//	LONG64 total_media_write;
 
-	UINT max_opened_file;	// 最大打开的文件数量
+//	UINT max_opened_file;	// 最大打开的文件数量
 
 	UINT total_page_nr;
 	UINT free_page_nr;
-	UINT total_data_nr;
-	UINT free_data_nr;
+//	UINT total_data_nr;
+//	UINT free_data_nr;
+
 };
 
 struct GC_TRACE

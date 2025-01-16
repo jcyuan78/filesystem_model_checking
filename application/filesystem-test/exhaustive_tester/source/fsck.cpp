@@ -128,7 +128,9 @@ int CF2fsSimulator::fsck_chk_metadata(F2FS_FSCK* fsck)
 			THROW_FS_ERROR(ERR_SIT_MISMATCH, L"seg [%d] valid block count in sit=%d mismatch valid block count in bitmap %d", 
 				ii, seg.valid_blk_nr, seg_valid_blk);
 		}
-		if (seg.valid_blk_nr != 0)		valid_seg_nr++;
+		// 当前segment计算如valid segment；
+		if (m_segments.m_cur_segs[seg.seg_temp].seg_no == ii || seg.valid_blk_nr != 0) valid_seg_nr++;
+//		if (seg.valid_blk_nr != 0)		valid_seg_nr++;
 	}
 	if (valid_seg_nr + m_segments.get_free_nr() != total_seg_nr) {
 		THROW_FS_ERROR(ERR_SIT_MISMATCH, L"segment number mismatch, total=%d, valid=%d, free=%d", 
@@ -165,7 +167,7 @@ int CF2fsSimulator::fsck_verify(F2FS_FSCK* fsck)
 				if (fsck->need_to_fix) {	// <TODO> 要作为orphan inode处理
 					LOG_ERROR(L"nid [%d] allocated but not used, blk=%d.", nn, blk);
 					m_nat.put_node(nn);
-					m_segments.InvalidBlock(blk);
+//					m_segments.InvalidBlock(blk);
 					fsck->fixed = true;
 				}
 				else THROW_FS_ERROR(ERR_DEAD_NID, L"nid [%d] allocated but not used, blk=%d.", nn, blk);
@@ -238,7 +240,7 @@ int CF2fsSimulator::fsck_chk_data_blk(F2FS_FSCK* fsck, NID nid, WORD offset, PHY
 	}
 	DENTRY_BLOCK& entries = block->dentry;
 	for (int ii = 0; ii < DENTRY_PER_BLOCK; ++ii) {
-		if (entries.dentries[ii].ino == INVALID_BLK) continue;
+		if (is_invalid(entries.dentries[ii].ino)) continue;
 		UINT blk_cnt = 0;
 		fsck_chk_node_blk(fsck, entries.dentries[ii].ino, F2FS_FILE_UNKNOWN, BLOCK_DATA::BLOCK_INODE, blk_cnt);
 	}
@@ -282,7 +284,7 @@ int CF2fsSimulator::fsck_chk_node_blk(F2FS_FSCK* fsck, NID nid, F2FS_FILE_TYPE f
 		if (fsck->need_to_fix) {
 			LOG_ERROR(L"nid [%d], block=%d in ssa does not match, ssa.nid=%d, ssa.offset=%d",
 				nid, blk, ssa_nid, ssa_offset);
-			m_segments.SetBlockInfo(nid, INVALID_FID, blk);
+			m_segments.SetBlockInfo(nid, INVALID_BLK, blk);
 			fsck->fixed = true;
 		}
 		else {

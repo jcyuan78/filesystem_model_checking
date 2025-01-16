@@ -59,7 +59,8 @@ void CFsState::DuplicateFrom(CFsState* src_state)
 	else m_real_fs->CopyFrom(src_state->m_real_fs);
 	m_depth = src_state->m_depth + 1;
 	m_parent = src_state;
-	src_state->m_ref++;
+	InterlockedIncrement(&src_state->m_ref);
+
 }
 
 void CFsState::DuplicateWithoutFs(CFsState* src_state)
@@ -70,7 +71,7 @@ void CFsState::DuplicateWithoutFs(CFsState* src_state)
 	m_real_fs->add_ref();
 	m_depth = src_state->m_depth + 1;
 	m_parent = src_state;
-	src_state->m_ref++;
+	InterlockedIncrement(&src_state->m_ref);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -122,6 +123,8 @@ CFsState* CStateManager::get(void)
 		//states[m_buffer_size] = new_state;
 		//m_buffer_size++;
 	}
+	// reset state
+	new_state->m_stable = false;
 	new_state->m_ref = 1;
 	return new_state;
 }
@@ -130,8 +133,8 @@ void CStateManager::put(CFsState*& state)
 {
 	while (state)
 	{
-//		UINT ref = InterlockedDecrement(&state->m_ref);
-		UINT ref = --(state->m_ref);
+		UINT ref = InterlockedDecrement(&state->m_ref);
+//		UINT ref = --(state->m_ref);
 		if (ref != 0) break;
 		if (!m_duplicate_real_fs) {
 			state->m_real_fs->release();
@@ -142,6 +145,7 @@ void CStateManager::put(CFsState*& state)
 #ifdef STATE_MANAGER_THREAD_SAFE
 		EnterCriticalSection(&m_lock);
 #endif
+		// reset state
 		state->m_parent = m_free_list;
 		m_free_list = state;
 		m_free_nr++;
@@ -172,8 +176,14 @@ bool CStateHeap::Check(const CFsState* state)
 	ENCODE encode;
 	size_t len = fs.Encode(encode.code, MAX_ENCODE_SIZE);
 	auto it = m_fs_state.find(encode);
-	bool exist = (it != m_fs_state.end());
-	LOG_DEBUG(L"fs encode=%S, exist=%d", encode.code, exist);
+	bool exist = false;	// 存在相同节点，且深度小于当前深度
+	if (it != m_fs_state.end())
+	{
+		if (it->second <= state->m_depth) exist = true;
+
+	}
+	//bool exist = (it != m_fs_state.end());
+	//LOG_DEBUG(L"fs encode=%S, exist=%d", encode.code, exist);
 	return exist;
 }
 
@@ -183,5 +193,6 @@ void CStateHeap::Insert(const CFsState* state)
 	const CReferenceFs& fs = state->m_ref_fs;
 	ENCODE encode;
 	size_t len = fs.Encode(encode.code, MAX_ENCODE_SIZE);
-	m_fs_state.insert(encode);
+	m_fs_state.insert(std::make_pair(encode, state->m_depth));
+//	(encode);
 }

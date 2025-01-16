@@ -58,19 +58,23 @@ public:
 	PHY_BLK get_phy_blk(NID nid);
 	void set_phy_blk(NID nid, PHY_BLK phy_blk);
 	void f2fs_flush_nat_entries(CKPT_BLOCK & checkpoint);
+	void f2fs_out_nat_journal(NAT_JOURNAL_ENTRY* journal, UINT & journal_nr);
 
 	void set_dirty(NID nid);
 	void clear_dirty(NID nid);
 	DWORD is_dirty(NID nid);
+	UINT get_dirty_node_nr(void);
+
 public:
-	PAGE_INDEX node_catch[NODE_NR];
+	PAGE_INDEX node_cache[NODE_NR];
+	UINT free_nr;
 protected:
 	PHY_BLK nat[NODE_NR];
 	DWORD dirty[NAT_BLK_NR];	// 记录NAT的dirty，每个bit一个NAT。
 	NID next_scan;				// 从这个位置开始搜索下一个free
-	UINT free_nr;
 	CPageAllocator* m_pages;
 	CStorage* m_storage;
+	CF2fsSimulator* m_fs;
 };
 
 // 用于缓存已经打开的文件，inode的page
@@ -81,7 +85,6 @@ struct OPENED_FILE
 };
 
 struct F2FS_FSCK;
-
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // == file system  ==
@@ -136,7 +139,7 @@ public:
 
 	//	virtual void SetLogFolder(const std::wstring& fn);
 	virtual void GetFsInfo(FS_INFO& space_info);
-	virtual void GetHealthInfo(FsHealthInfo& info) const {};
+	virtual void GetHealthInfo(FsHealthInfo& info) const;
 
 	// 对storage，用于storage相关测试
 	virtual UINT GetCacheNum(void) { return m_storage.GetCacheNum(); }
@@ -147,8 +150,6 @@ public:
 	virtual bool Unmount(void);
 	virtual bool Reset(UINT rollback);
 	virtual ERROR_CODE fsck(bool fix);
-
-
 
 	// 以下接口用于测试。
 	virtual void DumpSegments(const std::wstring& fn, bool sanity_check);
@@ -195,11 +196,6 @@ protected:
 	void ReadNodeNoCache(NODE_INFO& node, NID nid);
 	void ReadBlockNoCache(BLOCK_DATA& data, PHY_BLK blk);
 
-	template <typename T>
-	static inline bool is_valid(const T val) { return val != (T)(-1); }
-	template <typename T>
-	static inline bool is_invalid(const T val) { return val == (T)(-1); }
-
 protected:
 	friend class CF2fsSegmentManager;
 	friend class CStorage;
@@ -218,8 +214,8 @@ protected:
 
 	void InitOpenList(void);
 
-	// 关闭打开的inode，释放被inode缓存的page
-	void CloseInode(CPageInfo* &ipage);
+	// 关闭打开的inode，释放被inode缓存的page。返回文件是否dirty
+	bool CloseInode(CPageInfo* &ipage);
 
 	// pages: out 读取到的page_id，调用者申请内存
 	void FileReadInternal(CPageInfo * pages[], NODE_INFO& inode, FSIZE start_blk, FSIZE end_blk);
@@ -227,11 +223,12 @@ protected:
 	UINT FileWriteInternal(NODE_INFO& inode, FSIZE start_blk, FSIZE end_blk, CPageInfo* pages[]);
 	void FileTruncateInternal(CPageInfo * ipage, LBLK_T start_blk, LBLK_T end_blk);
 	void FileSyncInternal(CPageInfo* ipage);
-	void sync_fs(void);
+	ERROR_CODE sync_fs(void);
 
 	void f2fs_write_checkpoint();
 	// 从磁盘读取checkpoint
-	bool get_checkpoint();
+	bool load_checkpoint();
+	void save_checkpoint();
 
 	inline WORD FileNameHash(const char* fn)
 	{
@@ -244,7 +241,7 @@ protected:
 	}
 
 	// == dir 相关函数
-	ERROR_CODE InternalCreatreFile(NID & fid, const std::string& fn, bool is_dir);
+	ERROR_CODE InternalCreatreFile(CPageInfo * &page, NID & fid, const std::string& fn, bool is_dir);
 
 	// 将文件添加到parent中，parent:需要添加的目录文件的inode，nid：子文件的inode id
 	ERROR_CODE add_link(NODE_INFO* parent, const char* fn, NID nid);
@@ -303,7 +300,8 @@ protected:
 	CF2fsSegmentManager m_segments;
 	CNodeAddressTable	m_nat;
 	CStorage			m_storage;
-	FsHealthInfo m_health_info;
+	FsHealthInfo		m_health_info;
+//	FS_INFO				m_fs_info;
 
 protected:
 	// OS的数据缓存。m_pages模拟OS的页缓存，m_block_buf为page提供数据。由于文件数据不需要实际数据，可以省略。

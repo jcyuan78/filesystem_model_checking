@@ -4,12 +4,11 @@
 #include "../include/storage.h"
 #include "../include/f2fs_simulator.h"
 
-LOCAL_LOGGER_ENABLE(L"simulator.storage", LOGGER_LEVEL_DEBUGINFO+1);
+LOCAL_LOGGER_ENABLE(L"simulator.storage", LOGGER_LEVEL_DEBUGINFO);
 
 CStorage::CStorage(CF2fsSimulator* fs)
 {
 	m_pages = & fs->m_pages;
-//	m_block_buf = &fs->m_block_buf;
 	memset(m_data, -1, sizeof(BLOCK_DATA) * TOTAL_BLOCK_NR);
 }
 
@@ -39,8 +38,8 @@ void CStorage::Reset(void)
 	// 清空缓存
 	for (UINT ii = 0; ii < TOTAL_BLOCK_NR; ++ii)
 	{
-		m_data[ii].cache_next = INVALID_FID;
-		m_data[ii].cache_prev = INVALID_FID;
+		m_data[ii].cache_next = INVALID_BLK;
+		m_data[ii].cache_prev = INVALID_BLK;
 	}
 	memset(m_cache, -1, sizeof(StorageEntry) * SSD_CACHE_SIZE);
 	m_cache_head = 0;
@@ -48,49 +47,49 @@ void CStorage::Reset(void)
 	m_cache_size = 0;
 }
 
-void CStorage::cache_deque(UINT cache_index)
+void CStorage::cache_deque(LBLK_T cache_index)
 {
 	StorageEntry* cache = m_cache + cache_index;
-	UINT lba = cache->lba;
+	LBLK_T lba = cache->lba;
 	StorageEntry* s = m_data + lba;
-	if (cache->cache_next == INVALID_FID) 
+	if (is_invalid(cache->cache_next)) 
 	{
-		s->cache_next = INVALID_FID;
-		s->cache_prev = INVALID_FID;
+		s->cache_next = INVALID_BLK;
+		s->cache_prev = INVALID_BLK;
 	}
 	else
 	{
 		StorageEntry* next = m_cache + cache->cache_next;
 		if (next->lba != lba) THROW_ERROR(ERR_APP, L"cache data not match, lba=%d, lba in cache=%d", lba, next->lba);
-		next->cache_prev = INVALID_FID;
+		next->cache_prev = INVALID_BLK;
 		s->cache_next = cache->cache_next;
 	}
 	memcpy_s(&(s->data), sizeof(BLOCK_DATA), &(cache->data), sizeof(BLOCK_DATA));
 	LOG_DEBUG_(1, L"flush cache (index=%d) to storage lba=%d", cache_index, lba);
 }
 
-void CStorage::cache_enque(UINT lba, UINT cache_index)
+void CStorage::cache_enque(LBLK_T lba, LBLK_T cache_index)
 {
 	StorageEntry* s = m_data + lba;
-	UINT prev = s->cache_prev;
-	if (prev != INVALID_FID) {
+	LBLK_T prev = s->cache_prev;
+	if (is_valid(prev)) {
 		m_cache[prev].cache_next = cache_index;
 		m_cache[cache_index].cache_prev = prev;
 	}
 	else
 	{
 		s->cache_next = cache_index;
-		m_cache[cache_index].cache_prev = INVALID_FID;
+		m_cache[cache_index].cache_prev = INVALID_BLK;
 
 	}
 	s->cache_prev = cache_index;
-	m_cache[cache_index].cache_next = INVALID_FID;
+	m_cache[cache_index].cache_next = INVALID_BLK;
 	m_cache[cache_index].lba = lba;
 	LOG_DEBUG_(1, L"write to cache (index=%d), lba=%d", cache_index, lba);
 }
 
 
-void CStorage::BlockWrite(UINT lba, CPageInfo* page)
+void CStorage::BlockWrite(LBLK_T lba, CPageInfo* page)
 {
 	JCASSERT(page);
 	BLOCK_DATA* block = m_pages->get_data(page);	JCASSERT(block);
@@ -112,13 +111,13 @@ void CStorage::BlockWrite(UINT lba, CPageInfo* page)
 //	memcpy_s(m_data + lba, sizeof(BLOCK_DATA), block, sizeof(BLOCK_DATA));
 }
 
-void CStorage::BlockRead(UINT lba, CPageInfo *page)
+void CStorage::BlockRead(LBLK_T lba, CPageInfo *page)
 {
 	BLOCK_DATA* dst = m_pages->get_data(page);
 	// 检查数据是否在cache中
 	BLOCK_DATA* src = nullptr;
 
-	if (m_data[lba].cache_prev != INVALID_FID) {
+	if (is_valid(m_data[lba].cache_prev)) {
 		// 在cache中
 		StorageEntry& cache = m_cache[ m_data[lba].cache_prev ];
 		if (cache.lba != lba) {
@@ -141,70 +140,71 @@ void CStorage::Sync(void)
 		else m_cache_tail--;
 		m_cache_size--;
 		// 只需复制最新的cache到ssd
-		if (m_cache[m_cache_tail].lba == INVALID_BLK) continue;
+		if (is_invalid(m_cache[m_cache_tail].lba)) continue;
 		// 复制cache到storage
-		UINT lba = m_cache[m_cache_tail].lba;
+		LBLK_T lba = m_cache[m_cache_tail].lba;
 		BLOCK_DATA* dst = &m_data[lba].data;
 		BLOCK_DATA* src = &m_cache[m_cache_tail].data;
 		memcpy_s(dst, sizeof(BLOCK_DATA), src, sizeof(BLOCK_DATA));
-		LOG_DEBUG(L"sync: cache[%d] to lba=%d", m_cache_tail, lba);
-		m_data[lba].cache_next = INVALID_FID;
-		m_data[lba].cache_prev = INVALID_FID;
+		LOG_DEBUG_(1, L"sync: cache[%d] to lba=%d", m_cache_tail, lba);
+		m_data[lba].cache_next = INVALID_BLK;
+		m_data[lba].cache_prev = INVALID_BLK;
 		// 清除cache chain
-		UINT cache = m_cache_tail;
+		LBLK_T cache = m_cache_tail;
 		while (1)
 		{
-			UINT prev = m_cache[cache].cache_prev;
-			m_cache[cache].cache_next = INVALID_FID;
-			m_cache[cache].cache_prev = INVALID_FID;
+			LBLK_T prev = m_cache[cache].cache_prev;
+			m_cache[cache].cache_next = INVALID_BLK;
+			m_cache[cache].cache_prev = INVALID_BLK;
 			m_cache[cache].lba = INVALID_BLK;
 			cache = prev;
-			if (cache == INVALID_FID) break;
+			if (is_invalid(cache)) break;
 		}
 	}
-	
 }
 
-UINT CStorage::GetCacheNum(void)
+LBLK_T CStorage::GetCacheNum(void)
 {
-	//if (m_cache_tail >= m_cache_head) return (m_cache_tail - m_cache_head);
-	//return SSD_CACHE_SIZE - (m_cache_head - m_cache_tail);
 	return m_cache_size;
 }
 
-void CStorage::Rollback(UINT nr)
+void CStorage::Rollback(LBLK_T nr)
 {
 	if (nr > m_cache_size) THROW_ERROR(ERR_APP, L"rollback (%d) > cache size (%d)", nr, m_cache_size);
-	for (UINT ii = 0; ii < nr; ++ii)
+	LBLK_T ii = 0;
+	while (true)
 	{
 		if (m_cache_tail == m_cache_head) break;	// cache空
 		if (m_cache_tail == 0) m_cache_tail = SSD_CACHE_SIZE - 1;
 		else m_cache_tail--;
 		m_cache_size--;
 
-		UINT lba = m_cache[m_cache_tail].lba;
+		LBLK_T lba = m_cache[m_cache_tail].lba;
 		// sanity check
 		if (lba > TOTAL_BLOCK_NR) THROW_ERROR(ERR_APP, L"invalid lba (%d) in cache[%d]", lba, m_cache_tail);
-		if (m_cache[m_cache_tail].cache_next != INVALID_FID) {
+		if (is_valid(m_cache[m_cache_tail].cache_next)) {
 			THROW_ERROR(ERR_APP, L"not the end of cache chain, next=%d", m_cache[m_cache_tail].cache_next);
 		}
-		WORD prev = m_cache[m_cache_tail].cache_prev;
-		if (prev != INVALID_FID)
+		LBLK_T prev = m_cache[m_cache_tail].cache_prev;
+		if (is_valid(prev))
 		{
-			m_cache[prev].cache_next = INVALID_FID;
+			m_cache[prev].cache_next = INVALID_BLK;
 			m_data[lba].cache_prev = prev;
 		}
 		else
 		{
-			m_data[lba].cache_next = INVALID_FID;
-			m_data[lba].cache_prev = INVALID_FID;
+			m_data[lba].cache_next = INVALID_BLK;
+			m_data[lba].cache_prev = INVALID_BLK;
 		}
 		// 清除m_cache_tail
-		m_cache[m_cache_tail].cache_next = INVALID_FID;
-		m_cache[m_cache_tail].cache_prev = INVALID_FID;
+		m_cache[m_cache_tail].cache_next = INVALID_BLK;
+		m_cache[m_cache_tail].cache_prev = INVALID_BLK;
 		m_cache[m_cache_tail].lba = INVALID_BLK;
 
-		LOG_DEBUG(L"deque: index=%d, lba=%d, new_index=%d", m_cache_tail, lba, prev);
+		LOG_DEBUG_(1,L"deque: index=%d, lba=%d, new_index=%d", m_cache_tail, lba, prev);
+
+		++ii;
+		if ((lba==0 || lba>= SIT_START_BLK) && (ii >= nr)) break;
 	}
 }
 
@@ -223,6 +223,14 @@ const wchar_t* CFsException::ErrCodeToString(ERROR_CODE code)
 	switch (code)
 	{
 	case ERR_OK:				return L"OK";
+	case ERR_NO_OPERATION:		return L"No operation";	// 测试过程中，正常情况下，当前操作无法被执行。
+	case ERR_NO_SPACE:			return L"No enough space";		// GC时发现空间不够，无法回收更多segment
+//	case ERR_NO_SPACE:			return L"No ehough node";
+//	case ERR_NO_SPACE:		return L"Dentry reaches max level";		// 文件夹的dentry已经满了: 
+	case ERR_MAX_OPEN_FILE:		return L"Reached max open file";		// 打开的文件超过数量
+//	case ERR_NO_SPACE:		return L"No resource";	// 由于资源不够放弃操作
+
+
 	case ERR_GENERAL:			return L"General Error";
 	case OK_ALREADY_EXIST:		return L"File already exist";			// 文件或者目录已经存在，但是结果返回true: 
 	case ERR_CREATE_EXIST:		return L"File already exist";			// 对于已经存在的文件，重复创建。: 
@@ -235,12 +243,10 @@ const wchar_t* CFsException::ErrCodeToString(ERROR_CODE code)
 	case ERR_READ_FILE:			return L"Failed on reading file";		// 读文件时出错: 
 	case ERR_WRONG_FILE_SIZE:	return L"Wrong file size";				// :
 	case ERR_WRONG_FILE_DATA:	return L"Wrong file data";
-	case ERR_NODE_FULL:			return L"Node full";
+	case ERR_SYNC:				return L"Error happended in sync fs";	
 
 		//			case ERR_UNKNOWN, :
 	case ERR_PENDING:			return L"Test is running";				// 测试还在进行中: 
-	case ERR_DENTRY_FULL:		return L"Dentry reaches max level";		// 文件夹的dentry已经满了: 
-	case ERR_MAX_OPEN_FILE:		return L"Reached max open file";		// 打开的文件超过数量
 	case ERR_PARENT_NOT_EXIST:	return L"Parent directory not exist";	// 打开文件或者创建文件时，父目录不存在
 	case ERR_WRONG_PATH:		return L"Wrong path format";			// 文件名格式不对，要求从\\开始
 	case ERR_VERIFY_FILE:		return L"File compare fail";			// 文件比较时，长度不对
