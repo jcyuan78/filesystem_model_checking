@@ -1,23 +1,23 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma once
 
-// ÎÄ¼şÏµÍ³¹æÄ£
+// æ–‡ä»¶ç³»ç»Ÿè§„æ¨¡
 //#define INDEX_TABLE_SIZE			128
 
-// Metadata ·Ö²¼
+// Metadata åˆ†å¸ƒ
 #define CKPT_START_BLK			(0)
-#define CKPT_BLK_NR				(6)		// 1¸öcur_seg£¬1¸öNIT journal 4¸öSIT journal
+#define CKPT_BLK_NR				(6)		// 1ä¸ªcur_segï¼Œ1ä¸ªNIT journal 4ä¸ªSIT journal
 #define SIT_JOURNAL_BLK			(4)
 
 #define SIT_START_BLK			(CKPT_START_BLK + CKPT_BLK_NR)	// 1
-#define SIT_BLK_NR				(10)		// ×Ü¹²10¸öSIT block(120¸ömain segment)
+#define SIT_BLK_NR				(10)		// æ€»å…±10ä¸ªSIT block(120ä¸ªmain segment)
 #define NAT_START_BLK			(SIT_START_BLK + SIT_BLK_NR)	// 11
-#define NAT_BLK_NR				(8)								// NAT blockµÄÊıÁ¿
+#define NAT_BLK_NR				(8)								// NAT blockçš„æ•°é‡
 #define SSA_START_BLK			(NAT_START_BLK + NAT_BLK_NR)	// 19
 #define SSA_BLK_NUM				(MAIN_SEG_NR)					// 118
 #define END_META_BLK			(SSA_START_BLK + SSA_BLK_NUM)	// 19+118= 237 < 320
 
-#define BLOCK_PER_SEG			(32)					// Ò»¸ösegmentÓĞ¶àÉÙ¿é
+#define BLOCK_PER_SEG			(32)					// ä¸€ä¸ªsegmentæœ‰å¤šå°‘å—
 #define BITMAP_SIZE				(BLOCK_PER_SEG /32)		// 512 blocks / 32 bit
 #define SEG_NUM					(128)
 #define MAIN_SEG_OFFSET			(10)
@@ -28,38 +28,39 @@
 // checkpoint and journal
 #define JOURNAL_NR				(32)
 
-// Ã¿¸öSIT blockÓµÓĞµÄsegmentÊıÁ¿
-#define SIT_ENTRY_PER_BLK		(12)		// Ã¿¸öSIT block´æ·Å 12 ¸ösegment entry
+// æ¯ä¸ªSIT blockæ‹¥æœ‰çš„segmentæ•°é‡
+#define SIT_ENTRY_PER_BLK		(12)		// æ¯ä¸ªSIT blockå­˜æ”¾ 12 ä¸ªsegment entry
 #define SUMMARY_PER_BLK			(BLOCK_PER_SEG)		// 
 #define GC_THRESHOLD_LO			(5)
 #define GC_THRESHOLD_HI			(15)
-#define RESERVED_SEG			(6)						// ±£ÁôµÄsegmengÊıÁ¿£¬ÓÃÓÚÔÚclose, delete, syncÊ±µÄĞ´Èë
+#define RESERVED_SEG			(6)				// ä¿ç•™çš„segmengæ•°é‡ï¼Œç”¨äºåœ¨close, delete, syncæ—¶çš„å†™å…¥
+#define OP_SEGMENT				(20)			// overprovision segments
 
 // NAT
-#define NAT_ENTRY_PER_BLK		(32)			// Ã¿¸öNAT blockµÄentryÊıÁ¿
-#define NODE_NR					(128)			// inodeºÍindex nodeµÄÊıÁ¿
+#define NAT_ENTRY_PER_BLK		(32)			// æ¯ä¸ªNAT blockçš„entryæ•°é‡
+#define NODE_NR					(128)			// inodeå’Œindex nodeçš„æ•°é‡
 
-// SSD ¿Õ¼ä
+// SSD ç©ºé—´
 #define TOTAL_BLOCK_NR			(SEG_NUM * BLOCK_PER_SEG)
 #define SSD_CACHE_SIZE			(256)
 
-// ÎÄ¼şÏµÍ³ÄÚ´æÅäÖÃ// OS »º´æÅäÖÃ
+// æ–‡ä»¶ç³»ç»Ÿå†…å­˜é…ç½®// OS ç¼“å­˜é…ç½®
 #define MAX_PAGE_NUM			(2048)
-//#define DATA_BUFFER_SIZE		(1024)	// data buffer´óĞ¡£¬block/pageÊı
-#define BLOCK_BUF_SIZE			(2048)	// ÔİÊ±Ê¹ÓÃ×î´óÖµ£¬Ê¹ÓÃ¹ı³Ì×Ü²»ĞèÒª½»»»£¬Êµ¼Ê¿ÉÒÔËõĞ¡
-#define MAX_OPEN_FILE			(8)		// ×î¶àÍ¬Ê±´ò¿ªµÄÎÄ¼şÊıÁ¿
+//#define DATA_BUFFER_SIZE		(1024)	// data bufferå¤§å°ï¼Œblock/pageæ•°
+#define BLOCK_BUF_SIZE			(2048)	// æš‚æ—¶ä½¿ç”¨æœ€å¤§å€¼ï¼Œä½¿ç”¨è¿‡ç¨‹æ€»ä¸éœ€è¦äº¤æ¢ï¼Œå®é™…å¯ä»¥ç¼©å°
+#define MAX_OPEN_FILE			(8)		// æœ€å¤šåŒæ—¶æ‰“å¼€çš„æ–‡ä»¶æ•°é‡
 
-// nid, index nodeÅäÖÃ
-#define MAX_INDEX_LEVEL			(3)				// index node ²ã´Î
-#define INDEX_SIZE				(32)			// inodeÖĞ£¬°üº¬index blockµÄÊıÁ¿
-#define INDEX_TABLE_SIZE		(32)			// index blockÖĞ£¬°üº¬index/data blockµÄÊıÁ¿
-#define MAX_FILE_BLKS			(INDEX_SIZE * INDEX_TABLE_SIZE)		// Ò»¸öÎÄ¼şµÄ×î´ó³¤¶È£¬blockµ¥Î».
+// nid, index nodeé…ç½®
+#define MAX_INDEX_LEVEL			(3)				// index node å±‚æ¬¡
+#define INDEX_SIZE				(32)			// inodeä¸­ï¼ŒåŒ…å«index blockçš„æ•°é‡
+#define INDEX_TABLE_SIZE		(32)			// index blockä¸­ï¼ŒåŒ…å«index/data blockçš„æ•°é‡
+#define MAX_FILE_BLKS			(INDEX_SIZE * INDEX_TABLE_SIZE)		// ä¸€ä¸ªæ–‡ä»¶çš„æœ€å¤§é•¿åº¦ï¼Œblockå•ä½.
 
-// Dentry ÅäÖÃ
-#define DENTRY_PER_BLOCK		(4)				// Ã¿¸öblockµÄdentryÊıÁ¿
-#define FN_SLOT_LEN				(2)				// Ã¿¸öslotµÄÎÄ¼şÃû´óĞ¡
-#define MAX_FILENAME_LEN		(DENTRY_PER_BLOCK * FN_SLOT_LEN)		// ÎÄ¼şÃûµÄ×î´ó³¤¶È
+// Dentry é…ç½®
+#define DENTRY_PER_BLOCK		(4)				// æ¯ä¸ªblockçš„dentryæ•°é‡
+#define FN_SLOT_LEN				(2)				// æ¯ä¸ªslotçš„æ–‡ä»¶åå¤§å°
+#define MAX_FILENAME_LEN		(DENTRY_PER_BLOCK * FN_SLOT_LEN)		// æ–‡ä»¶åçš„æœ€å¤§é•¿åº¦
 #define MAX_DENTRY_LEVEL		(4)
 
-//#define FS_BREAK				JCASSERT(0);		// Èç¹ûĞèÒªÔÚTHROW_FS_ERRORÊ±ÔİÍ££¬Ôò¶¨ÒåFS_BREAK
+//#define FS_BREAK				JCASSERT(0);		// å¦‚æœéœ€è¦åœ¨THROW_FS_ERRORæ—¶æš‚åœï¼Œåˆ™å®šä¹‰FS_BREAK
 #define FS_BREAK

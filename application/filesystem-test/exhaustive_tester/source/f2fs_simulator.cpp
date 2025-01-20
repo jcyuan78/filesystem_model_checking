@@ -29,7 +29,7 @@ LOG_CLASS_SIZE(CF2fsSimulator);
 //#define MULTI_HEAD	1
 const char* BLK_TEMP_NAME[] = { "COLD_DATA", "COLD_NODE", "WARM_DATA", "WARM_NODE", "HOT__DATA", "HOT__NODE", "EMPTY" };
 
-// type 1: Êä³ögc log, block countÏà¹Ø£¬2: Êä³ögc ĞÔÄÜ·ÖÎö£¬×î´óÖµVB£¬×îĞ¡ÖµVB£¬µÈ
+// type 1: è¾“å‡ºgc log, block countç›¸å…³ï¼Œ2: è¾“å‡ºgc æ€§èƒ½åˆ†æï¼Œæœ€å¤§å€¼VBï¼Œæœ€å°å€¼VBï¼Œç­‰
 //#define GC_TRACE_TYPE 1
 #define GC_TRACE_TYPE 2
 
@@ -85,17 +85,17 @@ bool CF2fsSimulator::Initialzie(const boost::property_tree::wptree& config, cons
 	float op = config.get<float>(L"over_provision");
 	m_multihead_cnt = config.get<int>(L"multi_header_num");
 
-	// ÕâÀïÅäÖÃÉÏÓĞ¸öÎÊÌâ£¬Ô­ÏÈ·½·¨Ê±ÅäÖÃÎÄ¼şÖ¸¶¨logical blockµÄÊıÁ¿£¬È»ºó¸ù¾İÕâ¸öÊıÁ¿£¬¼ÆËãËùĞèÒªµÄphysical blockÊıÁ¿¡£
-	// µ«ÊÇÕâÀï³öÏÖÁË¼ÆËã´íÎó£¬physical blockÊıÁ¿Ó¦¸ÃÒª´óÓÚlogical blockÊıÁ¿¡£
-	// ½«blockµÄ¼ÆËã·½·¨ĞŞ¸ÄÎªÕı³££¬µ«ÊÇÕâ¸öĞŞ¸Ä¿ÉÄÜ»áÒıÆğWAF²âÊÔµÄ¼ÆËã´íÎó¡£Òò´Ë±£ÁôÔ­À´µÄËã·¨
-	size_t device_size = config.get<size_t>(L"volume_size");	// device_size ÒÔ×Ö½ÚÎªµ¥Î»
+	// è¿™é‡Œé…ç½®ä¸Šæœ‰ä¸ªé—®é¢˜ï¼ŒåŸå…ˆæ–¹æ³•æ—¶é…ç½®æ–‡ä»¶æŒ‡å®šlogical blockçš„æ•°é‡ï¼Œç„¶åæ ¹æ®è¿™ä¸ªæ•°é‡ï¼Œè®¡ç®—æ‰€éœ€è¦çš„physical blockæ•°é‡ã€‚
+	// ä½†æ˜¯è¿™é‡Œå‡ºç°äº†è®¡ç®—é”™è¯¯ï¼Œphysical blockæ•°é‡åº”è¯¥è¦å¤§äºlogical blockæ•°é‡ã€‚
+	// å°†blockçš„è®¡ç®—æ–¹æ³•ä¿®æ”¹ä¸ºæ­£å¸¸ï¼Œä½†æ˜¯è¿™ä¸ªä¿®æ”¹å¯èƒ½ä¼šå¼•èµ·WAFæµ‹è¯•çš„è®¡ç®—é”™è¯¯ã€‚å› æ­¤ä¿ç•™åŸæ¥çš„ç®—æ³•
+	size_t device_size = config.get<size_t>(L"volume_size");	// device_size ä»¥å­—èŠ‚ä¸ºå•ä½
 	BLK_T phy_blk = (BLK_T)(ROUND_UP_DIV(device_size, BLOCK_SIZE));		
 	SEG_T seg_nr = (SEG_T)ROUND_UP_DIV(phy_blk, BLOCK_PER_SEG);
 
 	SEG_T gc_th_lo = config.get<SEG_T>(L"gc_seg_lo");
 	SEG_T gc_th_hi = config.get<SEG_T>(L"gc_seg_hi");
 
-	// ³õÊ¼»¯
+	// åˆå§‹åŒ–
 	m_storage.Initialize();
 
 	m_segments.InitSegmentManager(seg_nr, gc_th_lo, gc_th_hi);
@@ -103,13 +103,13 @@ bool CF2fsSimulator::Initialzie(const boost::property_tree::wptree& config, cons
 	m_nat.Init(NID_IN_USE);
 	InitOpenList();
 
-	// ÎÄ¼şÏµÍ³´óĞ¡ÓÉ±àÂë¹Ì¶¨£¬
+	// æ–‡ä»¶ç³»ç»Ÿå¤§å°ç”±ç¼–ç å›ºå®šï¼Œ
 	m_health_info.m_seg_nr = MAIN_SEG_NR;
 	m_health_info.m_blk_nr = m_health_info.m_seg_nr * BLOCK_PER_SEG;
 	m_health_info.m_logical_blk_nr = m_health_info.m_blk_nr - ((gc_th_lo+10) * BLOCK_PER_SEG);
 	m_health_info.m_free_blk = m_health_info.m_logical_blk_nr;
 
-	// ³õÊ¼»¯root
+	// åˆå§‹åŒ–root
 	CPageInfo* page = m_pages.allocate(true);
 	BLOCK_DATA* root_node = m_pages.get_data(page);
 	if (!InitInode(root_node, page, F2FS_FILE_DIR))	{
@@ -118,10 +118,10 @@ bool CF2fsSimulator::Initialzie(const boost::property_tree::wptree& config, cons
 	root_node->node.m_ino = ROOT_FID;
 	root_node->node.m_nid = ROOT_FID;
 	page->nid = ROOT_FID;
-	// root ×÷ÎªÓÀÔ¶´ò¿ªµÄÎÄ¼ş
-	root_node->node.inode.ref_count = 1;			// root inode Ê¼ÖÕcache
+	// root ä½œä¸ºæ°¸è¿œæ‰“å¼€çš„æ–‡ä»¶
+	root_node->node.inode.ref_count = 1;			// root inode å§‹ç»ˆcache
 	m_nat.node_cache[ROOT_FID] = m_pages.page_id(page);
-	PHY_BLK root_phy = UpdateInode(page, "CREATE");	// Ğ´Èë´ÅÅÌ
+	PHY_BLK root_phy = UpdateInode(page, "CREATE");	// å†™å…¥ç£ç›˜
 	if (is_invalid(root_phy)) {
 		THROW_FS_ERROR(ERR_GENERAL, L"no enough segment during make fs");
 	}
@@ -131,7 +131,7 @@ bool CF2fsSimulator::Initialzie(const boost::property_tree::wptree& config, cons
 //	m_health_info.m_file_num = 0;
 	memset(&m_checkpoint, 0, sizeof(m_checkpoint));
 
-	// ³õÊ¼»¯½áÊø
+	// åˆå§‹åŒ–ç»“æŸ
 	m_segments.SyncSSA();
 	m_segments.SyncSIT();
 	m_segments.reset_dirty_map();
@@ -143,7 +143,7 @@ bool CF2fsSimulator::Initialzie(const boost::property_tree::wptree& config, cons
 
 	// set log path
 	m_log_path = log_path;
-	// invalid block trace log£º¼ÇÂ¼°´Ê±¼äË³ĞòĞ´ÈëºÍÎŞĞ§»¯µÄphy block
+	// invalid block trace logï¼šè®°å½•æŒ‰æ—¶é—´é¡ºåºå†™å…¥å’Œæ— æ•ˆåŒ–çš„phy block
 	return true;
 }
 
@@ -171,12 +171,12 @@ void CF2fsSimulator::InitOpenList(void)
 
 
 NODE_INFO& CF2fsSimulator::ReadNode(NID nid, CPageInfo * & page)
-{	// ¶ÁÈ¡node£¬·µ»ØÔÚpageÖĞ¡£¶ÁÈ¡µÄpage»á±£´æÔÚcacheÖĞ£¬²»ĞèÒªµ÷ÓÃÕßÊÍ·Å¡£
-	// Èç¹ûpageÒÑ¾­±»»º´æ£¬Ôò´Ó»º´æÖĞ¶ÁÈ¡¡£·ñÔò´Ó´ÅÅÌ¶ÁÈ¡¡£
+{	// è¯»å–nodeï¼Œè¿”å›åœ¨pageä¸­ã€‚è¯»å–çš„pageä¼šä¿å­˜åœ¨cacheä¸­ï¼Œä¸éœ€è¦è°ƒç”¨è€…é‡Šæ”¾ã€‚
+	// å¦‚æœpageå·²ç»è¢«ç¼“å­˜ï¼Œåˆ™ä»ç¼“å­˜ä¸­è¯»å–ã€‚å¦åˆ™ä»ç£ç›˜è¯»å–ã€‚
 	if (nid >= NODE_NR) THROW_FS_ERROR(ERR_GENERAL, L"Invalid node id: %d", nid);
 	JCASSERT(page == nullptr);
 
-	// ¼ì²énodeÊÇ·ñÔÚcacheÖĞ
+	// æ£€æŸ¥nodeæ˜¯å¦åœ¨cacheä¸­
 	BLOCK_DATA * block =nullptr;
 	if (m_nat.node_cache[nid] != INVALID_BLK)
 	{
@@ -184,7 +184,7 @@ NODE_INFO& CF2fsSimulator::ReadNode(NID nid, CPageInfo * & page)
 		block = m_pages.get_data(page);
 	}
 	else
-	{	// ´Ó´ÅÅÌÖĞ¶ÁÈ¡
+	{	// ä»ç£ç›˜ä¸­è¯»å–
 		PHY_BLK blk = m_nat.get_phy_blk(nid);
 		if (is_invalid(blk)) {
 			THROW_FS_ERROR(ERR_INVALID_NID, L"invalid nid=%d in reading node", nid);
@@ -194,7 +194,7 @@ NODE_INFO& CF2fsSimulator::ReadNode(NID nid, CPageInfo * & page)
 		page->phy_blk = blk;
 		page->nid = nid;
 		page->offset = INVALID_BLK;
-		// »º´æ¶ÁÈ¡µÄblock
+		// ç¼“å­˜è¯»å–çš„block
 		m_nat.node_cache[nid] = m_pages.page_id(page);
 		block = m_pages.get_data(page);
 		if (block->m_type != BLOCK_DATA::BLOCK_INDEX && block->m_type != BLOCK_DATA::BLOCK_INODE) {
@@ -204,14 +204,14 @@ NODE_INFO& CF2fsSimulator::ReadNode(NID nid, CPageInfo * & page)
 		
 	}
 	block->node.page_id = m_pages.page_id(page);//page->page_id;
-	// ¶ÔÓÚnode£¬ÓÉÓÚÊ¹ÓÃnat»úÖÆ£¬pageÖĞ²»ĞèÒª¼ÇÂ¼¸¸nodeºÍoffset¡£
+	// å¯¹äºnodeï¼Œç”±äºä½¿ç”¨natæœºåˆ¶ï¼Œpageä¸­ä¸éœ€è¦è®°å½•çˆ¶nodeå’Œoffsetã€‚
 	return block->node;
 }
 
 inline int DepthFromBlkNr(UINT blk_nr)
 {
 	int max_depth = 0;
-	while (blk_nr != 0) max_depth++, blk_nr >>= 1;		// Í¨¹ıblockÊıÁ¿¼ÆËã×î´ó²ã´Î
+	while (blk_nr != 0) max_depth++, blk_nr >>= 1;		// é€šè¿‡blockæ•°é‡è®¡ç®—æœ€å¤§å±‚æ¬¡
 	return max_depth;
 }
 
@@ -219,22 +219,22 @@ NID CF2fsSimulator::FindFile(NODE_INFO& parent, const char* fn)
 {
 	UINT blk_nr = get_file_blks(parent.inode);
 	if (blk_nr == 0) return INVALID_BLK;
-	// ¼ÆËãÎÄ¼şÃûhash
+	// è®¡ç®—æ–‡ä»¶åhash
 	WORD hash = FileNameHash(fn);
 	WORD fn_len = (WORD)(strlen(fn));
 	NID fid = INVALID_BLK;
 
-	// ³éÏóµÄ dir file ½á¹¹£ºÒÔ2^levelµÄÊıÁ¿£¬ÔÚÃ¿²ãÖĞ´æ·Ådentry block¡£Ã¿¸öblockÊôÓÚÒ»¸öhash slot¡£
-	// Öğ²ã²éÕÒÎÄ¼ş £¨f2fs :: __f2fs_find_entry() )
+	// æŠ½è±¡çš„ dir file ç»“æ„ï¼šä»¥2^levelçš„æ•°é‡ï¼Œåœ¨æ¯å±‚ä¸­å­˜æ”¾dentry blockã€‚æ¯ä¸ªblockå±äºä¸€ä¸ªhash slotã€‚
+	// é€å±‚æŸ¥æ‰¾æ–‡ä»¶ ï¼ˆf2fs :: __f2fs_find_entry() )
 	int max_depth = DepthFromBlkNr(blk_nr);
-	int blk_num=1, blk_index=0;		// µ±Ç°²ã´ÎÏÂ£¬blockÊıÁ¿£¬µÚÒ»¸öblock£¬ºÍ×îºóÒ»¸öblock
+	int blk_num=1, blk_index=0;		// å½“å‰å±‚æ¬¡ä¸‹ï¼Œblockæ•°é‡ï¼Œç¬¬ä¸€ä¸ªblockï¼Œå’Œæœ€åä¸€ä¸ªblock
 	for (int level = 0; level < max_depth; level++)
 	{	// find_in_level
 		WORD hh = hash % blk_num;
 		CPageInfo* page = nullptr;
 		FileReadInternal(&page, parent, blk_index + hh, blk_index + hh + 1);
 		if (page == nullptr)
-		{	// page ¿Õ¶´£¬ÕÒÏÂÒ»¸ölevel
+		{	// page ç©ºæ´ï¼Œæ‰¾ä¸‹ä¸€ä¸ªlevel
 			blk_index += blk_num;
 			blk_num *= 2;
 			continue;
@@ -244,7 +244,7 @@ NID CF2fsSimulator::FindFile(NODE_INFO& parent, const char* fn)
 		{
 			DENTRY_BLOCK& entries = block->dentry;
 
-			// ÑØ×Åbitmap²éÕÒ
+			// æ²¿ç€bitmapæŸ¥æ‰¾
 //			int index = 0;
 			for (int index = 0; index < DENTRY_PER_BLOCK; ++index)
 			{
@@ -266,7 +266,7 @@ NID CF2fsSimulator::FindFile(NODE_INFO& parent, const char* fn)
 		blk_num *= 2;
 		m_pages.free(page);
 	}
-	// »ØÊÕblock
+	// å›æ”¶block
 	return fid;
 }
 
@@ -302,13 +302,13 @@ bool CF2fsSimulator::CloseInode(CPageInfo* &ipage)
 		for (size_t ii = 0; (ii < INDEX_TABLE_SIZE) && (bb < last_blk); ++ii, bb += INDEX_SIZE)
 		{
 			NID nid = inode.index[ii];
-			if (is_invalid(nid)) continue;		// index ¿Õ¶´£¬Ìø¹ı
+			if (is_invalid(nid)) continue;		// index ç©ºæ´ï¼Œè·³è¿‡
 			PAGE_INDEX page_id = m_nat.node_cache[nid];
 			if (is_valid(page_id))
 			{
 				CPageInfo* page = m_pages.page(page_id);
 				if (page->dirty)
-				{	// <TODO> pageµÄnidºÍoffsetÓ¦¸ÃÔÚpageÉêÇëÊ±ÉèÖÃ
+				{	// <TODO> pageçš„nidå’Œoffsetåº”è¯¥åœ¨pageç”³è¯·æ—¶è®¾ç½®
 					if (page->nid != nid) THROW_ERROR(ERR_USER, L"nid does not match in data (%d) and page (%d)", nid, page->nid);
 					PHY_BLK phy = m_segments.WriteBlockToSeg(page, true);
 					if (is_invalid(phy))		{
@@ -344,26 +344,26 @@ bool CF2fsSimulator::CloseInode(CPageInfo* &ipage)
 
 void CF2fsSimulator::UpdateNat(NID nid, PHY_BLK phy_blk)
 {
-	// µ±Ò»¸önode block±»°áÒÆµÄÊ±ºò£¬¸üĞÂL2PµÄÁ´½Ó¡£ <TODO> F2FS ¼ì²é
-	// Ê×ÏÈ¼ì²éÕâ¸önidÊÇ·ñÔÚcacheÖĞ
-	//	Èç¹ûÔÚcacheÖĞ£¬ÇÒcache dirty£º·ÅÆúGC£¬½«cache Ğ´Èëstorage
-	//	Èç¹ûÔÚcacheÖĞ£¬ÇÒcache undirty£ºdiscache
+	// å½“ä¸€ä¸ªnode blockè¢«æ¬ç§»çš„æ—¶å€™ï¼Œæ›´æ–°L2Pçš„é“¾æ¥ã€‚ <TODO> F2FS æ£€æŸ¥
+	// é¦–å…ˆæ£€æŸ¥è¿™ä¸ªnidæ˜¯å¦åœ¨cacheä¸­
+	//	å¦‚æœåœ¨cacheä¸­ï¼Œä¸”cache dirtyï¼šæ”¾å¼ƒGCï¼Œå°†cache å†™å…¥storage
+	//	å¦‚æœåœ¨cacheä¸­ï¼Œä¸”cache undirtyï¼šdiscache
 	m_nat.set_phy_blk(nid, phy_blk);
 }
 
 void CF2fsSimulator::UpdateIndex(NID nid, UINT offset, PHY_BLK phy_blk)
 {
-	// ¼ì²éindexÊÇ·ñ±»catch
+	// æ£€æŸ¥indexæ˜¯å¦è¢«catch
 	CPageInfo* page = nullptr;
 	NODE_INFO* node = nullptr;
 	node = &ReadNode(nid, page);
-	// ¸üĞÂindex
+	// æ›´æ–°index
 	if (is_invalid(node->index.index[offset]))
 	{
 		THROW_ERROR(ERR_USER, L"data block in index is invalid, index nid=%d, offset=%d", nid, offset);
 	}
 	node->index.index[offset] = phy_blk;
-	// »ØĞ´nid£¬Õâ¸öº¯ÊıÖ¼ÔÚGCÖĞ±»µ÷ÓÃ£¬²»ĞèÒªÔÙ´Î´¥·¢GC¡£
+	// å›å†™nidï¼Œè¿™ä¸ªå‡½æ•°æ—¨åœ¨GCä¸­è¢«è°ƒç”¨ï¼Œä¸éœ€è¦å†æ¬¡è§¦å‘GCã€‚
 	page->dirty = true;
 }
 
@@ -377,24 +377,24 @@ CPageInfo* CF2fsSimulator::AllocateDentryBlock()
 
 ERROR_CODE CF2fsSimulator::add_link(NODE_INFO* parent, const char* fn, NID fid)
 {
-	// ¼ÆËãÎÄ¼şÃûhash
+	// è®¡ç®—æ–‡ä»¶åhash
 	WORD hash = FileNameHash(fn);
 	WORD fn_len = (WORD)(strlen(fn));
 	int slot_num = ROUND_UP_DIV(fn_len, FN_SLOT_LEN);
 
 	UINT blk_nr = get_file_blks(parent->inode);	
-	int max_depth = DepthFromBlkNr(blk_nr);		// ±íÊ¾level number£¬²ã´ÎÊıÁ¿
+	int max_depth = DepthFromBlkNr(blk_nr);		// è¡¨ç¤ºlevel numberï¼Œå±‚æ¬¡æ•°é‡
 	if (blk_nr == 0) max_depth = 0;
-	int blk_num=1, blk_index=0;		// µ±Ç°²ã´ÎÏÂ£¬blockÊıÁ¿£¬µÚÒ»¸öblock£¬ºÍ×îºóÒ»¸öblock
+	int blk_num=1, blk_index=0;		// å½“å‰å±‚æ¬¡ä¸‹ï¼Œblockæ•°é‡ï¼Œç¬¬ä¸€ä¸ªblockï¼Œå’Œæœ€åä¸€ä¸ªblock
 	int level = 0;
 	int index_start = 0;
 
 	int blk_offset = 0;
 	CPageInfo* dentry_page = nullptr;
 
-	// ¶ÁÈ¡dirÎÄ¼ş£¬
+	// è¯»å–diræ–‡ä»¶ï¼Œ
 	for (; level < max_depth; level++)
-	{	// °´²ã´Î²éÕÒ¿ÕÎ»£¬
+	{	// æŒ‰å±‚æ¬¡æŸ¥æ‰¾ç©ºä½ï¼Œ
 		WORD hh = hash % blk_num;
 		blk_offset = blk_index + hh;
 		CPageInfo* page = nullptr;
@@ -409,35 +409,35 @@ ERROR_CODE CF2fsSimulator::add_link(NODE_INFO* parent, const char* fn, NID fid)
 			index_start = 0;
 			while (1)
 			{
-				// ¶¨Î»µÚÒ»¸ö¿ÕÏĞµÄslot£¬bitmapµÄ¸ßÎ»Îª0×÷Îªguide
+				// å®šä½ç¬¬ä¸€ä¸ªç©ºé—²çš„slotï¼Œbitmapçš„é«˜ä½ä¸º0ä½œä¸ºguide
 				while (entries.bitmap & mask) { mask <<= 1; index_start++; }	
-				if (index_start >= DENTRY_PER_BLOCK) break;	// Ã»ÓĞ¿ÕÎ» goto next 
+				if (index_start >= DENTRY_PER_BLOCK) break;	// æ²¡æœ‰ç©ºä½ goto next 
 				index = index_start;
-				// ¶¨Î»ÏÂÒ»¸ö·Ç¿ÕÏĞµÄslot
+				// å®šä½ä¸‹ä¸€ä¸ªéç©ºé—²çš„slot
 				while (((entries.bitmap & mask) == 0) && index < DENTRY_PER_BLOCK) { mask <<= 1; index++; }
 				if ((index - index_start) >= slot_num)
-				{	// ÕÒµ½¿ÕÎ»
+				{	// æ‰¾åˆ°ç©ºä½
 					dentry_page = page;
 					break;
 				}
 				index_start = index;
 			}
-			if (index_start < DENTRY_PER_BLOCK)		break;	//ÕÒµ½¿ÕÎ»
+			if (index_start < DENTRY_PER_BLOCK)		break;	//æ‰¾åˆ°ç©ºä½
 			m_pages.free(page);
 		}
 		else
-		{	// Õâ¸öslotÊÇ¿ÕµÄ£¬´´½¨slot ÉêÇëÒ»¸ö¿ÕµÄblock
+		{	// è¿™ä¸ªslotæ˜¯ç©ºçš„ï¼Œåˆ›å»ºslot ç”³è¯·ä¸€ä¸ªç©ºçš„block
 			blk_offset = blk_index + hh;
 			dentry_page = AllocateDentryBlock();
 			index_start = 0;
-			// Ö»ÓĞÔÚÔö¼ÓÎÄ¼ş²ã´ÎµÄÊ±ºò²ÅĞèÒªµ÷ÕûÎÄ¼ş´óĞ¡¡£
+			// åªæœ‰åœ¨å¢åŠ æ–‡ä»¶å±‚æ¬¡çš„æ—¶å€™æ‰éœ€è¦è°ƒæ•´æ–‡ä»¶å¤§å°ã€‚
 			break;
 		}
 		blk_index += blk_num, blk_num *= 2;
 	}
 
 	if (index_start >= DENTRY_PER_BLOCK || dentry_page == nullptr)
-	{	// Ã»ÓĞÕÒµ½¿ÕÎ»£¬ Ìí¼ÓĞÂµÄ²ã´Î
+	{	// æ²¡æœ‰æ‰¾åˆ°ç©ºä½ï¼Œ æ·»åŠ æ–°çš„å±‚æ¬¡
 		max_depth++;
 		if (max_depth > MAX_DENTRY_LEVEL) {
 //			THROW_FS_ERROR(ERR_NO_SPACE, L"parent fid=%d, fn len=%d", parent->m_nid, fn_len)
@@ -447,17 +447,17 @@ ERROR_CODE CF2fsSimulator::add_link(NODE_INFO* parent, const char* fn, NID fid)
 		blk_index = blk_num - 1;
 		WORD hh = hash % blk_num;
 
-		// ÉêÇëÒ»¸ö¿ÕµÄblock
+		// ç”³è¯·ä¸€ä¸ªç©ºçš„block
 		blk_offset = blk_index + hh;
 		dentry_page = AllocateDentryBlock(/*dpage_id*/);
 		index_start = 0;
-		// ¸üĞÂÎÄ¼ş´óĞ¡¡£ÎÄ¼ş´óĞ¡±ØĞëÌîÂúÒ»²ã£¬È·±£´ÓÎÄ¼ş´óĞ¡¼ÆËã²ã´ÎÊ±Ã»´í¡£ÎÄ¼şÖ§³Ö¿Õ¶´£¬Ôö¼ÓÎÄ¼ş´óĞ¡²»Ó°ÏìÊµ¼ÊÊ¹ÓÃ¡£
+		// æ›´æ–°æ–‡ä»¶å¤§å°ã€‚æ–‡ä»¶å¤§å°å¿…é¡»å¡«æ»¡ä¸€å±‚ï¼Œç¡®ä¿ä»æ–‡ä»¶å¤§å°è®¡ç®—å±‚æ¬¡æ—¶æ²¡é”™ã€‚æ–‡ä»¶æ”¯æŒç©ºæ´ï¼Œå¢åŠ æ–‡ä»¶å¤§å°ä¸å½±å“å®é™…ä½¿ç”¨ã€‚
 		parent->inode.file_size = ((1<<max_depth)-1) * BLOCK_SIZE;
 		CPageInfo* parent_page = m_pages.page(parent->page_id); JCASSERT(parent_page);
 		parent_page->dirty = true;
 	}
 
-	// ÏòdentryĞ´ÈëÎÄ¼ş
+	// å‘dentryå†™å…¥æ–‡ä»¶
 	if (index_start >= DENTRY_PER_BLOCK || dentry_page == nullptr) {
 		THROW_ERROR(ERR_APP, L"failed on alloacting dentry block");
 	}
@@ -501,7 +501,7 @@ void CF2fsSimulator::unlink(NID fid, CPageInfo * parent_page)
 			for (int jj = 0; jj < DENTRY_PER_BLOCK; ++jj)
 			{
 				if (entries.dentries[jj].ino == fid)
-				{	// É¾³ı
+				{	// åˆ é™¤
 					int slot_num = ROUND_UP_DIV(entries.dentries[jj].name_len, FN_SLOT_LEN);
 					DWORD mask = (1 << jj);
 					for (int ll = 0; ll < slot_num; ++ll, mask <<= 1)
@@ -561,7 +561,7 @@ UINT CF2fsSimulator::GetChildNumber(NODE_INFO* inode)
 
 ERROR_CODE CF2fsSimulator::InternalCreatreFile(CPageInfo*& file_page, NID & fid, const std::string& fn, bool is_dir)
 {
-	// ¸ù¾İÂ·¾¶ÕÒµ½¸¸½Úµã
+	// æ ¹æ®è·¯å¾„æ‰¾åˆ°çˆ¶èŠ‚ç‚¹
 	fid = INVALID_BLK;
 	char full_path[MAX_PATH_SIZE+1];
 	strcpy_s(full_path, fn.c_str());
@@ -572,7 +572,7 @@ ERROR_CODE CF2fsSimulator::InternalCreatreFile(CPageInfo*& file_page, NID & fid,
 	}
 	*ptr = 0;
 	CPageInfo* page = nullptr; // m_pages.allocate_index(true);
-	NID parent_fid = FileOpenInternal(full_path, page);	// ·µ»ØĞèÒªÌí¼ÓµÄ¸¸Ä¿Â¼µÄnid£¬parent_pageÊÇ×æ¸¸Ä¿Â¼µÄpage
+	NID parent_fid = FileOpenInternal(full_path, page);	// è¿”å›éœ€è¦æ·»åŠ çš„çˆ¶ç›®å½•çš„nidï¼Œparent_pageæ˜¯ç¥–çˆ¶ç›®å½•çš„page
 	CloseInode(page);
 	if (is_invalid(parent_fid))
 	{
@@ -582,7 +582,7 @@ ERROR_CODE CF2fsSimulator::InternalCreatreFile(CPageInfo*& file_page, NID & fid,
 
 	CPageInfo* parent_page = nullptr;
 	NODE_INFO & parent = ReadNode(parent_fid, parent_page);
-	// ¼ì²é fn ²»ÔÚ parentÄ¿Â¼ÖĞ
+	// æ£€æŸ¥ fn ä¸åœ¨ parentç›®å½•ä¸­
 	char* name = ptr + 1;
 	if (is_valid(FindFile(parent, name)))
 	{
@@ -590,7 +590,7 @@ ERROR_CODE CF2fsSimulator::InternalCreatreFile(CPageInfo*& file_page, NID & fid,
 		return ERR_CREATE_EXIST;
 	}
 
-	// ´´½¨inode£¬allocate nid
+	// åˆ›å»ºinodeï¼Œallocate nid
 	file_page = m_pages.allocate(true);
 	BLOCK_DATA* inode_block = m_pages.get_data(file_page);
 	F2FS_FILE_TYPE file_type = is_dir ? F2FS_FILE_DIR : F2FS_FILE_REG;
@@ -603,7 +603,7 @@ ERROR_CODE CF2fsSimulator::InternalCreatreFile(CPageInfo*& file_page, NID & fid,
 	fid = inode_block->node.m_nid;
 
 		
-	// Ìí¼Óµ½¸¸½ÚµãdentryÖĞ
+	// æ·»åŠ åˆ°çˆ¶èŠ‚ç‚¹dentryä¸­
 	ERROR_CODE ir = add_link(&parent, name, fid);
 	if (ir != ERR_OK) {
 		LOG_ERROR(L"[err] failed on add child to parent");
@@ -616,7 +616,7 @@ ERROR_CODE CF2fsSimulator::InternalCreatreFile(CPageInfo*& file_page, NID & fid,
 	}
 	// cache page;
 	inode_block->node.inode.nlink++;
-	// ¸üĞÂinode
+	// æ›´æ–°inode
 	PHY_BLK phy_blk = UpdateInode(file_page, "CREATE");
 	if (is_invalid(phy_blk)) {
 		LOG_ERROR(L"[err] no enough segment during creating %S, fid=%d", fn.c_str(), fid);
@@ -657,11 +657,11 @@ ERROR_CODE CF2fsSimulator::FileCreate(NID & fid, const std::string& fn)
 	if (is_invalid(fid)) 	{
 		return ERR_CREATE;
 	}
-	// ·ÅÈëopen listÖĞ
+	// æ”¾å…¥open listä¸­
 //	m_health_info.m_file_num++;
 
 //	NODE_INFO *inode = &ReadNode(fid, page);		// now, the ipage points to the opened file.
-	// ·ÅÈëopen list
+	// æ”¾å…¥open list
 	AddFileToOpenList(fid, page);
 //	inode->inode.ref_count++;
 	return ERR_OK;
@@ -678,7 +678,7 @@ ERROR_CODE CF2fsSimulator::DirCreate(NID & fid, const std::string& fn)
 	if (is_invalid(fid)) {
 		return ERR_CREATE;
 	}
-	// close dir file : ¶ÔÓÚ¶àÏß³Ì£¬ĞèÒª¼ì²éref_count;
+	// close dir file : å¯¹äºå¤šçº¿ç¨‹ï¼Œéœ€è¦æ£€æŸ¥ref_count;
 	(m_pages.get_data(page))->node.inode.ref_count--;
 	CloseInode(page);
 //	m_health_info.m_dir_num++;
@@ -696,7 +696,7 @@ OPENED_FILE* CF2fsSimulator::FindOpenFile(NID fid)
 
 OPENED_FILE* CF2fsSimulator::AddFileToOpenList(NID fid, CPageInfo* page)
 {
-	// ·ÅÈëopen list
+	// æ”¾å…¥open list
 	UINT index = m_free_ptr;
 	m_free_ptr = m_open_files[index].ipage;		// next
 	m_open_files[index].ino = fid;
@@ -717,11 +717,11 @@ ERROR_CODE CF2fsSimulator::FileOpen(NID &fid, const std::string& fn, bool delete
 	if (is_invalid(fid))	{	return ERR_OPEN_FILE; }
 	page = nullptr;
 
-	// ²éÕÒÎÄ¼şÊÇ·ñÒÑ¾­´ò¿ª
+	// æŸ¥æ‰¾æ–‡ä»¶æ˜¯å¦å·²ç»æ‰“å¼€
 	NODE_INFO* inode = nullptr;
 	OPENED_FILE* file = FindOpenFile(fid);
 	if (file)
-	{	// ÎÄ¼şÒÑ¾­´ò¿ª
+	{	// æ–‡ä»¶å·²ç»æ‰“å¼€
 		page = m_pages.page(file->ipage);
 		inode = &m_pages.get_data(page)->node;
 	}
@@ -733,7 +733,7 @@ ERROR_CODE CF2fsSimulator::FileOpen(NID &fid, const std::string& fn, bool delete
 			return ERR_MAX_OPEN_FILE;
 		}
 		inode = &ReadNode(fid, page);		// now, the ipage points to the opened file.
-		// ·ÅÈëopen list
+		// æ”¾å…¥open list
 		AddFileToOpenList(fid, page);
 	}
 	inode->inode.ref_count++;
@@ -778,17 +778,17 @@ void CF2fsSimulator::ReadBlockNoCache(BLOCK_DATA& data, PHY_BLK blk)
 void CF2fsSimulator::GetFileDirNum(NID fid, UINT& file_nr, UINT& dir_nr)
 {
 	file_nr = 0; dir_nr = 0;
-	// ´ò¿ªinode fid
+	// æ‰“å¼€inode fid
 	NODE_INFO inode;
 	ReadNodeNoCache(inode, fid);
 
-	// Èç¹ûÊÇfile£¬Ôò·µ»Ø
+	// å¦‚æœæ˜¯fileï¼Œåˆ™è¿”å›
 	if (inode.inode.file_type != F2FS_FILE_DIR) {
 		file_nr = 1;
 		dir_nr = 0;
 		return;
 	}
-	// Èç¹ûÊÇdir£¬¼ì²éËùÓĞdentry
+	// å¦‚æœæ˜¯dirï¼Œæ£€æŸ¥æ‰€æœ‰dentry
 	dir_nr++;
 	for (int ii = 0; ii < INDEX_TABLE_SIZE; ++ii)
 	{
@@ -810,7 +810,7 @@ void CF2fsSimulator::GetFileDirNum(NID fid, UINT& file_nr, UINT& dir_nr)
 			DENTRY_BLOCK& entries = dentry_blk.dentry;
 			for (int ii = 0; ii < DENTRY_PER_BLOCK; ++ii) {
 				if ( is_invalid(entries.dentries[ii].ino) ) continue;
-				// ¶ÔÓÚ»ñµÃµÄino£¬½øĞĞµİ¹éµ÷ÓÃ
+				// å¯¹äºè·å¾—çš„inoï¼Œè¿›è¡Œé€’å½’è°ƒç”¨
 				UINT sub_file_nr = 0, sub_dir_nr = 0;
 				GetFileDirNum(entries.dentries[ii].ino, sub_file_nr, sub_dir_nr);
 				file_nr += sub_file_nr;
@@ -818,7 +818,7 @@ void CF2fsSimulator::GetFileDirNum(NID fid, UINT& file_nr, UINT& dir_nr)
 			}
 		}
 	}
-	// Èç¹ûdentryÏîÄ¿ÊÇÄ¿Â¼£¬µİ¹é¼ì²é£¬
+	// å¦‚æœdentryé¡¹ç›®æ˜¯ç›®å½•ï¼Œé€’å½’æ£€æŸ¥ï¼Œ
 }
 
 bool CF2fsSimulator::Mount(void)
@@ -870,11 +870,11 @@ bool CF2fsSimulator::Reset(UINT rollback)
 
 ERROR_CODE CF2fsSimulator::sync_fs(void)
 {
-	UINT org_dirty = m_nat.get_dirty_node_nr();		// ×î³õµÄdirty pageÊıÁ¿
+	UINT org_dirty = m_nat.get_dirty_node_nr();		// æœ€åˆçš„dirty pageæ•°é‡
 	LOG_DEBUG_(1,L"dirty node nr=%d", org_dirty);
-	// ±£´æindex, ¿ÉÄÜÊÇÒòÎªgc´ò¿ªµÄindex page
+	// ä¿å­˜index, å¯èƒ½æ˜¯å› ä¸ºgcæ‰“å¼€çš„index page
 	int retry = 10;
-	int dirty = 0;	// ×îºóflushĞ´ÈëµÄpageÊıÁ¿¡£
+	int dirty = 0;	// æœ€åflushå†™å…¥çš„pageæ•°é‡ã€‚
 	while (retry > 0) {
 		dirty = 0;
 		for (int ii = 0; ii < NODE_NR; ++ii)
@@ -885,7 +885,7 @@ ERROR_CODE CF2fsSimulator::sync_fs(void)
 			CPageInfo* page = m_pages.page(page_id);
 			if (!page->dirty) continue;
 			LOG_DEBUG_(1,L"flush node=%d", ii);
-//			{	// <DONE> pageµÄnidºÍoffsetÓ¦¸ÃÔÚpageÉêÇëÊ±ÉèÖÃ
+//			{	// <DONE> pageçš„nidå’Œoffsetåº”è¯¥åœ¨pageç”³è¯·æ—¶è®¾ç½®
 			PHY_BLK phy = m_segments.WriteBlockToSeg(page, true);
 			if (is_invalid(phy)) {
 				LOG_ERROR(L"[err] segment is not enough when sync_fs()");
@@ -903,8 +903,8 @@ ERROR_CODE CF2fsSimulator::sync_fs(void)
 		//THROW_ERROR(ERR_APP, L"loop flushing dirty page");
 		THROW_FS_ERROR(ERR_SYNC, L"loop flushing, dirty page nr=%d, last flushed=%d", org_dirty, dirty);
 	}
-	// ¿¼ÂÇµ½Ğ´ÈëpageÊ±£¬´¥·¢GC¡£GC»áÊ¹µÃÒÑ¾­flushµÄnodeÔÙ´Î±äÔà¡£
-	//	¶Ô²ß£º½«Ôànode·ÅÈëÁ´±íÖĞ£¬Ñ­»·flushÁ´±í£¬ÖªµÀÁ´±íÇå¿Õ¡£
+	// è€ƒè™‘åˆ°å†™å…¥pageæ—¶ï¼Œè§¦å‘GCã€‚GCä¼šä½¿å¾—å·²ç»flushçš„nodeå†æ¬¡å˜è„ã€‚
+	//	å¯¹ç­–ï¼šå°†è„nodeæ”¾å…¥é“¾è¡¨ä¸­ï¼Œå¾ªç¯flushé“¾è¡¨ï¼ŒçŸ¥é“é“¾è¡¨æ¸…ç©ºã€‚
 
 	m_segments.SyncSSA();
 	f2fs_write_checkpoint();
@@ -913,16 +913,16 @@ ERROR_CODE CF2fsSimulator::sync_fs(void)
 
 void CF2fsSimulator::f2fs_write_checkpoint()
 {
-	// flush_nat : °ÑnatµÄ±ä»¯Ğ´Èëjournal
+	// flush_nat : æŠŠnatçš„å˜åŒ–å†™å…¥journal
 	m_nat.f2fs_flush_nat_entries(m_checkpoint);
 	// flush_sit
 	m_segments.f2fs_flush_sit_entries(m_checkpoint);
 	// do_checkpoint
-	// 1. ¸´ÖÆÃ¿¸öcurseg
+	// 1. å¤åˆ¶æ¯ä¸ªcurseg
 	size_t curseg_size = sizeof(CURSEG_INFO) * BT_TEMP_NR;
 
 	memcpy_s(m_checkpoint.cur_segs, curseg_size, m_segments.m_cur_segs, curseg_size);
-	// 2. cursegµÄsummary (summary block²»¸´ÖÆ£¬ÒÀ¿¿fsckÖØ½¨£©
+	// 2. cursegçš„summary (summary blockä¸å¤åˆ¶ï¼Œä¾é fscké‡å»ºï¼‰
 	// 3. write to storage
 	save_checkpoint();
 }
@@ -992,17 +992,17 @@ void CF2fsSimulator::save_checkpoint()
 NID CF2fsSimulator::FileOpenInternal(char* fn, CPageInfo* &parent_inode)
 {
 	JCASSERT(parent_inode == nullptr);
-	NODE_INFO& root = ReadNode(ROOT_FID, parent_inode);		// ´ò¿ªrootÎÄ¼ş
+	NODE_INFO& root = ReadNode(ROOT_FID, parent_inode);		// æ‰“å¼€rootæ–‡ä»¶
 	NODE_INFO* parent_node = &root;
 	NID fid = ROOT_FID;
 
 	char* next = nullptr;
-	char* dir = strtok_s(fn, "\\", &next);			// dirÓ¦¸ÃÊ×ÏÈÖ¸ÏòµÚÒ»¸ö¡°\¡±
+	char* dir = strtok_s(fn, "\\", &next);			// diråº”è¯¥é¦–å…ˆæŒ‡å‘ç¬¬ä¸€ä¸ªâ€œ\â€
 	if (dir == nullptr || *dir == 0) return ROOT_FID;
 
 	while (1)
 	{	
-		// cur: ¸¸½Úµã£¬dir£ºÄ¿±ê½Úµã
+		// cur: çˆ¶èŠ‚ç‚¹ï¼Œdirï¼šç›®æ ‡èŠ‚ç‚¹
 		fid = FindFile(*parent_node, dir);
 		if (is_invalid(fid))
 		{
@@ -1011,9 +1011,9 @@ NID CF2fsSimulator::FileOpenInternal(char* fn, CPageInfo* &parent_inode)
 		}
 		dir = strtok_s(nullptr, "\\", &next);
 		if (dir == nullptr || *dir == 0) break;
-		// ¹Ø±ÕÒÑ¾­´ò¿ªµÄnode
-		CloseInode(parent_inode);							// ¹Ø±ÕÉÏ´Î´ò¿ªµÄÎÄ¼ş
-		parent_node = & ReadNode(fid, parent_inode);		// ÔÙ´Î´ò¿ªÎÄ¼ş
+		// å…³é—­å·²ç»æ‰“å¼€çš„node
+		CloseInode(parent_inode);							// å…³é—­ä¸Šæ¬¡æ‰“å¼€çš„æ–‡ä»¶
+		parent_node = & ReadNode(fid, parent_inode);		// å†æ¬¡æ‰“å¼€æ–‡ä»¶
 	}
 	return fid;
 }
@@ -1038,7 +1038,7 @@ void CF2fsSimulator::FileClose(NID fid)
 	if (inode.ref_count <= 0) THROW_FS_ERROR(ERR_OPEN_FILE, L"file's refrence == 0, fid=%d", fid);
 	inode.ref_count--;
 	if (inode.ref_count == 0)
-	{	// ÊÍ·Å open list
+	{	// é‡Šæ”¾ open list
 		file->ino = INVALID_BLK;
 		file->ipage = m_free_ptr;
 		m_free_ptr = (UINT)(file - m_open_files);
@@ -1062,7 +1062,7 @@ FSIZE CF2fsSimulator::FileWrite(NID fid, FSIZE offset, FSIZE len)
 	CPageInfo* ipage = m_pages.page(file->ipage);
 	NODE_INFO & inode = m_pages.get_data(ipage)->node;
 
-	// ¼ÆËãÆğÊ¼blockºÍ½áÊøblock£¬end_blockÊÇ×îºóÒªĞ´ÈëµÄÏÂÒ»¸ö¡£blk_nr=end_block - start_block
+	// è®¡ç®—èµ·å§‹blockå’Œç»“æŸblockï¼Œend_blockæ˜¯æœ€åè¦å†™å…¥çš„ä¸‹ä¸€ä¸ªã€‚blk_nr=end_block - start_block
 	LBLK_T start_blk, end_blk;
 	OffsetToBlock(start_blk, end_blk, offset, len);
 
@@ -1083,11 +1083,11 @@ FSIZE CF2fsSimulator::FileWrite(NID fid, FSIZE offset, FSIZE len)
 	}
 	UINT written = FileWriteInternal(inode, start_blk, end_blk, pages);
 	for (UINT ii = 0; ii < blk_num; ++ii) m_pages.free(pages[ii]);
-	if (written == 0) return 0;		// Ã»ÓĞ×ã¹»µÄ¿Õ¼ä
-	// ÉèÖÃĞÂµÄÎÄ¼ş´óĞ¡
+	if (written == 0) return 0;		// æ²¡æœ‰è¶³å¤Ÿçš„ç©ºé—´
+	// è®¾ç½®æ–°çš„æ–‡ä»¶å¤§å°
 	UINT end_pos = offset + len;
 	if (start_blk + written < end_blk) end_pos = (start_blk + written) * BLOCK_SIZE;
-	// ÎÄ¼şÓĞÔö³¤£¬¼ì²éÊµ¼Ê³¤¶È
+	// æ–‡ä»¶æœ‰å¢é•¿ï¼Œæ£€æŸ¥å®é™…é•¿åº¦
 	if (end_pos > inode.inode.file_size) {	inode.inode.file_size = end_pos;	}
 	ipage->dirty = true;
 	return (end_pos - offset);
@@ -1095,10 +1095,10 @@ FSIZE CF2fsSimulator::FileWrite(NID fid, FSIZE offset, FSIZE len)
 
 UINT CF2fsSimulator::FileWriteInternal(NODE_INFO& inode, FSIZE start_blk, FSIZE end_blk, CPageInfo* pages[])
 {
-	// ¹ÀËã¿Õ¼ä
+	// ä¼°ç®—ç©ºé—´
 	FSIZE data_blk_nr = end_blk - start_blk;
 	FSIZE node_blk_nr = ROUND_UP_DIV(data_blk_nr, INDEX_SIZE);
-	PHY_BLK available_blk = m_segments.get_free_blk_nr() - RESERVED_SEG * BLOCK_PER_SEG;
+	PHY_BLK available_blk = m_segments.get_free_blk_nr() - (RESERVED_SEG + OP_SEGMENT) * BLOCK_PER_SEG;
 	if (data_blk_nr + node_blk_nr > available_blk) return 0;
 
 	CIndexPath ipath(&inode);
@@ -1106,35 +1106,35 @@ UINT CF2fsSimulator::FileWriteInternal(NODE_INFO& inode, FSIZE start_blk, FSIZE 
 	NODE_INFO* di_node = nullptr;
 	CPageInfo* di_page = nullptr;
 	//fs_trace("WRITE", fid, start_blk, end_blk - start_blk);
-	// ±äÁ¿ËµÃ÷
-	//								page offset,	page Ö¸Õë,	node offset, node Ö¸Õë,	block,
-	// ÎÄ¼şµÄinode:					na,			na,			fid,		nid,	
-	// µ±Ç°´¦ÀíµÄdirect offset node:	??,			di_page,	ipathÖĞ,		di_node,
-	// µ±Ç°Êı¾İ¿é					_pp,		dpage,		na,			na,	
+	// å˜é‡è¯´æ˜
+	//								page offset,	page æŒ‡é’ˆ,	node offset, node æŒ‡é’ˆ,	block,
+	// æ–‡ä»¶çš„inode:					na,			na,			fid,		nid,	
+	// å½“å‰å¤„ç†çš„direct offset node:	??,			di_page,	ipathä¸­,		di_node,
+	// å½“å‰æ•°æ®å—					_pp,		dpage,		na,			na,	
 	int page_index = 0;
-	// ÁÙÊ±page, µ±ÒªĞ´ÈëµÄpageÎªnullÊÇ£¬±íÊ¾ÓÃ»§Êı¾İ£¬²»care¡£
+	// ä¸´æ—¶page, å½“è¦å†™å…¥çš„pageä¸ºnullæ˜¯ï¼Œè¡¨ç¤ºç”¨æˆ·æ•°æ®ï¼Œä¸careã€‚
 	for (; start_blk < end_blk; start_blk++, page_index++)
 	{
-		// ²éÕÒPHY_BLK¶¨Î»µ½
+		// æŸ¥æ‰¾PHY_BLKå®šä½åˆ°
 		if (ipath.level < 0)
 		{
 			if (!OffsetToIndex(ipath, start_blk, true))			{
 				LOG_ERROR(L"[err] no enough node during write data");
 				return page_index;
 			}
-			// »ñÈ¡indexµÄÎ»ÖÃ£¬ĞèÒª¸üĞÂindex
+			// è·å–indexçš„ä½ç½®ï¼Œéœ€è¦æ›´æ–°index
 			di_node = ipath.node[ipath.level];
 			di_page = ipath.page[ipath.level];
 		}
-		// data blockÔÚindexÖĞµÄÎ»ÖÃ
+		// data blockåœ¨indexä¸­çš„ä½ç½®
 		int offset = ipath.offset[ipath.level];
 
-		// È·¶¨Êı¾İÎÂ¶È
+		// ç¡®å®šæ•°æ®æ¸©åº¦
 		PHY_BLK phy_blk = di_node->index.index[offset];
 		CPageInfo* dpage = pages[page_index];
 		JCASSERT(dpage);
 
-		// <TODO> pageµÄnidºÍoffsetÓ¦¸ÃÔÚpageÉêÇëÊ±ÉèÖÃ¡£×÷Îªdata page£¬Ã»ÓĞ»º´æ£¬ÔÚĞ´ÈëÇ°ÉèÖÃpage.
+		// <TODO> pageçš„nidå’Œoffsetåº”è¯¥åœ¨pageç”³è¯·æ—¶è®¾ç½®ã€‚ä½œä¸ºdata pageï¼Œæ²¡æœ‰ç¼“å­˜ï¼Œåœ¨å†™å…¥å‰è®¾ç½®page.
 		dpage->phy_blk = phy_blk;
 		dpage->nid = di_node->m_nid;
 		dpage->offset = offset;
@@ -1147,7 +1147,7 @@ UINT CF2fsSimulator::FileWriteInternal(NODE_INFO& inode, FSIZE start_blk, FSIZE 
 		di_node->index.index[offset] = new_phy_blk;
 
 		if (is_invalid(phy_blk))
-		{	// Õâ¸öÂß¼­¿éÃ»ÓĞ±»Ğ´¹ı£¬Ôö¼ÓÂß¼­±¥ºÍ¶È£¬Ôö¼ÓinodeµÄblock number¡£¶ÔÓÚĞ´¹ıµÄblock£¬ÔÚWriteBlockToSeg()ÖĞinvalidate ¾Éblock
+		{	// è¿™ä¸ªé€»è¾‘å—æ²¡æœ‰è¢«å†™è¿‡ï¼Œå¢åŠ é€»è¾‘é¥±å’Œåº¦ï¼Œå¢åŠ inodeçš„block numberã€‚å¯¹äºå†™è¿‡çš„blockï¼Œåœ¨WriteBlockToSeg()ä¸­invalidate æ—§block
 			InterlockedIncrement16((SHORT*)(& m_health_info.m_logical_saturation));
 			if (m_health_info.m_logical_saturation >= (m_health_info.m_logical_blk_nr))
 			{
@@ -1157,15 +1157,15 @@ UINT CF2fsSimulator::FileWriteInternal(NODE_INFO& inode, FSIZE start_blk, FSIZE 
 			di_node->index.valid_data++;
 			ipage->dirty = true;
 		}
-		// ×¢Òâ£¬´Ë´¦²¢Ã»ÓĞÊµÏÖ NAT£¬´æÔÚwandering treeÎÊÌâ¡£
+		// æ³¨æ„ï¼Œæ­¤å¤„å¹¶æ²¡æœ‰å®ç° NATï¼Œå­˜åœ¨wandering treeé—®é¢˜ã€‚
 		di_page->dirty = true;
 		InterlockedIncrement64(&m_health_info.m_total_host_write);
 //		dpage->host_write++;
-		// ½«ipathÒÆ¶¯µ½ÏÂÒ»¸öoffset 
+		// å°†ipathç§»åŠ¨åˆ°ä¸‹ä¸€ä¸ªoffset 
 //		m_segments.CheckGarbageCollection(this);
 		NextOffset(ipath);
 	}
-	// node block »áÑÓ³Ùµ½µ÷ÓÃfsync()Ê±¸üĞÂ
+	// node block ä¼šå»¶è¿Ÿåˆ°è°ƒç”¨fsync()æ—¶æ›´æ–°
 	return page_index;
 } 
 
@@ -1180,7 +1180,7 @@ void CF2fsSimulator::FileReadInternal(CPageInfo * pages[], NODE_INFO& inode, FSI
 	int page_index = 0;
 	for (; start_blk < end_blk; start_blk++, page_index ++)
 	{
-		// ²éÕÒPHY_BLK¶¨Î»µ½
+		// æŸ¥æ‰¾PHY_BLKå®šä½åˆ°
 		if (ipath.level < 0)
 		{
 			OffsetToIndex(ipath, start_blk, false);
@@ -1188,18 +1188,18 @@ void CF2fsSimulator::FileReadInternal(CPageInfo * pages[], NODE_INFO& inode, FSI
 			di_page = ipath.page[ipath.level];
 		}
 		if (di_node == nullptr || di_page == nullptr)
-		{	// index ¿Õ¶´£¬Ìø¹ı
+		{	// index ç©ºæ´ï¼Œè·³è¿‡
 			continue;
 		}
-		// ´Ë´¦Ôİ²»Ö§³Ö¿Õ¶´
+		// æ­¤å¤„æš‚ä¸æ”¯æŒç©ºæ´
 		if (!di_node) THROW_ERROR(ERR_APP, L"invalid index block, fid=%d, lblk=%d", inode.m_nid, start_blk);
-		// »ñÈ¡indexµÄÎ»ÖÃ£¬ĞèÒª¸üĞÂindex
+		// è·å–indexçš„ä½ç½®ï¼Œéœ€è¦æ›´æ–°index
 		int index = ipath.offset[ipath.level];
 		PHY_BLK blk = di_node->index.index[index];
 //		LOG_DEBUG(L"read fid:%d, lblk:%d, phy blk:%d", inode.m_ino, start_blk, blk);
 		if (pages[page_index] != nullptr) THROW_ERROR(ERR_APP, L"read internal() will allocate page");
 		if (is_valid(blk))
-		{	// ´æÔÚblock£¬¶ÁÈ¡¡£·ñÔòÕâ¸öpage·µ»Ønullptr
+		{	// å­˜åœ¨blockï¼Œè¯»å–ã€‚å¦åˆ™è¿™ä¸ªpageè¿”å›nullptr
 			CPageInfo* page = m_pages.allocate(true);
 			m_storage.BlockRead(CF2fsSegmentManager::phyblk_to_lba(blk), page);
 			page->phy_blk = blk;
@@ -1207,7 +1207,7 @@ void CF2fsSimulator::FileReadInternal(CPageInfo * pages[], NODE_INFO& inode, FSI
 			page->offset = index;
 			pages[page_index] = page;
 		}
-		// ½«ipathÒÆ¶¯µ½ÏÂÒ»¸öoffset 
+		// å°†ipathç§»åŠ¨åˆ°ä¸‹ä¸€ä¸ªoffset 
 		NextOffset(ipath);
 	}
 }
@@ -1228,7 +1228,7 @@ size_t CF2fsSimulator::FileRead(FILE_DATA blks[], NID fid, FSIZE offset, FSIZE s
 		secs = end_secs - offset;
 	}
 
-	// ¼ÆËãÆğÊ¼blockºÍ½áÊøblock£¬end_blockÊÇ×îºóÒªĞ´ÈëµÄÏÂÒ»¸ö¡£blk_nr=end_block - start_block
+	// è®¡ç®—èµ·å§‹blockå’Œç»“æŸblockï¼Œend_blockæ˜¯æœ€åè¦å†™å…¥çš„ä¸‹ä¸€ä¸ªã€‚blk_nr=end_block - start_block
 	LBLK_T start_blk, end_blk;
 	OffsetToBlock(start_blk, end_blk, offset, secs);
 	DWORD page_nr = end_blk - start_blk;
@@ -1258,23 +1258,23 @@ void CF2fsSimulator::FileTruncateInternal(CPageInfo* ipage, LBLK_T start_blk, LB
 	// find opne file
 	NODE_INFO& inode = m_pages.get_data(ipage)->node;
 
-	// ÎÄ¼şµÄËùÓĞblock¶¼ÎŞĞ§£¬È»ºó±£´æinode
+	// æ–‡ä»¶çš„æ‰€æœ‰blockéƒ½æ— æ•ˆï¼Œç„¶åä¿å­˜inode
 	CIndexPath ipath(&inode);
 	NODE_INFO* di_node = nullptr;
 	CPageInfo* di_page = nullptr;
 
 	for (; start_blk < end_blk; start_blk++)
 	{
-		// ²éÕÒPHY_BLK¶¨Î»µ½
+		// æŸ¥æ‰¾PHY_BLKå®šä½åˆ°
 		if (ipath.level < 0)
 		{
 			OffsetToIndex(ipath, start_blk, false);
 			di_node = ipath.node[ipath.level];
 			di_page = ipath.page[ipath.level];
 		}
-		// index ¿Õ¶´£¬Ìø¹ı
+		// index ç©ºæ´ï¼Œè·³è¿‡
 		if (di_node == nullptr || di_page == nullptr) continue;
-		// »ñÈ¡indexµÄÎ»ÖÃ£¬ĞèÒª¸üĞÂindex
+		// è·å–indexçš„ä½ç½®ï¼Œéœ€è¦æ›´æ–°index
 		int index = ipath.offset[ipath.level];
 		if (di_node)
 		{
@@ -1297,10 +1297,10 @@ void CF2fsSimulator::FileTruncateInternal(CPageInfo* ipage, LBLK_T start_blk, LB
 				inode.inode.index[ipath.offset[0]] = INVALID_BLK;
 			}
 		}
-		// ½«ipathÒÆ¶¯µ½ÏÂÒ»¸öoffset 
+		// å°†ipathç§»åŠ¨åˆ°ä¸‹ä¸€ä¸ªoffset 
 		NextOffset(ipath);
 	}
-	// node blockÑÓ³Ùµ½fsync()Ê±¸üĞÂ
+	// node blockå»¶è¿Ÿåˆ°fsync()æ—¶æ›´æ–°
 //	UpdateInode(ipage, "TRUNCATE");
 }
 
@@ -1313,7 +1313,7 @@ void CF2fsSimulator::FileTruncate(NID fid, FSIZE offset, FSIZE len)
 	CPageInfo* ipage = m_pages.page(file->ipage);
 	NODE_INFO& inode = m_pages.get_data(ipage)->node;
 
-	// ÎÄ¼şµÄËùÓĞblock¶¼ÎŞĞ§£¬È»ºó±£´æinode
+	// æ–‡ä»¶çš„æ‰€æœ‰blockéƒ½æ— æ•ˆï¼Œç„¶åä¿å­˜inode
 	FSIZE end_pos = offset + len;
 	if (end_pos > inode.inode.file_size)
 	{
@@ -1336,7 +1336,7 @@ void CF2fsSimulator::FileTruncate(NID fid, FSIZE offset, FSIZE len)
 
 void CF2fsSimulator::FileDelete(const std::string& fn)
 {
-	// Delete ·ÖÁ½²½²Ù×÷£º£¨1£©unlink£¬½«ÎÄ¼şµÄinode´ÓdentryÖĞÉ¾³ı£¬inodeµÄlink¼õ1¡££¨2£©remove inode£¬½«inodeÉ¾³ı
+	// Delete åˆ†ä¸¤æ­¥æ“ä½œï¼šï¼ˆ1ï¼‰unlinkï¼Œå°†æ–‡ä»¶çš„inodeä»dentryä¸­åˆ é™¤ï¼Œinodeçš„linkå‡1ã€‚ï¼ˆ2ï¼‰remove inodeï¼Œå°†inodeåˆ é™¤
 	char _fn[MAX_PATH_SIZE + 1];
 	strcpy_s(_fn, fn.c_str());
 
@@ -1359,7 +1359,7 @@ void CF2fsSimulator::FileDelete(const std::string& fn)
 
 	CloseInode(parent_page);
 
-	// <TODO> ¶ÔÓÚÄ¿Â¼£¬É¾³ıÆäËùÓĞ×ÓÄ¿Â¼
+	// <TODO> å¯¹äºç›®å½•ï¼Œåˆ é™¤å…¶æ‰€æœ‰å­ç›®å½•
 }
 
 ERROR_CODE CF2fsSimulator::DirDelete(const std::string& fn)
@@ -1397,13 +1397,13 @@ void CF2fsSimulator::FileRemove(CPageInfo * &inode_page)
 {
 	BLOCK_DATA* data = m_pages.get_data(inode_page);
 	NODE_INFO* inode = &data->node;
-	// É¾³ıÎÄ¼ş£¬»ØÊÕinode
+	// åˆ é™¤æ–‡ä»¶ï¼Œå›æ”¶inode
 	if (inode->inode.ref_count > 0) {
 		LOG_ERROR(L"[err] file reference code is not zero, fid=%d, count=%d", inode->m_nid, inode->inode.ref_count);
 	}
 	LBLK_T end_blk = ROUND_UP_DIV(inode->inode.file_size, BLOCK_SIZE);
 	FileTruncateInternal(inode_page, 0, end_blk);
-	// É¾³ımapÓÉFileDelete¸ºÔğ
+	// åˆ é™¤mapç”±FileDeleteè´Ÿè´£
 	NID _nid = inode->m_nid;
 	m_nat.node_cache[_nid] = INVALID_BLK;
 	m_pages.free(inode_page);
@@ -1413,7 +1413,7 @@ void CF2fsSimulator::FileRemove(CPageInfo * &inode_page)
 	inode_page = nullptr;
 
 	m_node_blks--;
-	// page ÔÚfree_inodeÖĞÉ¾³ı, Í³¼Æ±»»ØÊÕµÄinodeµÄWAF
+	// page åœ¨free_inodeä¸­åˆ é™¤, ç»Ÿè®¡è¢«å›æ”¶çš„inodeçš„WAF
 //	m_health_info.m_file_num--;
 }
 
@@ -1425,13 +1425,13 @@ void CF2fsSimulator::FileFlush(NID fid)
 
 PHY_BLK CF2fsSimulator::UpdateInode(CPageInfo * ipage, const char* caller)
 {
-	// ±äÁ¿ËµÃ÷
-	//								page offset,	page Ö¸Õë,	node offset, node Ö¸Õë,	block,
-	// ÎÄ¼şµÄinode:					na,			i_page,		fid,		nid,	
-	// µ±Ç°´¦ÀíµÄdirect offset node:	di_page_id,	di_page,	di_node_id,	di_node,
-	// µ±Ç°Êı¾İ¿é					_pp,		dpage,		na,			na,	
+	// å˜é‡è¯´æ˜
+	//								page offset,	page æŒ‡é’ˆ,	node offset, node æŒ‡é’ˆ,	block,
+	// æ–‡ä»¶çš„inode:					na,			i_page,		fid,		nid,	
+	// å½“å‰å¤„ç†çš„direct offset node:	di_page_id,	di_page,	di_node_id,	di_node,
+	// å½“å‰æ•°æ®å—					_pp,		dpage,		na,			na,	
 
-	// Õâ¸ö¸üĞÂÊÇ·ñÒ»¶¨ÊÇhost·¢ÆğµÄ£¿// ¸üĞÂipath
+	// è¿™ä¸ªæ›´æ–°æ˜¯å¦ä¸€å®šæ˜¯hostå‘èµ·çš„ï¼Ÿ// æ›´æ–°ipath
 	BLOCK_DATA* idata = m_pages.get_data(ipage);
 	NODE_INFO& inode = idata->node;
 	LBLK_T start_blk, last_blk;
@@ -1440,10 +1440,10 @@ PHY_BLK CF2fsSimulator::UpdateInode(CPageInfo * ipage, const char* caller)
 	for (size_t ii = 0; (ii < INDEX_TABLE_SIZE) && (bb < last_blk); ++ii, bb += INDEX_SIZE)
 	{
 		NID nid = inode.inode.index[ii];
-		if (is_invalid(nid)) continue;	// index ¿Õ¶´
+		if (is_invalid(nid)) continue;	// index ç©ºæ´
 
 		PAGE_INDEX di_page_id = m_nat.node_cache[nid];
-		if (is_invalid(di_page_id)) continue;		// offset nodeµÄÊı¾İ²»´æÔÚ£¬»òÕßÃ»ÓĞ±»¸üĞÂ
+		if (is_invalid(di_page_id)) continue;		// offset nodeçš„æ•°æ®ä¸å­˜åœ¨ï¼Œæˆ–è€…æ²¡æœ‰è¢«æ›´æ–°
 
 		CPageInfo* di_page = m_pages.page(di_page_id);
 		if (!di_page) THROW_ERROR(ERR_USER, L"failed on getting page, id=%d", di_page_id);
@@ -1476,7 +1476,7 @@ PHY_BLK CF2fsSimulator::UpdateInode(CPageInfo * ipage, const char* caller)
 		{
 //			di_page->host_write++;
 			if (is_invalid(di_page->phy_blk)) m_node_blks++;
-			// pageµÄnidºÍoffsetÓ¦¸ÃÔÚpageÉêÇëÊ±ÉèÖÃ
+			// pageçš„nidå’Œoffsetåº”è¯¥åœ¨pageç”³è¯·æ—¶è®¾ç½®
 			PHY_BLK phy_blk = m_segments.WriteBlockToSeg(di_page, false);
 			if (is_invalid(phy_blk)) {
 				LOG_ERROR(L"[err] no enough segment during update index node");
@@ -1488,8 +1488,8 @@ PHY_BLK CF2fsSimulator::UpdateInode(CPageInfo * ipage, const char* caller)
 		}
 
 #ifdef ENABLE_FS_TRACE
-		//<TRACE>¼ÇÂ¼inodeµÄ¸üĞÂÇé¿ö¡£
-		// opid, fid, inode»òÕßindex id, Ô­Òò£¬Êı¾İ¸üĞÂÊıÁ¿¡£
+		//<TRACE>è®°å½•inodeçš„æ›´æ–°æƒ…å†µã€‚
+		// opid, fid, inodeæˆ–è€…index id, åŸå› ï¼Œæ•°æ®æ›´æ–°æ•°é‡ã€‚
 		fprintf_s(m_inode_trace, "%lld,%d,%lld,%s\n", m_write_count, nid.m_nid, ii, caller);
 #endif
 		ipage->dirty = true;
@@ -1501,7 +1501,7 @@ PHY_BLK CF2fsSimulator::UpdateInode(CPageInfo * ipage, const char* caller)
 	{
 //		ipage->host_write++;
 		if (is_invalid(ipage->phy_blk)) m_node_blks++;
-		// <DONE> pageµÄnidºÍoffsetÓ¦¸ÃÔÚpageÉêÇëÊ±ÉèÖÃ
+		// <DONE> pageçš„nidå’Œoffsetåº”è¯¥åœ¨pageç”³è¯·æ—¶è®¾ç½®
 		new_phy = m_segments.WriteBlockToSeg(ipage, false);
 		if (is_invalid(new_phy)) {
 			LOG_ERROR(L"[err] no enough segment during update inode");
@@ -1512,8 +1512,8 @@ PHY_BLK CF2fsSimulator::UpdateInode(CPageInfo * ipage, const char* caller)
 //		m_segments.CheckGarbageCollection(this);
 
 #ifdef ENABLE_FS_TRACE
-		//<TRACE>¼ÇÂ¼inodeµÄ¸üĞÂÇé¿ö¡£
-		// opid, fid, inode»òÕßindex id, Ô­Òò£¬Êı¾İ¸üĞÂÊıÁ¿¡£
+		//<TRACE>è®°å½•inodeçš„æ›´æ–°æƒ…å†µã€‚
+		// opid, fid, inodeæˆ–è€…index id, åŸå› ï¼Œæ•°æ®æ›´æ–°æ•°é‡ã€‚
 		fprintf_s(m_inode_trace, "%lld,%d,0,UPDATE\n", m_write_count, nid.m_nid);
 #endif
 	}
@@ -1552,7 +1552,7 @@ void CF2fsSimulator::GetFsInfo(FS_INFO& space_info)
 	space_info.total_blks = m_health_info.m_blk_nr;
 	space_info.used_blks = m_health_info.m_logical_saturation;
 	space_info.free_blks = m_health_info.m_free_blk;
-	// ¿ÉÄÜ³öÏÖ¸ºÊı
+	// å¯èƒ½å‡ºç°è´Ÿæ•°
 //	if (space_info.free_blks > m_health_info.m_logical_blk_nr) space_info.free_blks = 0;
 	space_info.free_blks = m_segments.get_free_blk_nr();
 	space_info.physical_blks = m_health_info.m_physical_saturation;
@@ -1617,7 +1617,7 @@ bool CF2fsSimulator::InvalidBlock(const char* reason, PHY_BLK phy_blk)
 
 bool CF2fsSimulator::OffsetToIndex(CIndexPath& ipath, LBLK_T offset, bool alloc)
 {
-	// ´ÓinodeÖĞ°ÑÒÑ¾­ÓĞµÄindex blockÌîÈënode[]ÖĞ
+	// ä»inodeä¸­æŠŠå·²ç»æœ‰çš„index blockå¡«å…¥node[]ä¸­
 	ipath.level = 1;
 	ipath.offset[0] = offset / INDEX_SIZE;
 
@@ -1626,9 +1626,9 @@ bool CF2fsSimulator::OffsetToIndex(CIndexPath& ipath, LBLK_T offset, bool alloc)
 	CPageInfo* index_page = nullptr;
 	NODE_INFO * index_node = nullptr;
 	if (is_invalid(nid))
-	{	// ¶ÔÓ¦µÄ offset node»¹Î´´´½¨
+	{	// å¯¹åº”çš„ offset nodeè¿˜æœªåˆ›å»º
 		if (alloc)
-		{	// ´´½¨ĞÂµÄ node
+		{	// åˆ›å»ºæ–°çš„ node
 			index_page = m_pages.allocate(true);
 			BLOCK_DATA * block = m_pages.get_data(index_page);
 			if (!InitIndexNode(block, inode->m_ino, index_page)) {
@@ -1641,9 +1641,9 @@ bool CF2fsSimulator::OffsetToIndex(CIndexPath& ipath, LBLK_T offset, bool alloc)
 			inode->inode.index[ipath.offset[0]] = nid;
 			CPageInfo* ipage = m_pages.page(inode->page_id);
 			ipage->dirty = true;
-			//»º´æpage
+			//ç¼“å­˜page
 			m_nat.node_cache[nid] = m_pages.page_id(index_page);//index_page->page_id;
-			// ¸øindex nodeÔ¤Áôblock
+			// ç»™index nodeé¢„ç•™block
 			PHY_BLK phy = m_segments.WriteBlockToSeg(index_page, false);
 			if (is_invalid(phy)) {
 				LOG_ERROR(L"[err] no enough space for adding index block");
@@ -1653,13 +1653,13 @@ bool CF2fsSimulator::OffsetToIndex(CIndexPath& ipath, LBLK_T offset, bool alloc)
 		}
 	}
 	else
-	{	// node ÒÑ¾­´´½¨£¬¼ì²éÊÇ·ñÒÑ¾­»º´æ
+	{	// node å·²ç»åˆ›å»ºï¼Œæ£€æŸ¥æ˜¯å¦å·²ç»ç¼“å­˜
 		index_node = &ReadNode(nid, index_page);
 	}
 	ipath.page[1] = index_page;
 	ipath.node[1] = index_node;
 	ipath.offset[1] = offset % INDEX_SIZE;
-	// ¼ÆËãÃ¿Ò»²ãµÄÆ«ÒÆÁ¿
+	// è®¡ç®—æ¯ä¸€å±‚çš„åç§»é‡
 	return true;
 }
 
@@ -1725,7 +1725,7 @@ void CF2fsSimulator::DumpBlockWAF(const std::wstring& fn)
 			blk_count[ii], (float)(host_write[ii]) / blk_count[ii]);
 	}
 
-	// ·Ö±ğÊä³ödataºÍnodeµÄÊı¾İ
+	// åˆ†åˆ«è¾“å‡ºdataå’Œnodeçš„æ•°æ®
 	UINT64 data_cnt = blk_count[BT_COLD_DATA] + blk_count[BT_WARM_DATA] + blk_count[BT_HOT__DATA];
 	UINT64 data_host_wr = host_write[BT_COLD_DATA] + host_write[BT_WARM_DATA] + host_write[BT_HOT__DATA];
 	UINT64 data_media_wr = media_write[BT_COLD_DATA] + media_write[BT_WARM_DATA] + media_write[BT_HOT__DATA];

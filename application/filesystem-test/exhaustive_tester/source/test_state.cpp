@@ -24,7 +24,7 @@ void CFsState::OutputState(FILE* log_file)
 	// output ref fs
 	JCASSERT(log_file);
 
-	// ¼ì²éEncode
+	// æ£€æŸ¥Encode
 	ENCODE encode;
 	size_t len = m_ref_fs.Encode(encode.code, MAX_ENCODE_SIZE);
 	char* str_encode = (char*)(encode.code);
@@ -85,7 +85,7 @@ CStateManager::CStateManager(void)
 }
 
 CStateManager::~CStateManager(void)
-{	// Çå¿Õfree
+{	// æ¸…ç©ºfree
 	while (m_free_list)
 	{
 		CFsState* next = m_free_list->m_parent;
@@ -141,7 +141,7 @@ void CStateManager::put(CFsState*& state)
 			state->m_real_fs = nullptr;
 		}
 		CFsState* pp = state->m_parent;
-		// ·ÅÈëfree list
+		// æ”¾å…¥free list
 #ifdef STATE_MANAGER_THREAD_SAFE
 		EnterCriticalSection(&m_lock);
 #endif
@@ -176,10 +176,12 @@ bool CStateHeap::Check(const CFsState* state)
 	ENCODE encode;
 	size_t len = fs.Encode(encode.code, MAX_ENCODE_SIZE);
 	auto it = m_fs_state.find(encode);
-	bool exist = false;	// ´æÔÚÏàÍ¬½Úµã£¬ÇÒÉî¶ÈÐ¡ÓÚµ±Ç°Éî¶È
+	bool exist = false;	// å­˜åœ¨ç›¸åŒèŠ‚ç‚¹ï¼Œä¸”æ·±åº¦å°äºŽå½“å‰æ·±åº¦
 	if (it != m_fs_state.end())
 	{
+		LOG_DEBUG(L"current depth=%d", it->second);
 		if (it->second <= state->m_depth) exist = true;
+		else exist = false;
 
 	}
 	//bool exist = (it != m_fs_state.end());
@@ -193,6 +195,36 @@ void CStateHeap::Insert(const CFsState* state)
 	const CReferenceFs& fs = state->m_ref_fs;
 	ENCODE encode;
 	size_t len = fs.Encode(encode.code, MAX_ENCODE_SIZE);
-	m_fs_state.insert(std::make_pair(encode, state->m_depth));
+	auto res = m_fs_state.insert(std::make_pair(encode, state->m_depth));
+	auto it = m_fs_state.find(encode);
+	LOG_DEBUG(L"inser result=%d, depth=%d", res.second, it->second);
 //	(encode);
+}
+
+bool CStateHeap::CheckAndInsert(const CFsState* state)
+{
+	const CReferenceFs& fs = state->m_ref_fs;
+	ENCODE encode;
+	size_t len = fs.Encode(encode.code, MAX_ENCODE_SIZE);
+	auto it = m_fs_state.find(encode);
+	bool exist = false;	// å­˜åœ¨ç›¸åŒèŠ‚ç‚¹ï¼Œä¸”æ·±åº¦å°äºŽå½“å‰æ·±åº¦
+	if (it != m_fs_state.end())
+	{
+//		LOG_DEBUG(L"current depth=%d", it->second);
+		if (it->second <= state->m_depth) exist = true;
+		else {// æ›¿æ¢
+			it->second = state->m_depth;
+			exist = false;
+		}
+	}
+	else
+	{	// ç›´æŽ¥æ’å…¥
+		auto res = m_fs_state.insert(std::make_pair(encode, state->m_depth));
+		JCASSERT(res.second);
+		exist = false;
+	}
+
+	//bool exist = (it != m_fs_state.end());
+	//LOG_DEBUG(L"fs encode=%S, exist=%d", encode.code, exist);
+	return exist;
 }

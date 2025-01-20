@@ -50,13 +50,13 @@ ERROR_CODE CExTester::EnumerateOp_Thread(TRACE_ENTRY* ops, size_t op_size, CFsSt
 
 
 		if (isdir)
-		{	// Ä¿Â¼
+		{	// ç›®å½•
 			UINT child_num = file.child_num();
 			if (child_num >= m_max_child_num) continue;
 			if (file.depth() >= (m_max_dir_depth - 1)) continue;
 			if (ref_fs.GetFileNumber() >= MAX_FILE_NUM) continue;
 
-			char fn[3];	//ÎÄ¼şÃû£¬Ëæ»ú²úÉú2×Ö·û
+			char fn[3];	//æ–‡ä»¶åï¼Œéšæœºäº§ç”Ÿ2å­—ç¬¦
 			GenerateFn(fn, 2);
 			op.file_path = (path.size() > 1) ? (path + "\\" + fn) : (path + fn);
 			op.op_code = OP_FILE_CREATE;
@@ -68,7 +68,7 @@ ERROR_CODE CExTester::EnumerateOp_Thread(TRACE_ENTRY* ops, size_t op_size, CFsSt
 			DoFsOperator_(cur_state, op, m_works + (context_id++));
 		}
 		else
-		{	// ÎÄ¼ş
+		{	// æ–‡ä»¶
 			FSIZE offset = (FSIZE)(file_len * ((float)(rand()) / RAND_MAX));
 			FSIZE len = (FSIZE)((m_max_file_size - offset) * ((float)(rand()) / RAND_MAX));
 			if (file.is_open())
@@ -104,7 +104,7 @@ ERROR_CODE CExTester::EnumerateOp_Thread(TRACE_ENTRY* ops, size_t op_size, CFsSt
 	DoFsOperator_(cur_state, op, m_works + (context_id++));
 #endif;
 	if (context_id > m_max_work) m_max_work = context_id;
-	// µÈ´ıÏß³Ì½áÊø
+	// ç­‰å¾…çº¿ç¨‹ç»“æŸ
 	if (context_id == 0) return ERR_OK;
 
 #ifdef THREAD_QUEUE
@@ -118,18 +118,18 @@ ERROR_CODE CExTester::EnumerateOp_Thread(TRACE_ENTRY* ops, size_t op_size, CFsSt
 		//		LeaveCriticalSection(&m_cmp_crit);
 	}
 #else
-	// µÈ´ıËùÓĞÈÎÎñÍê³É£¬²¢ÇÒ±£³ÖËÑË÷½á¹ûÎÈ¶¨
+	// ç­‰å¾…æ‰€æœ‰ä»»åŠ¡å®Œæˆï¼Œå¹¶ä¸”ä¿æŒæœç´¢ç»“æœç¨³å®š
 	DWORD ir = WaitForMultipleObjects(context_id, m_work_events, TRUE, 10000);
 	if (ir >= context_id) THROW_WIN32_ERROR(L"Time out on wating fs operation");
 
 #if 0
-	// ²»±£³Ö½á¹ûÎÈ¶¨ĞÔ
+	// ä¸ä¿æŒç»“æœç¨³å®šæ€§
 	int ii = context_id;
 	while (ii > 0)
 	{
 		DWORD ir = WaitForMultipleObjects(context_id, m_work_events, FALSE, 10000);
 		if (ir >= (context_id)) THROW_WIN32_ERROR(L"Time out on wating fs operation");
-		//		{	// ´¦Àí²âÊÔ½á¹û
+		//		{	// å¤„ç†æµ‹è¯•ç»“æœ
 		if (m_works[ir].result != ERR_OK)
 		{	// error handling
 			THROW_ERROR(ERR_APP, L"test failed, code=%d", m_works[ir].result);
@@ -155,7 +155,7 @@ ERROR_CODE CExTester::EnumerateOp_Thread(TRACE_ENTRY* ops, size_t op_size, CFsSt
 
 #endif
 
-	// ±£³ÖËÑË÷½á¹ûÎÈ¶¨
+	// ä¿æŒæœç´¢ç»“æœç¨³å®š
 	for (UINT ii = 0; ii < context_id; ++ii)
 	{
 		if (m_works[ii].result != ERR_OK)
@@ -171,7 +171,7 @@ ERROR_CODE CExTester::EnumerateOp_Thread(TRACE_ENTRY* ops, size_t op_size, CFsSt
 		}
 		else m_open_list.insert(insert, state);
 		m_works[ii].result = ERR_UNKNOWN;
-		// ¸üĞÂfile system²ÎÊı
+		// æ›´æ–°file systemå‚æ•°
 		UpdateFsParam(m_works[ii].state->m_real_fs);
 	}
 
@@ -188,9 +188,9 @@ ERROR_CODE CExTester::EnumerateOp_Thread_V2(TRACE_ENTRY* ops, size_t op_size, CF
 
 	UINT context_id = 0;
 //	LOG_DEBUG(L"op num= %d", ops.size());
-	// ´Ó¿ÉÄÜµÄ²Ù×÷ÖĞËæ»úÑ¡ÔñÒ»¸ö²Ù×÷£¬²¢Ö´ĞĞ
+	// ä»å¯èƒ½çš„æ“ä½œä¸­éšæœºé€‰æ‹©ä¸€ä¸ªæ“ä½œï¼Œå¹¶æ‰§è¡Œ
 	if (m_branch > 0)
-	{	// Ëæ»ú²âÊÔ
+	{	// éšæœºæµ‹è¯•
 		for (int ii = 0; ii < m_branch; ++ii)
 		{
 			int index = rand() % op_nr;
@@ -199,7 +199,7 @@ ERROR_CODE CExTester::EnumerateOp_Thread_V2(TRACE_ENTRY* ops, size_t op_size, CF
 		}
 	}
 	else
-	{	//È«Ãæ²âÊÔ
+	{	//å…¨é¢æµ‹è¯•
 		for (size_t ii = 0; ii < op_nr; ++ii)
 		{
 			TRACE_ENTRY& op = ops[ii];
@@ -208,11 +208,13 @@ ERROR_CODE CExTester::EnumerateOp_Thread_V2(TRACE_ENTRY* ops, size_t op_size, CF
 		}
 	}
 
-	// µÈ´ıÏß³Ì½áÊø
+	// ç­‰å¾…çº¿ç¨‹ç»“æŸ
 	if (context_id > m_max_work) m_max_work = context_id;
 	if (context_id == 0) return ERR_OK;
 
 #ifdef THREAD_QUEUE
+	UINT inserted = 0, non_op=0;
+
 	ERROR_CODE err = ERR_OK;
 	for (UINT ii = 0; ii < context_id; ++ii)
 	{
@@ -230,34 +232,46 @@ ERROR_CODE CExTester::EnumerateOp_Thread_V2(TRACE_ENTRY* ops, size_t op_size, CF
 		Op2String(str, state->m_op);
 		LOG_DEBUG(L"operation: %S", str);
 
+		if (result->result == ERR_NO_OPERATION) non_op++;
 		if (result->result != ERR_OK)
 		{	// error handling
 			m_states.put(state);
 		}
 		else {
-			if (m_closed.Check(state))		{		m_states.put(state);	}
-			else		{
+			//if (m_closed.Check(state) )		{		m_states.put(state);	}
+			//else		{
+			//	m_open_list.insert(insert, state);
+			//	m_closed.Insert(state);
+			//	UpdateFsParam(state->m_real_fs);
+			//	inserted++;
+			//}
+			if (m_closed.CheckAndInsert(state)) {
+				m_states.put(state);
+			}
+			else {
 				m_open_list.insert(insert, state);
-				m_closed.Insert(state);
 				UpdateFsParam(state->m_real_fs);
+				inserted++;
 			}
 		}
 		m_states.put(result->src_state);
 		result->result = ERR_UNKNOWN;
 	}
+//	LOG_DEBUG(L"state: %p, expanded=%d, non_op=%d, inserted=%d, closed=%lld, open=%lld", 
+//		cur_state, op_nr, non_op, inserted, m_closed.size(), m_open_list.size());
 #else
-	// µÈ´ıËùÓĞÈÎÎñÍê³É£¬²¢ÇÒ±£³ÖËÑË÷½á¹ûÎÈ¶¨
+	// ç­‰å¾…æ‰€æœ‰ä»»åŠ¡å®Œæˆï¼Œå¹¶ä¸”ä¿æŒæœç´¢ç»“æœç¨³å®š
 	DWORD ir = WaitForMultipleObjects(context_id, m_work_events, TRUE, 10000);
 	if (ir >= context_id) THROW_WIN32_ERROR(L"Time out on wating fs operation");
 
 #if 0
-	// ²»±£³Ö½á¹ûÎÈ¶¨ĞÔ
+	// ä¸ä¿æŒç»“æœç¨³å®šæ€§
 	int ii = context_id;
 	while (ii > 0)
 	{
 		DWORD ir = WaitForMultipleObjects(context_id, m_work_events, FALSE, 10000);
 		if (ir >= (context_id)) THROW_WIN32_ERROR(L"Time out on wating fs operation");
-		//		{	// ´¦Àí²âÊÔ½á¹û
+		//		{	// å¤„ç†æµ‹è¯•ç»“æœ
 		if (m_works[ir].result != ERR_OK)
 		{	// error handling
 			THROW_ERROR(ERR_APP, L"test failed, code=%d", m_works[ir].result);
@@ -343,7 +357,7 @@ bool CExTester::DoFsOperator_Pool(CFsState* cur_state, TRACE_ENTRY& op, WORK_CON
 
 DWORD CExTester::FsOperator_Queue(void)
 {
-	// ³õÊ¼»¯Ëæ»úÊı
+	// åˆå§‹åŒ–éšæœºæ•°
 	DWORD tid = GetCurrentThreadId();
 	srand(tid);
 	while (1)
@@ -500,7 +514,7 @@ bool CExTester::OutputTrace(FILE* fp, const std::string& json_fn, CFsState* stat
 			UINT real_file_nr = 0, real_dir_nr = 0;
 			try {
 				fs->GetFsInfo(fs_info);
-				fs->GetFileDirNum(0, real_file_nr, real_dir_nr);		// TODO: osĞèÒª±£´æfile numberÒÔ¹©¼ì²é
+				fs->GetFileDirNum(0, real_file_nr, real_dir_nr);		// TODO: oséœ€è¦ä¿å­˜file numberä»¥ä¾›æ£€æŸ¥
 			}
 			catch (jcvos::CJCException& err)
 			{
@@ -540,7 +554,7 @@ bool CExTester::OutputTrace(FILE* fp, const std::string& json_fn, CFsState* stat
 					ref_fs.GetFileInfo(ref_file, ref_checksum, ref_len);
 				}
 				static const size_t str_size = (INDEX_TABLE_SIZE * 10);
-				FSIZE file_size = ref_len, file_blk_nr = 0, file_index_nr = 0;		// ÎÄ¼şÕ¼ÓÃµÄblockÊıÁ¿£¬°üÀ¨inodeºÍindex node
+				FSIZE file_size = ref_len, file_blk_nr = 0, file_index_nr = 0;		// æ–‡ä»¶å ç”¨çš„blockæ•°é‡ï¼ŒåŒ…æ‹¬inodeå’Œindex node
 				logic_blk += (file_blk_nr + file_index_nr);
 				fprintf_s(fp, "\t\t<check %s> (fid=%03d) %s,\t\t blk_nr=%d, size=%d, (%s)\n",
 					dir ? "dir " : "file", ref_file.get_fid(), path.c_str(), (file_blk_nr + file_index_nr), file_size,
@@ -569,7 +583,7 @@ bool CExTester::OutputTrace(FILE* fp, const std::string& json_fn, CFsState* stat
 
 	if (option & TRACE_JSON) {
 
-		// ½«trace ×ª»¯ÎªjsonÎÄ¼ş£¬±ãÓÚºóĞøµ÷ÊÔ
+		// å°†trace è½¬åŒ–ä¸ºjsonæ–‡ä»¶ï¼Œä¾¿äºåç»­è°ƒè¯•
 		boost::property_tree::ptree prop_trace;
 		boost::property_tree::ptree prop_op_array;
 
