@@ -6,6 +6,8 @@
 /build
 /_extlib
 /_tool
+/extlib
+/tool
 
 
 ReNewDisk.sln

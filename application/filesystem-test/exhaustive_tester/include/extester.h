@@ -115,6 +115,7 @@ public:
 	//比较state是否已经被检查过，如果是，则返回true，否者添加并返回false；
 	bool Check(const CFsState* state);
 	void Insert(const CFsState* state);
+	bool CheckAndInsert(const CFsState* state);
 	size_t StateNr(void) const {
 		return m_fs_state.size();
 	}
