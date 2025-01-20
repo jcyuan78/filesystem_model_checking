@@ -5,6 +5,7 @@
 
 #include <dokanfs-lib.h>
 #include <include\journal_device.h>
+#include <include/crash_disk.h>
 #include <include/file_disk.h>
 #include <boost/property_tree/ptree.hpp>
 #include "image_device.h"
@@ -28,10 +29,13 @@ class CDeviceFactory : public IFsFactory
 public:
     virtual bool CreateFileSystem(IFileSystem*& fs, const std::wstring& fs_name) { return false; }
     //virtual bool CreateVirtualDisk(IVirtualDisk * & dev, const std::wstring & fn, size_t secs);
-    virtual bool CreateVirtualDisk(IVirtualDisk*& dev, const boost::property_tree::wptree& prop, bool create)
+    virtual bool CreateVirtualDisk(IVirtualDisk*& dev, const std::wstring & name, 
+        const boost::property_tree::wptree& prop, bool create)
     {
-        const std::wstring& dev_name = prop.get<std::wstring>(L"name", L"");
-//        IVirtualDisk* __dev = nullptr;
+        std::wstring dev_name;
+        if (name.empty()) dev_name = prop.get<std::wstring>(L"name", L"");
+        else dev_name = name;
+
         if (dev_name == L"journal")
         {
             CJournalDevice* _dev = jcvos::CDynamicInstance<CJournalDevice>::Create();
@@ -40,15 +44,10 @@ public:
         }
         else if (dev_name == L"file_disk")
         {
-            CFileDisk* _dev = jcvos::CDynamicInstance<CFileDisk>::Create();
-            if (_dev == nullptr) THROW_ERROR(ERR_MEM, L"failed on creating CFileDisk");
-            //bool br = _dev->InitializeDevice(prop);
-            //if (!br)
-            //{
-            //    _dev->Release();
-            //    THROW_ERROR(ERR_APP, L"failed on config File Disk");
-            //}
-            dev = static_cast<IVirtualDisk*>(_dev);
+            bool async_io = prop.get<bool>(L"async_io", false);
+            if (async_io) {     dev = jcvos::CDynamicInstance<CFileDiskAsync>::Create(); }
+            else            {   dev = jcvos::CDynamicInstance<CFileDiskSync>::Create();      }
+            if (dev == nullptr) THROW_ERROR(ERR_MEM, L"failed on creating CFileDisk");
         }
         else if (dev_name == L"image_device")
         {
@@ -60,13 +59,21 @@ public:
             //dev = static_cast<IVirtualDisk*>(_dev);
 
         }
+        else if (dev_name == L"crash_disk")
+        {
+            CCrashDisk* _dev = jcvos::CDynamicInstance<CCrashDisk>::Create();
+            if (_dev == nullptr) THROW_ERROR(ERR_MEM, L"failed on creating CCrashDisk");
+            dev = static_cast<IVirtualDisk*>(_dev);
+        }
         else { return false; }
 
-        bool br = dev->InitializeDevice(prop);
-        if (!br)
-        {
-            RELEASE(dev);
-            THROW_ERROR(ERR_APP, L"failed on config Journal Device");
+        if (!prop.empty()) {
+            bool br = dev->InitializeDevice(prop);
+            if (!br)
+            {
+                RELEASE(dev);
+                THROW_ERROR(ERR_APP, L"failed on config Journal Device");
+            }
         }
         return true;
     }

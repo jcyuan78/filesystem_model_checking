@@ -15,20 +15,17 @@ public:
 
 public:
 	virtual bool InitializeDevice(const boost::property_tree::wptree& config) { return false; }
+	virtual bool LoadFromFile(const std::wstring& fn) { return false; }
+	virtual bool SaveToFile(const std::wstring& fn) { return false; }
+
 
 	virtual size_t GetCapacity(void);		// in sector
 	//virtual bool ReadBytes(void * buf, UINT offset, size_t len);
 	//virtual bool WriteBytes(void * buf, UINT offset, size_t len);
 	virtual bool ReadSectors(void * buf, size_t lba, size_t secs);
 	virtual bool WriteSectors(void * buf, size_t lba, size_t secs);
-	virtual bool AsyncWriteSectors(void* buf, size_t secs, OVERLAPPED* overlap, LPOVERLAPPED_COMPLETION_ROUTINE callback)
-	{
-		return false;
-	}
-	virtual bool AsyncReadSectors(void* buf, size_t secs, OVERLAPPED* overlap, LPOVERLAPPED_COMPLETION_ROUTINE callback)
-	{
-		return false;
-	}
+	virtual bool AsyncWriteSectors(void* buf, size_t secs, OVERLAPPED* overlap) {return false;}
+	virtual bool AsyncReadSectors(void* buf, size_t secs, OVERLAPPED* overlap)  {return false;}
 
 	virtual bool Trim(UINT lba, size_t secs) {	return true; }
 	virtual bool FlushData(UINT lba, size_t secs) {	return true; }

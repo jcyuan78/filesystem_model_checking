@@ -24,14 +24,8 @@ public:
 	virtual UINT GetSectorSize(void) const { return m_sector_size; }
 	virtual bool ReadSectors(void * buf, size_t lba, size_t secs);
 	virtual bool WriteSectors(void * buf, size_t lba, size_t secs);
-	virtual bool AsyncWriteSectors(void* buf, size_t secs, OVERLAPPED* overlap, LPOVERLAPPED_COMPLETION_ROUTINE callback)
-	{
-		return false; 
-	}
-	virtual bool AsyncReadSectors(void* buf, size_t secs, OVERLAPPED* overlap, LPOVERLAPPED_COMPLETION_ROUTINE callback)
-	{
-		return false;
-	}
+	virtual bool AsyncWriteSectors(void* buf, size_t secs, OVERLAPPED* overlap) {	return false; 	}
+	virtual bool AsyncReadSectors(void* buf, size_t secs, OVERLAPPED* overlap)	{	return false;	}
 
 	virtual bool Trim(UINT lba, size_t secs) {	return true; }
 	virtual bool FlushData(UINT lba, size_t secs) {	return true; }
@@ -43,6 +37,9 @@ public:
 	// journal deviceµÄinterface
 public:
 	virtual bool InitializeDevice(const boost::property_tree::wptree& config);
+	virtual bool LoadFromFile(const std::wstring& fn) { return false; }
+	virtual bool SaveToFile(const std::wstring& fn) { return false; }
+
 
 	virtual void SetSectorSize(UINT size) {	m_sector_size = size;	}
 	virtual size_t GetLogNumber(void) const { return m_journal_id; }

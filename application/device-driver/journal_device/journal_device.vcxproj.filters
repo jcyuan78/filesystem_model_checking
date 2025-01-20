@@ -24,6 +24,9 @@
     <ClCompile Include="source\file_disk.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="source\crash_disk.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="source\stdafx.h">
@@ -36,6 +39,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="include\file_disk.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\crash_disk.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
