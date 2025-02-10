@@ -16,9 +16,9 @@ protected:
 public:
 	virtual void add_ref(void) = 0;
 	virtual void release(void) = 0;
-	// ÎÄ¼şÏµÍ³³õÊ¼»¯
+	// æ–‡ä»¶ç³»ç»Ÿåˆå§‹åŒ–
 	virtual bool Initialzie(const boost::property_tree::wptree& config, const std::wstring& log_path) = 0;
-	// »ñÈ¡ÎÄ¼şÏµÍ³µÄÅäÖÃ
+	// è·å–æ–‡ä»¶ç³»ç»Ÿçš„é…ç½®
 	virtual void GetConfig(boost::property_tree::wptree& config, const std::wstring& config_name) = 0;
 	virtual bool Mount(void) = 0;
 	virtual bool Unmount(void) = 0;
@@ -26,47 +26,47 @@ public:
 	virtual ERROR_CODE fsck(bool fix) = 0;
 
 
-	// ÎÄ¼şÏµÍ³»ù±¾²Ù×÷
-	virtual ERROR_CODE  FileCreate(NID& fid, const std::string& fn) = 0;
-	virtual ERROR_CODE  DirCreate(NID& fid, const std::string& fn) = 0;
-	virtual ERROR_CODE  FileOpen(NID& fid, const std::string& fn, bool delete_on_close = false) = 0;
-	virtual void FileClose(NID fid) = 0;
-	// ÉèÖÃºÍ»ñÈ¡ÎÄ¼ş´óĞ¡£¬ÒÔsectorÎªµ¥Î»¡£
-	virtual void SetFileSize(NID fid, FSIZE secs) = 0;
-	virtual FSIZE GetFileSize(NID fid) = 0;
-	// ·µ»ØÊµ¼ÊĞ´ÈëµÄ byte
-	virtual FSIZE FileWrite(NID fid, FSIZE offset, FSIZE secs) = 0;
-	// ·µ»Ø¶ÁÈ¡µ½µÄ pageÊıÁ¿
-	virtual size_t FileRead(FILE_DATA blks[], NID fid, FSIZE offset, FSIZE secs) = 0;
-	virtual void FileTruncate(NID fid, FSIZE offset, FSIZE secs) = 0;
-	// delete ¸ù¾İÎÄ¼şÃûÉ¾³ıÎÄ¼ş¡£FileRemove()¸ù¾İID£¬É¾³ıÎÄ¼şÏà¹ØÄÚÈİ£¬µ«ÊÇ²»É¾³ıpath map
+	// æ–‡ä»¶ç³»ç»ŸåŸºæœ¬æ“ä½œ
+	virtual ERROR_CODE  FileCreate(_NID& fid, const std::string& fn) = 0;
+	virtual ERROR_CODE  DirCreate(_NID& fid, const std::string& fn) = 0;
+	virtual ERROR_CODE  FileOpen(_NID& fid, const std::string& fn, bool delete_on_close = false) = 0;
+	virtual void FileClose(_NID fid) = 0;
+	// è®¾ç½®å’Œè·å–æ–‡ä»¶å¤§å°ï¼Œä»¥sectorä¸ºå•ä½ã€‚
+	virtual void SetFileSize(_NID fid, FSIZE secs) = 0;
+	virtual FSIZE GetFileSize(_NID fid) = 0;
+	// è¿”å›å®é™…å†™å…¥çš„ byte
+	virtual FSIZE FileWrite(_NID fid, FSIZE offset, FSIZE secs) = 0;
+	// è¿”å›è¯»å–åˆ°çš„ pageæ•°é‡
+	virtual size_t FileRead(FILE_DATA blks[], _NID fid, FSIZE offset, FSIZE secs) = 0;
+	virtual void FileTruncate(_NID fid, FSIZE offset, FSIZE secs) = 0;
+	// delete æ ¹æ®æ–‡ä»¶ååˆ é™¤æ–‡ä»¶ã€‚FileRemove()æ ¹æ®IDï¼Œåˆ é™¤æ–‡ä»¶ç›¸å…³å†…å®¹ï¼Œä½†æ˜¯ä¸åˆ é™¤path map
 	virtual void FileDelete(const std::string& fn) = 0;
 	virtual ERROR_CODE DirDelete(const std::string& fn) = 0;
-	virtual void FileFlush(NID fid) = 0;
-	// ÎÄ¼şÄÜ¹»Ö§³ÖµÄ×î´ó³¤¶È£¨blockµ¥Î»£©
+	virtual void FileFlush(_NID fid) = 0;
+	// æ–‡ä»¶èƒ½å¤Ÿæ”¯æŒçš„æœ€å¤§é•¿åº¦ï¼ˆblockå•ä½ï¼‰
 	virtual DWORD MaxFileSize(void) const = 0;
 	virtual void GetFsInfo(FS_INFO& space_info) = 0;
 
-	// ²âÊÔÖ§³Ö
+	// æµ‹è¯•æ”¯æŒ
 	// virtual bool CopyFrom(IFsSimulator* src) = 0;
 	virtual void Clone(IFsSimulator*& dst) = 0;
 	virtual void CopyFrom(const IFsSimulator* src) = 0;
 	virtual void GetHealthInfo(FsHealthInfo& info) const = 0;
-	// ÓÃÓÚµ÷ÊÔ£¬²»ĞèÒª´ò¿ªÎÄ¼ş¡£size£ºÎÄ¼ş´óĞ¡¡£node block£º°üÀ¨inodeÔÚÄÚ£¬index blockÊıÁ¿£»data_blk£ºÊµ¼ÊÕ¼ÓÃblockÊıÁ¿
-	virtual void GetFileInfo(NID fid, FSIZE& size, FSIZE& node_blk, FSIZE& data_blk) = 0;
+	// ç”¨äºè°ƒè¯•ï¼Œä¸éœ€è¦æ‰“å¼€æ–‡ä»¶ã€‚sizeï¼šæ–‡ä»¶å¤§å°ã€‚node blockï¼šåŒ…æ‹¬inodeåœ¨å†…ï¼Œindex blockæ•°é‡ï¼›data_blkï¼šå®é™…å ç”¨blockæ•°é‡
+	virtual void GetFileInfo(_NID fid, FSIZE& size, FSIZE& node_blk, FSIZE& data_blk) = 0;
 
-	// ¶Ôstorage£¬ÓÃÓÚstorageÏà¹Ø²âÊÔ
+	// å¯¹storageï¼Œç”¨äºstorageç›¸å…³æµ‹è¯•
 	virtual UINT GetCacheNum(void) = 0;
-	virtual void GetFileDirNum(NID fid, UINT& file_nr, UINT& dir_nr) = 0;
+	virtual void GetFileDirNum(_NID fid, UINT& file_nr, UINT& dir_nr) = 0;
 
 	// for debug
 
 	virtual void DumpSegments(const std::wstring& fn, bool sanity_check) = 0;
 	virtual void DumpSegmentBlocks(const std::wstring& fn) = 0;
-	virtual void DumpFileMap(FILE* out, NID fid) = 0;
+	virtual void DumpFileMap(FILE* out, _NID fid) = 0;
 	virtual void DumpAllFileMap(const std::wstring& fn) = 0;
 	virtual void DumpBlockWAF(const std::wstring& fn) = 0;
-	virtual size_t DumpFileIndex(NID index[], size_t buf_size, NID fid) = 0;
+	virtual size_t DumpFileIndex(_NID index[], size_t buf_size, _NID fid) = 0;
 
 	virtual void GetGcTrace(std::vector<GC_TRACE>&) = 0;
 };

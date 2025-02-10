@@ -4,7 +4,7 @@
 #include <Psapi.h>
 
 
-LOCAL_LOGGER_ENABLE(L"extester", LOGGER_LEVEL_DEBUGINFO);
+LOCAL_LOGGER_ENABLE(L"extester.statistic", LOGGER_LEVEL_DEBUGINFO);
 
 
 CExStatisticTester::CExStatisticTester(void)
@@ -26,13 +26,26 @@ int CExStatisticTester::PrepareTest(const boost::property_tree::wptree& config, 
 int CExStatisticTester::PreTest(void)
 {
 	InitializeCriticalSection(&m_trace_crit);
-	InitializeCriticalSection(&m_sub_crit);
-	InitializeCriticalSection(&m_cmp_crit);
-	m_sub_doorbell = CreateSemaphore(nullptr, 0, MAX_WORK_NR, nullptr);
-	m_cmp_doorbell = CreateSemaphore(nullptr, 0, MAX_WORK_NR, nullptr);
+	//InitializeCriticalSection(&m_sub_crit);
+	//InitializeCriticalSection(&m_cmp_crit);
+	//m_sub_doorbell = CreateSemaphore(nullptr, 0, MAX_WORK_NR, nullptr);
+	//m_cmp_doorbell = CreateSemaphore(nullptr, 0, MAX_WORK_NR, nullptr);
 	m_thread_list = new HANDLE[m_thread_num];
 
-	for (UINT ii = 0; ii < MAX_WORK_NR; ++ii)
+	//for (UINT ii = 0; ii < MAX_WORK_NR; ++ii)
+	//{
+	//	m_works[ii].tester = this;
+	//	m_works[ii].state = nullptr;
+	//	m_works[ii].src_state = nullptr;
+	//	m_works[ii].result = ERR_UNKNOWN;
+	//	m_works[ii].test_id = -1;
+	//	m_works[ii].seed = 0;
+	//	// å°†work contextæ”¾å…¥complete queueå¤‡ç”¨
+	//	m_cmp_q.push_back(m_works + ii);
+	//	ReleaseSemaphore(m_cmp_doorbell, 1, nullptr);
+	//}
+	// æ¯ä¸ªworkå¯¹åº”ä¸€ä¸ªthreadï¼Œåˆå§‹åŒ–work
+	for (UINT ii = 0; ii < m_thread_num; ++ii)
 	{
 		m_works[ii].tester = this;
 		m_works[ii].state = nullptr;
@@ -40,13 +53,11 @@ int CExStatisticTester::PreTest(void)
 		m_works[ii].result = ERR_UNKNOWN;
 		m_works[ii].test_id = -1;
 		m_works[ii].seed = 0;
-		// ½«work context·ÅÈëcomplete queue±¸ÓÃ
-		m_cmp_q.push_back(m_works + ii);
-		ReleaseSemaphore(m_cmp_doorbell, 1, nullptr);
-	}
-	for (UINT ii = 0; ii < m_thread_num; ++ii)
-	{
-		m_thread_list[ii] = CreateThread(nullptr, 0, _RunTestQueue, this, 0, nullptr);
+
+		m_works[ii].event_start = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+		m_works[ii].event_complete = CreateEvent(nullptr, FALSE, TRUE, nullptr);
+
+		m_thread_list[ii] = CreateThread(nullptr, 0, _RunTestQueue, (m_works+ii), 0, nullptr);
 		if (m_thread_list[ii] == nullptr) THROW_WIN32_ERROR(L"faild on creating working thread %d", ii);
 	}
 
@@ -59,21 +70,25 @@ void CExStatisticTester::FinishTest(void)
 {
 //	DestroyThreadpoolEnvironment(&m_tp_environ);
 
-	// ÈÃËùÓÐÏß³Ì½áÊø
+	// è®©æ‰€æœ‰çº¿ç¨‹ç»“æŸ
 	LOG_DEBUG(L"waiting for all thread exit");
-	ReleaseSemaphore(m_sub_doorbell, m_thread_num, nullptr);
+//	ReleaseSemaphore(m_sub_doorbell, m_thread_num, nullptr);
 	DWORD ir = WaitForMultipleObjects(m_thread_num, m_thread_list, TRUE, 1000000);
 	if (ir >= WAIT_TIMEOUT) {
 //		THROW_WIN32_ERROR(L"Thread cannot exit");
 		LOG_WIN32_ERROR(L"Thread cannot exit");
 	}
 
-	CloseHandle(m_sub_doorbell);
-	CloseHandle(m_cmp_doorbell);
-	DeleteCriticalSection(&m_sub_crit);
-	DeleteCriticalSection(&m_cmp_crit);
+	LOG_DEBUG(L"all thread exited.");
+
+	//CloseHandle(m_sub_doorbell);
+	//CloseHandle(m_cmp_doorbell);
+	//DeleteCriticalSection(&m_sub_crit);
+	//DeleteCriticalSection(&m_cmp_crit);
 	for (UINT ii = 0; ii < m_thread_num; ++ii)
 	{
+		CloseHandle(m_works[ii].event_start);
+		CloseHandle(m_works[ii].event_complete);
 		CloseHandle(m_thread_list[ii]);
 	}
 	delete[] m_thread_list;
@@ -90,7 +105,7 @@ bool CExStatisticTester::PrintProgress(INT64 ts)
 	float mem_cost = (float)(pmc.WorkingSetSize / (1024.0 * 1024.0));	//MB
 	if (mem_cost > m_max_memory_cost) m_max_memory_cost = mem_cost;
 
-	// Êä³öµ½concole
+	// è¾“å‡ºåˆ°concole
 	wprintf_s(L"ts=%llds, op=%d, testing=%d, completed=%d, failed=%d, mem=%.1fMB, max_mem=%.1fMB\n",
 		ts, m_op_sn, m_testing, m_tested, m_failed, mem_cost, m_max_memory_cost);
 //	wprintf_s(L"files=%d, logic=%d, phisic=%d, total=%d, free=%d, host write=%lld, media write=%lld\n",
@@ -116,161 +131,275 @@ ERROR_CODE CExStatisticTester::RunTest(void)
 	m_failed = 0;
 	m_testing = 0;
 	LONG test = 0;
-	if (m_thread_num > 1) {
+
+	HANDLE* complete_events = new HANDLE[m_thread_num];
+	for (UINT ii = 0; ii < m_thread_num; ++ii) complete_events[ii] = m_works[ii].event_complete;
+
+//	if (m_thread_num > 1) {
 		while (1)
 		{
+			// ç­‰å¾…å®Œæˆæˆ–è€…é‡Šæ”¾çº¿ç¨‹
+			DWORD ir = WaitForMultipleObjects(m_thread_num, complete_events, FALSE, INFINITE);
+			if (ir >= (0 + m_thread_num)) THROW_WIN32_ERROR(L"failed on waiting work");
+			WORK_CONTEXT* work = m_works + ir;
+			if (work->test_id != (UINT)-1)
+			{			// æ£€æŸ¥å’Œå¤„ç†æµ‹è¯•ç»“æžœ
+				m_tested++;
+				if (work->result != ERR_OK) m_failed++;
+				LOG_DEBUG(L"got result, id=%d, tested=%d", work->test_id, m_tested);
+			}
+
+			
+			if (test < m_test_times)
+			{	// å‘é€æµ‹è¯•è¯·æ±‚
+				work->test_id = test;
+				work->src_state = &init_state;
+				work->result = ERR_UNKNOWN;
+				SetEvent(work->event_start);
+				test++;
+			}
+			else
+			{	// å‘é€ç©ºè¯·æ±‚ï¼Œä½¿æµ‹è¯•çº¿ç¨‹ç»“æŸ
+				work->test_id = (UINT)(-1);
+				SetEvent(work->event_start);
+			}
+
+			if (m_tested >= m_test_times) {
+				LOG_DEBUG(L"test completed, tested=%d", m_tested);
+				break;
+			}
+
+
+/*
 			DWORD ir = WaitForSingleObject(m_cmp_doorbell, INFINITE);
 			if (ir != 0) THROW_WIN32_ERROR(L"failed on waiting completion doorbell");
-			// È¡³öQueue
+			// å–å‡ºQueue
 			EnterCriticalSection(&m_cmp_crit);
 			WORK_CONTEXT* work = m_cmp_q.front();
 			m_cmp_q.pop_front();
 			LeaveCriticalSection(&m_cmp_crit);
 			if (work->test_id != (UINT)-1)
-			{	// ´¦Àí½á¹û
+			{	// å¤„ç†ç»“æžœ
 				m_tested++;
 				if (work->result != ERR_OK) m_failed++;
+				LOG_DEBUG(L"got result, id=%d, tested=%d", work->test_id, m_tested);
 			}
-			if (m_tested >= m_test_times) break;
+			if (m_tested >= m_test_times) {
+				LOG_DEBUG(L"test completed, tested=%d", m_tested);
+				break;
+			}
 
-			// ×¼±¸ÐÂµÄ²âÊÔ
+			// å‡†å¤‡æ–°çš„æµ‹è¯•
 			if (test < m_test_times)
 			{
 				work->test_id = test;
 				work->src_state = &init_state;
 				work->result = ERR_UNKNOWN;
+				LOG_DEBUG(L"push new test, id=%d", test);
 				EnterCriticalSection(&m_sub_crit);
 				m_sub_q.push_back(work);
 				LeaveCriticalSection(&m_sub_crit);
 				ReleaseSemaphore(m_sub_doorbell, 1, nullptr);
 				test++;
 			}
+*/
 		}
-	}
-	else {
-		CStateManager states;
-		states.Initialize(0, false);
-		for (; test < m_test_times; test++) {
-			DWORD tid = GetCurrentThreadId();
-			srand(tid+test);
-			CFsState* ss = states.get();
-			IFsSimulator* fs = nullptr;
-			init_state.m_real_fs->Clone(fs);
-			ss->Initialize("\\", fs);
+//	}
+	//else {
+	//	CStateManager states;
+	//	states.Initialize(0, false);
+	//	for (; test < m_test_times; test++) {
+	//		DWORD tid = GetCurrentThreadId();
+	//		srand(tid+test);
+	//		CFsState* ss = states.get();
+	//		IFsSimulator* fs = nullptr;
+	//		init_state.m_real_fs->Clone(fs);
+	//		ss->Initialize("\\", fs);
 
-			ERROR_CODE ir = OneTest(ss, test, tid+test, &states);
-		}
-	}
+	//		ERROR_CODE ir = OneTest(ss, test, tid+test, &states);
+	//	}
+	//}
+		delete[] complete_events;
 	return ERR_OK;
 }
 
 
+#if 0
 DWORD CExStatisticTester::RunTestQueue(void)
 {
-	// ³õÊ¼»¯Ëæ»úÊý
+	// åˆå§‹åŒ–éšæœºæ•°
 	CStateManager states;
 	states.Initialize(0, false);
+	IFsSimulator* fs = nullptr;
+	m_fs_factory->Clone(fs);
+	TRACE_ENTRY ops[MAX_WORK_NR];
 
 	DWORD tid = GetCurrentThreadId();
 	srand(tid);
 	bool exit = false;
 	while (1)
 	{
+		LOG_STACK_PERFORM(L"_p0")
 		DWORD ir = WaitForSingleObject(m_sub_doorbell, INFINITE);
 		if (ir != 0) THROW_WIN32_ERROR(L"failed on waiting submit doorbell");
 		EnterCriticalSection(&m_sub_crit);
-		if (m_sub_q.empty()) {// µ±ÊÕµ½ÐÅºÅ£¬ÇÒ¶ÓÁÐÎª¿Õ£¬±íÊ¾²âÊÔÍê³É£¬ÍÆ³öÏß³Ì¡£
+		if (m_sub_q.empty()) {// å½“æ”¶åˆ°ä¿¡å·ï¼Œä¸”é˜Ÿåˆ—ä¸ºç©ºï¼Œè¡¨ç¤ºæµ‹è¯•å®Œæˆï¼ŒæŽ¨å‡ºçº¿ç¨‹ã€‚
 			LeaveCriticalSection(&m_sub_crit);
+			LOG_DEBUG(L"signal of quit test queue");
 			break;
 		}
 		WORK_CONTEXT* context = m_sub_q.front();
 		m_sub_q.pop_front();
 		LeaveCriticalSection(&m_sub_crit);
-
+		LOG_DEBUG(L"pop new test, id=%d", context->test_id);
 		CFsState* src_state = context->src_state;
 
 		CFsState* init_state = states.get();
-		IFsSimulator* fs = nullptr;
-		// ´Ë´¦µÄm_real_fsÊÇm_fs_factory;
-		src_state->m_real_fs->Clone(fs);
+//		IFsSimulator* fs = nullptr;
+		// æ­¤å¤„çš„m_real_fsæ˜¯m_fs_factory;
+		fs->CopyFrom(src_state->m_real_fs);
+//		src_state->m_real_fs->Clone(fs);
 		init_state->Initialize("\\", fs);
+		fs->add_ref();
 		int seed = tid + rand();
 
 //		printf_s("Start Test, test_id=%d, thread_id=%d\n", context->test_id, tid);
-		context->result = OneTest(init_state, context->test_id, seed, &states);
+		context->result = OneTest(init_state, context->test_id, seed, ops, &states);
 //		printf_s("Complete Test, test_id=%d, thread_id=%d\n", context->test_id, tid);
 
 		states.put(init_state);
 //		printf_s("thread=%d, state.free=%zd, state.buffer=%zd\n", tid, states.m_free_nr, states.m_buffer_size);
-
+		LOG_DEBUG(L"push test result, id=%d", context->test_id);
 		EnterCriticalSection(&m_cmp_crit);
 		m_cmp_q.push_back(context);
 		LeaveCriticalSection(&m_cmp_crit);
 		ReleaseSemaphore(m_cmp_doorbell, 1, nullptr);
 	}
+	fs->release();
+	LOG_DEBUG(L"Exiting test thread, tid=%d", tid);
 	return 0;
 }
-
-ERROR_CODE CExStatisticTester::OneTest(CFsState* src_state, DWORD test_id, int seed, CStateManager* states)
+#else
+DWORD CExStatisticTester::RunTestQueue(WORK_CONTEXT* work)
 {
-	if (states == nullptr) states = &m_states;
-	CFsState* cur_state = states->duplicate(src_state);
-	srand(seed);
-	DWORD tid = GetCurrentThreadId();
-
-	ERROR_CODE ir = ERR_OK;
-	std::string err_msg = "Succeeded";
-//	CFsState* cur_state = init_state;
-//	std::vector<TRACE_ENTRY> ops;
+	// åˆå§‹åŒ–éšæœºæ•°
+	CStateManager states;
+	states.Initialize(15000, false);
+	IFsSimulator* fs = nullptr;
+	m_fs_factory->Clone(fs);
 	TRACE_ENTRY ops[MAX_WORK_NR];
-	InterlockedIncrement(&m_testing);
-	for (int depth = 0; depth < m_test_depth; depth++)
+
+	DWORD tid = GetCurrentThreadId();
+	srand(tid);
+	bool exit = false;
+	while (1)
 	{
-		size_t op_nr = GenerateOps(cur_state, ops, MAX_WORK_NR);
-		// ·µ»ØµÄop_nr ¿ÉÄÜ±Èops.size()Ð¡¡£
-		// ´Ó¿ÉÄÜµÄ²Ù×÷ÖÐËæ»úÑ¡ÔñÒ»¸ö²Ù×÷£¬²¢Ö´ÐÐ
-		int rr = rand();
-		int index = rr % op_nr;
-
-		CFsState* next_state = states->duplicate(cur_state);
-		next_state->m_op = ops[index];
-		next_state->m_op.op_sn = m_op_sn++;
-		LOG_DEBUG(L"setp=%d, available op=%d, random=%d, index=%d", depth, op_nr, rr, index);
-		states->put(cur_state);
-		cur_state = next_state;
-
-		try
-		{
-			ir = FsOperatorCore(cur_state, cur_state->m_op);
-		}
-		catch (jcvos::CJCException& err)
-		{
-			err_msg = err.what();
-			char str[256];
-			Op2String(str, cur_state->m_op);
-
-			printf_s("Test Failed: test id=%d, thread id=%d, step=%d, op=%s\n", test_id, tid, depth, str);
-			printf_s("\t reason: % s\n",  err_msg.c_str());
-
-			CFsException* fs_err = dynamic_cast<CFsException*>(&err);
-			if (fs_err) ir = fs_err->get_error_code();
-			else 		ir = ERR_GENERAL;
+		LOG_STACK_PERFORM(L"_p0")
+		DWORD ir = WaitForSingleObject(work->event_start, INFINITE);
+		if (ir != 0) THROW_WIN32_ERROR(L"failed on waiting start, tid=%d", tid);
+		if (work->test_id == (UINT)-1) {
+			LOG_DEBUG(L"signal of quit test queue");
 			break;
 		}
+		LOG_DEBUG(L"pop new test, id=%d", work->test_id);
+		CFsState* src_state = work->src_state;
 
-		if (ir > ERR_NO_SPACE)	{	break;	}
-		UpdateFsParam(cur_state->m_real_fs);
+		CFsState* init_state = states.get();
+		fs->CopyFrom(src_state->m_real_fs);
+		init_state->Initialize("\\", fs);
+		fs->add_ref();
+		int seed = tid + rand();
+		work->result = OneTest(init_state, work->test_id, seed, ops, &states);
+		states.put(init_state);
+		LOG_DEBUG(L"push test result, id=%d", work->test_id);
+		SetEvent(work->event_complete);
 	}
-	if (ir <= ERR_NO_SPACE) ir = ERR_OK;
-//	printf_s("Output trace, test_id=%d, thread_id=%d\n", test_id, tid);
-	// out error message
-	char str[512];
-	sprintf_s(str, "[seed=%d], %s", seed, err_msg.c_str());
-	OutputTrace_Thread(cur_state, ir, str, test_id);
-	states->put(cur_state);
-	
-//	states->put(init_state);
-	InterlockedDecrement(&m_testing);
+	fs->release();
+	LOG_DEBUG(L"Exiting test thread, tid=%d", tid);
+	return 0;
+
+}
+
+#endif
+
+
+ERROR_CODE CExStatisticTester::OneTest(CFsState* src_state, DWORD test_id, int seed, TRACE_ENTRY* ops, CStateManager* states)
+{
+
+	//LOG_STACK_TRACE();
+	//wprintf_s(L"START NEW TEST: tid=%d", test_id);
+		if (states == nullptr) states = &m_states;
+		CFsState* cur_state = states->duplicate(src_state);
+		srand(seed);
+		DWORD tid = GetCurrentThreadId();
+		int depth = 0;
+
+		ERROR_CODE ir = ERR_OK;
+		std::string err_msg = "Succeeded";
+	{
+		LOG_STACK_PERFORM(L"_p1");
+		//	CFsState* cur_state = init_state;
+		//	std::vector<TRACE_ENTRY> ops;
+//		TRACE_ENTRY ops[MAX_WORK_NR];
+		InterlockedIncrement(&m_testing);
+		for (depth = 0; depth < m_test_depth; depth++)
+		{
+			size_t op_nr = GenerateOps(cur_state, ops, MAX_WORK_NR);
+			// è¿”å›žçš„op_nr å¯èƒ½æ¯”ops.size()å°ã€‚
+			// ä»Žå¯èƒ½çš„æ“ä½œä¸­éšæœºé€‰æ‹©ä¸€ä¸ªæ“ä½œï¼Œå¹¶æ‰§è¡Œ
+			int rr = rand();
+//			int rr = depth;
+			int index = rr % op_nr;
+
+#if 1
+			CFsState* next_state = states->duplicate(cur_state);
+			next_state->m_op = ops[index];
+			next_state->m_op.op_sn = m_op_sn++;
+//			LOG_DEBUG_(1, L"setp=%d, available op=%d, random=%d, index=%d", depth, op_nr, rr, index);
+			states->put(cur_state);
+			cur_state = next_state;
+#endif
+
+			try
+			{
+				ir = FsOperatorCore(cur_state, cur_state->m_op);
+//				ir = ERR_OK;
+			}
+			catch (jcvos::CJCException& err)
+			{
+				err_msg = err.what();
+				char str[256];
+				Op2String(str, cur_state->m_op);
+
+				printf_s("Test Failed: test id=%d, thread id=%d, step=%d, op=%s\n", test_id, tid, depth, str);
+				printf_s("\t reason: % s\n", err_msg.c_str());
+
+				CFsException* fs_err = dynamic_cast<CFsException*>(&err);
+				if (fs_err) ir = fs_err->get_error_code();
+				else 		ir = ERR_GENERAL;
+				break;
+			}
+
+			if (ir > ERR_NO_SPACE) { break; }
+			UpdateFsParam(cur_state->m_real_fs);
+		}
+	}
+//	return ir;
+
+	{
+		LOG_STACK_PERFORM(L"_p2");
+
+		if (ir <= ERR_NO_SPACE) ir = ERR_OK;
+		//	printf_s("Output trace, test_id=%d, thread_id=%d\n", test_id, tid);
+			// out error message
+		char str[512];
+		sprintf_s(str, "[seed=%d], [depth=%d], %s", seed, depth, err_msg.c_str());
+		OutputTrace_Thread(cur_state, ir, str, test_id);
+		states->put(cur_state);
+
+		//	states->put(init_state);
+		InterlockedDecrement(&m_testing);
+	}
 	return ir;
 }
 

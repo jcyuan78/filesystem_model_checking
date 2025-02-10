@@ -12,7 +12,7 @@
 #define INVALID_BLK		(-1)
 #define NID_IN_USE		(0xFFFE)
 //#define INVALID_FID		(-1)
-#define BLOCK_SIZE		(512)			// ¿éµÄ´óĞ¡
+#define BLOCK_SIZE		(512)			// å—çš„å¤§å°
 
 template <typename T>
 inline bool is_valid(const T val) { return val != (T)(-1); }
@@ -24,39 +24,39 @@ inline bool is_invalid(const T val) { return val == (T)(-1); }
 enum ERROR_CODE
 {
 	ERR_OK = 0,
-	ERR_NO_OPERATION =1,	// ²âÊÔ¹ı³ÌÖĞ£¬Õı³£Çé¿öÏÂ£¬µ±Ç°²Ù×÷ÎŞ·¨±»Ö´ĞĞ¡£
-//	ERR_NO_SPACE=2,	// ÓÉÓÚ×ÊÔ´²»¹»·ÅÆú²Ù×÷
-	ERR_NO_SPACE,		// GCÊ±·¢ÏÖ¿Õ¼ä²»¹»£¬ÎŞ·¨»ØÊÕ¸ü¶àsegment
+	ERR_NO_OPERATION =1,	// æµ‹è¯•è¿‡ç¨‹ä¸­ï¼Œæ­£å¸¸æƒ…å†µä¸‹ï¼Œå½“å‰æ“ä½œæ— æ³•è¢«æ‰§è¡Œã€‚
+//	ERR_NO_SPACE=2,	// ç”±äºèµ„æºä¸å¤Ÿæ”¾å¼ƒæ“ä½œ
+	ERR_NO_SPACE,		// GCæ—¶å‘ç°ç©ºé—´ä¸å¤Ÿï¼Œæ— æ³•å›æ”¶æ›´å¤šsegment
 //	ERR_NO_SPACE,
-//	ERR_NO_SPACE,	// ÎÄ¼ş¼ĞµÄdentryÒÑ¾­ÂúÁË
-	ERR_MAX_OPEN_FILE,	// ´ò¿ªµÄÎÄ¼ş³¬¹ıÊıÁ¿
+//	ERR_NO_SPACE,	// æ–‡ä»¶å¤¹çš„dentryå·²ç»æ»¡äº†
+	ERR_MAX_OPEN_FILE,	// æ‰“å¼€çš„æ–‡ä»¶è¶…è¿‡æ•°é‡
 
 	ERR_GENERAL,
 
-	OK_ALREADY_EXIST,	// ÎÄ¼ş»òÕßÄ¿Â¼ÒÑ¾­´æÔÚ£¬µ«ÊÇ½á¹û·µ»Øtrue
+	OK_ALREADY_EXIST,	// æ–‡ä»¶æˆ–è€…ç›®å½•å·²ç»å­˜åœ¨ï¼Œä½†æ˜¯ç»“æœè¿”å›true
 
-	ERR_CREATE_EXIST,	// ¶ÔÓÚÒÑ¾­´æÔÚµÄÎÄ¼ş£¬ÖØ¸´´´½¨¡£
-	ERR_CREATE,			// ÎÄ¼ş»òÕßÄ¿Â¼²»´æÔÚ£¬µ«ÊÇ´´½¨Ê§°Ü
-	ERR_OPEN_FILE,		// ÊÔÍ¼´ò¿ªÒ»¸öÒÑ¾­´æÔÚµÄÎÄ¼şÊ±³ö´í
-	ERR_GET_INFOMATION,	// »ñÈ¡File InformaitonÊ±³ö´í
-	ERR_DELETE_FILE,	// É¾³ıÎÄ¼şÊ±³ö´í
-	ERR_DELETE_DIR,		// É¾³ıÄ¿Â¼Ê±³ö´í
-	ERR_NON_EMPTY,		// É¾³ıÎÄ¼ş¼ĞÊ±£¬ÎÄ¼ş¼Ğ·Ç¿Õ
-	ERR_READ_FILE,		// ¶ÁÎÄ¼şÊ±³ö´í
+	ERR_CREATE_EXIST,	// å¯¹äºå·²ç»å­˜åœ¨çš„æ–‡ä»¶ï¼Œé‡å¤åˆ›å»ºã€‚
+	ERR_CREATE,			// æ–‡ä»¶æˆ–è€…ç›®å½•ä¸å­˜åœ¨ï¼Œä½†æ˜¯åˆ›å»ºå¤±è´¥
+	ERR_OPEN_FILE,		// è¯•å›¾æ‰“å¼€ä¸€ä¸ªå·²ç»å­˜åœ¨çš„æ–‡ä»¶æ—¶å‡ºé”™
+	ERR_GET_INFOMATION,	// è·å–File Informaitonæ—¶å‡ºé”™
+	ERR_DELETE_FILE,	// åˆ é™¤æ–‡ä»¶æ—¶å‡ºé”™
+	ERR_DELETE_DIR,		// åˆ é™¤ç›®å½•æ—¶å‡ºé”™
+	ERR_NON_EMPTY,		// åˆ é™¤æ–‡ä»¶å¤¹æ—¶ï¼Œæ–‡ä»¶å¤¹éç©º
+	ERR_READ_FILE,		// è¯»æ–‡ä»¶æ—¶å‡ºé”™
 	ERR_WRONG_FILE_SIZE,	// 
 	ERR_WRONG_FILE_DATA,
-	ERR_PENDING,		// ²âÊÔ»¹ÔÚ½øĞĞ
-	ERR_SYNC,			// sync fsÊ±³ö´í
+	ERR_PENDING,		// æµ‹è¯•è¿˜åœ¨è¿›è¡Œ
+	ERR_SYNC,			// sync fsæ—¶å‡ºé”™
 
-	ERR_PARENT_NOT_EXIST,	//´ò¿ªÎÄ¼ş»òÕß´´½¨ÎÄ¼şÊ±£¬¸¸Ä¿Â¼²»´æÔÚ
-	ERR_WRONG_PATH,	// ÎÄ¼şÃû¸ñÊ½²»¶Ô£¬ÒªÇó´Ó\\¿ªÊ¼
+	ERR_PARENT_NOT_EXIST,	//æ‰“å¼€æ–‡ä»¶æˆ–è€…åˆ›å»ºæ–‡ä»¶æ—¶ï¼Œçˆ¶ç›®å½•ä¸å­˜åœ¨
+	ERR_WRONG_PATH,	// æ–‡ä»¶åæ ¼å¼ä¸å¯¹ï¼Œè¦æ±‚ä»\\å¼€å§‹
 
-	ERR_VERIFY_FILE,		// ÎÄ¼ş±È½ÏÊ±´íÎó£¬³¤¶È²»¶Ô£¬ÄÚÈİ²»¶ÔµÈ
+	ERR_VERIFY_FILE,		// æ–‡ä»¶æ¯”è¾ƒæ—¶é”™è¯¯ï¼Œé•¿åº¦ä¸å¯¹ï¼Œå†…å®¹ä¸å¯¹ç­‰
 //	ERR_VERIFY_FILE_CONTENT,	
 
-	ERR_WRONG_BLOCK_TYPE,		// blockµÄÀàĞÍ²»·û
+	ERR_WRONG_BLOCK_TYPE,		// blockçš„ç±»å‹ä¸ç¬¦
 	ERR_WRONG_FILE_TYPE, 
-	ERR_WRONG_FILE_NUM,			// ÎÄ¼ş»òÕßÄ¿Â¼ÊıÁ¿²»Æ¥Åä
+	ERR_WRONG_FILE_NUM,			// æ–‡ä»¶æˆ–è€…ç›®å½•æ•°é‡ä¸åŒ¹é…
 	ERR_SIT_MISMATCH,
 	ERR_PHY_ADDR_MISMATCH,
 	ERR_INVALID_INDEX,
@@ -66,12 +66,12 @@ enum ERROR_CODE
 	ERR_DEAD_NID,
 	ERR_LOST_NID,
 	ERR_DOUBLED_NID,
-	ERR_INVALID_NID,		// ²»ºÏ·¨µÄnid, »òÕß²»´æÔÚµÄnid/fid
+	ERR_INVALID_NID,		// ä¸åˆæ³•çš„nid, æˆ–è€…ä¸å­˜åœ¨çš„nid/fid
 
 	ERR_DEAD_BLK,
 	ERR_LOST_BLK,
 	ERR_DOUBLED_BLK,
-	ERR_INVALID_BLK,		// ²»ºÏ·¨µÄphysical block id
+	ERR_INVALID_BLK,		// ä¸åˆæ³•çš„physical block id
 
 	ERR_UNKNOWN,
 	ERR_ERROR_NR,
@@ -79,7 +79,7 @@ enum ERROR_CODE
 //typedef UINT FSIZE;
 
 //typedef DWORD FID;
-typedef WORD NID;		// node id
+typedef WORD _NID;		// node id
 typedef WORD PHY_BLK;
 typedef WORD LBLK_T;
 typedef UINT PAGE_INDEX;
@@ -97,33 +97,33 @@ enum BLK_TEMP
 
 struct FILE_DATA
 {
-	NID		fid;
+	_NID		fid;
 	WORD	offset;
 	UINT	ver;
 };
 
 /// <summary>
-/// ÃèÊöÎÄ¼şÏµÍ³µÄÔËĞĞ×´Ì¬¡£Í¨¹ıÌØÊâ£¨$health£©ÎÄ¼ş¶ÁÈ¡
+/// æè¿°æ–‡ä»¶ç³»ç»Ÿçš„è¿è¡ŒçŠ¶æ€ã€‚é€šè¿‡ç‰¹æ®Šï¼ˆ$healthï¼‰æ–‡ä»¶è¯»å–
 /// </summary>
 struct FsHealthInfo
 {
-	SEG_T m_seg_nr;	// ×ÜµÄsegmentÊıÁ¿
-	PHY_BLK m_blk_nr;	// ×ÜµÄblockÊıÁ¿
-	LBLK_T m_logical_blk_nr;			// Âß¼­¿é×ÜÊÇ¡£makefsÊ±ÉêÇëµÄÂß¼­¿éÊıÁ¿
-	PHY_BLK m_free_blk;		// ¿ÕÏĞÂß¼­¿éÊıÁ¿¡£²»ÊÇÒ»¸ö¾«È·ÊıÖµ£¬³õÊ¼ÖµÎªÔÊĞíµÄÂß¼­±¥ºÍ¶È¡£µ±¹ıÁ¿Ğ´µÄÊ±ºò£¬¿ÉÄÜµ¼ÖÂ¸ºÊı¡£
+	SEG_T m_seg_nr;	// æ€»çš„segmentæ•°é‡
+	PHY_BLK m_blk_nr;	// æ€»çš„blockæ•°é‡
+	LBLK_T m_logical_blk_nr;			// é€»è¾‘å—æ€»æ˜¯ã€‚makefsæ—¶ç”³è¯·çš„é€»è¾‘å—æ•°é‡
+	PHY_BLK m_free_blk;		// ç©ºé—²é€»è¾‘å—æ•°é‡ã€‚ä¸æ˜¯ä¸€ä¸ªç²¾ç¡®æ•°å€¼ï¼Œåˆå§‹å€¼ä¸ºå…è®¸çš„é€»è¾‘é¥±å’Œåº¦ã€‚å½“è¿‡é‡å†™çš„æ—¶å€™ï¼Œå¯èƒ½å¯¼è‡´è´Ÿæ•°ã€‚
 
-	LONG64 m_total_host_write;	// ÒÔ¿éÎªµ¥Î»£¬hostµÄĞ´Èë×ÜÁ¿¡££¨¿ìµÄ´óĞ¡ÓÉ¸ù¾İÎÄ¼şÏµÍ³µ÷Õû£¬Ò»°ãÎª4KB£©
-	LONG64 m_total_media_write;	// Ğ´Èë½éÖÊµÄÊı¾İ×ÜÁ¿£¬ÒÔblockÎªµ¥Î»
+	LONG64 m_total_host_write;	// ä»¥å—ä¸ºå•ä½ï¼Œhostçš„å†™å…¥æ€»é‡ã€‚ï¼ˆå¿«çš„å¤§å°ç”±æ ¹æ®æ–‡ä»¶ç³»ç»Ÿè°ƒæ•´ï¼Œä¸€èˆ¬ä¸º4KBï¼‰
+	LONG64 m_total_media_write;	// å†™å…¥ä»‹è´¨çš„æ•°æ®æ€»é‡ï¼Œä»¥blockä¸ºå•ä½
 	//LONG64 m_media_write_node;
 	//LONG64 m_media_write_data;
 
-	LBLK_T m_logical_saturation;	// Âß¼­±¥ºÍ¶È¡£±»Ğ´¹ıµÄÂß¼­¿éÊıÁ¿£¬²»°üÀ¨metadata
-	PHY_BLK m_physical_saturation;	// ÎïÀí±¥ºÍ¶È¡£ÓĞĞ§µÄÎïÀí¿éÊıÁ¿£¬
+	LBLK_T m_logical_saturation;	// é€»è¾‘é¥±å’Œåº¦ã€‚è¢«å†™è¿‡çš„é€»è¾‘å—æ•°é‡ï¼Œä¸åŒ…æ‹¬metadata
+	PHY_BLK m_physical_saturation;	// ç‰©ç†é¥±å’Œåº¦ã€‚æœ‰æ•ˆçš„ç‰©ç†å—æ•°é‡ï¼Œ
 
-	WORD m_node_nr;		// nid, direct nodeµÄ×ÜÊı
+	WORD m_node_nr;		// nid, direct nodeçš„æ€»æ•°
 	WORD m_free_node_nr;
-//	UINT m_used_node;	// ±»Ê¹ÓÃµÄnode×ÜÊı
-//	UINT m_file_num, m_dir_num;		// ÎÄ¼şÊıÁ¿ºÍÄ¿Â¼ÊıÁ¿
+//	UINT m_used_node;	// è¢«ä½¿ç”¨çš„nodeæ€»æ•°
+//	UINT m_file_num, m_dir_num;		// æ–‡ä»¶æ•°é‡å’Œç›®å½•æ•°é‡
 
 	// file system events
 	UINT sit_journal_overflow;
@@ -136,18 +136,18 @@ struct FS_INFO
 {
 	FSIZE total_seg, free_seg;
 	FSIZE total_blks;
-	FSIZE used_blks;	// Âß¼­±¥ºÍ¶È£¨ÓĞĞ§blockÊıÁ¿£©
+	FSIZE used_blks;	// é€»è¾‘é¥±å’Œåº¦ï¼ˆæœ‰æ•ˆblockæ•°é‡ï¼‰
 	FSIZE free_blks;
-	FSIZE physical_blks;	// ÎïÀí±¥ºÍ¶È
+	FSIZE physical_blks;	// ç‰©ç†é¥±å’Œåº¦
 
-//	UINT max_file_nr;	// ×î´óÖ§³ÖµÄÎÄ¼şÊıÁ¿
-	// ¿¼ÂÇµ½crash, ÎŞ·¨Í¨¹ı¸ú×Ù×¼È·»ñÈ¡ÎÄ¼şÊıÁ¿
-	//	UINT dir_nr, file_nr;		// Ä¿Â¼ÊıÁ¿ºÍÎÄ¼şÊıÁ¿
+//	UINT max_file_nr;	// æœ€å¤§æ”¯æŒçš„æ–‡ä»¶æ•°é‡
+	// è€ƒè™‘åˆ°crash, æ— æ³•é€šè¿‡è·Ÿè¸ªå‡†ç¡®è·å–æ–‡ä»¶æ•°é‡
+	//	UINT dir_nr, file_nr;		// ç›®å½•æ•°é‡å’Œæ–‡ä»¶æ•°é‡
 
 //	LONG64 total_host_write;
 //	LONG64 total_media_write;
 
-//	UINT max_opened_file;	// ×î´ó´ò¿ªµÄÎÄ¼şÊıÁ¿
+//	UINT max_opened_file;	// æœ€å¤§æ‰“å¼€çš„æ–‡ä»¶æ•°é‡
 
 	UINT total_page_nr;
 	UINT free_page_nr;
@@ -158,7 +158,7 @@ struct FS_INFO
 
 struct GC_TRACE
 {
-	NID fid;
+	_NID fid;
 	UINT offset;
 	PHY_BLK org_phy;
 	PHY_BLK new_phy;
@@ -176,9 +176,9 @@ protected:
 public:
 	virtual void add_ref(void) = 0;
 	virtual void release(void) = 0;
-	// ÎÄ¼şÏµÍ³³õÊ¼»¯
+	// æ–‡ä»¶ç³»ç»Ÿåˆå§‹åŒ–
 	virtual bool Initialzie(const boost::property_tree::wptree& config, const std::wstring & log_path) = 0;
-		// »ñÈ¡ÎÄ¼şÏµÍ³µÄÅäÖÃ
+		// è·å–æ–‡ä»¶ç³»ç»Ÿçš„é…ç½®
 	virtual void GetConfig(boost::property_tree::wptree& config, const std::wstring& config_name) = 0;
 	virtual bool Mount(void) = 0;
 	virtual bool Unmount(void) = 0;
@@ -186,47 +186,47 @@ public:
 	virtual ERROR_CODE fsck(bool fix) =0;
 
 
-	// ÎÄ¼şÏµÍ³»ù±¾²Ù×÷
-	virtual ERROR_CODE  FileCreate(NID & fid, const std::string& fn) = 0;
-	virtual ERROR_CODE  DirCreate(NID & fid, const std::string& fn) = 0;
-	virtual ERROR_CODE  FileOpen(NID & fid, const std::string& fn, bool delete_on_close = false) = 0;
-	virtual void FileClose(NID fid) = 0;
-	// ÉèÖÃºÍ»ñÈ¡ÎÄ¼ş´óĞ¡£¬ÒÔsectorÎªµ¥Î»¡£
-	virtual void SetFileSize(NID fid, FSIZE secs) = 0;
-	virtual FSIZE GetFileSize(NID fid) = 0;
-	// ·µ»ØÊµ¼ÊĞ´ÈëµÄ byte
-	virtual FSIZE FileWrite(NID fid, FSIZE offset, FSIZE secs) = 0;
-	// ·µ»Ø¶ÁÈ¡µ½µÄ pageÊıÁ¿
-	virtual size_t FileRead(FILE_DATA blks[], NID fid, FSIZE offset, FSIZE secs) = 0;
-	virtual void FileTruncate(NID fid, FSIZE offset, FSIZE secs) = 0;
-	// delete ¸ù¾İÎÄ¼şÃûÉ¾³ıÎÄ¼ş¡£FileRemove()¸ù¾İID£¬É¾³ıÎÄ¼şÏà¹ØÄÚÈİ£¬µ«ÊÇ²»É¾³ıpath map
+	// æ–‡ä»¶ç³»ç»ŸåŸºæœ¬æ“ä½œ
+	virtual ERROR_CODE  FileCreate(_NID & fid, const std::string& fn) = 0;
+	virtual ERROR_CODE  DirCreate(_NID & fid, const std::string& fn) = 0;
+	virtual ERROR_CODE  FileOpen(_NID & fid, const std::string& fn, bool delete_on_close = false) = 0;
+	virtual void FileClose(_NID fid) = 0;
+	// è®¾ç½®å’Œè·å–æ–‡ä»¶å¤§å°ï¼Œä»¥sectorä¸ºå•ä½ã€‚
+	virtual void SetFileSize(_NID fid, FSIZE secs) = 0;
+	virtual FSIZE GetFileSize(_NID fid) = 0;
+	// è¿”å›å®é™…å†™å…¥çš„ byte
+	virtual FSIZE FileWrite(_NID fid, FSIZE offset, FSIZE secs) = 0;
+	// è¿”å›è¯»å–åˆ°çš„ pageæ•°é‡
+	virtual size_t FileRead(FILE_DATA blks[], _NID fid, FSIZE offset, FSIZE secs) = 0;
+	virtual void FileTruncate(_NID fid, FSIZE offset, FSIZE secs) = 0;
+	// delete æ ¹æ®æ–‡ä»¶ååˆ é™¤æ–‡ä»¶ã€‚FileRemove()æ ¹æ®IDï¼Œåˆ é™¤æ–‡ä»¶ç›¸å…³å†…å®¹ï¼Œä½†æ˜¯ä¸åˆ é™¤path map
 	virtual void FileDelete(const std::string & fn) = 0;	
 	virtual ERROR_CODE DirDelete(const std::string& fn) = 0;
-	virtual void FileFlush(NID fid) = 0;
-	// ÎÄ¼şÄÜ¹»Ö§³ÖµÄ×î´ó³¤¶È£¨blockµ¥Î»£©
+	virtual void FileFlush(_NID fid) = 0;
+	// æ–‡ä»¶èƒ½å¤Ÿæ”¯æŒçš„æœ€å¤§é•¿åº¦ï¼ˆblockå•ä½ï¼‰
 	virtual DWORD MaxFileSize(void) const = 0;
 	virtual void GetFsInfo(FS_INFO& space_info) = 0;
 	
-	// ²âÊÔÖ§³Ö
+	// æµ‹è¯•æ”¯æŒ
 	// virtual bool CopyFrom(IFsSimulator* src) = 0;
 	virtual void Clone(IFsSimulator*& dst) = 0;
 	virtual void CopyFrom(const IFsSimulator* src) = 0;
 	virtual void GetHealthInfo(FsHealthInfo& info) const = 0;
-	// ÓÃÓÚµ÷ÊÔ£¬²»ĞèÒª´ò¿ªÎÄ¼ş¡£size£ºÎÄ¼ş´óĞ¡¡£node block£º°üÀ¨inodeÔÚÄÚ£¬index blockÊıÁ¿£»data_blk£ºÊµ¼ÊÕ¼ÓÃblockÊıÁ¿
-	virtual void GetFileInfo(NID fid, FSIZE& size, FSIZE& node_blk, FSIZE& data_blk) =0;
+	// ç”¨äºè°ƒè¯•ï¼Œä¸éœ€è¦æ‰“å¼€æ–‡ä»¶ã€‚sizeï¼šæ–‡ä»¶å¤§å°ã€‚node blockï¼šåŒ…æ‹¬inodeåœ¨å†…ï¼Œindex blockæ•°é‡ï¼›data_blkï¼šå®é™…å ç”¨blockæ•°é‡
+	virtual void GetFileInfo(_NID fid, FSIZE& size, FSIZE& node_blk, FSIZE& data_blk) =0;
 
-	// ¶Ôstorage£¬ÓÃÓÚstorageÏà¹Ø²âÊÔ
+	// å¯¹storageï¼Œç”¨äºstorageç›¸å…³æµ‹è¯•
 	virtual UINT GetCacheNum(void) = 0;
-	virtual void GetFileDirNum(NID fid, UINT& file_nr, UINT& dir_nr)=0;
+	virtual void GetFileDirNum(_NID fid, UINT& file_nr, UINT& dir_nr)=0;
 
 	// for debug
 
 	virtual void DumpSegments(const std::wstring& fn, bool sanity_check) = 0;
 	virtual void DumpSegmentBlocks(const std::wstring& fn) = 0;
-	virtual void DumpFileMap(FILE* out, NID fid) = 0;
+	virtual void DumpFileMap(FILE* out, _NID fid) = 0;
 	virtual void DumpAllFileMap(const std::wstring& fn) = 0;
 	virtual void DumpBlockWAF(const std::wstring& fn) = 0;
-	virtual size_t DumpFileIndex(NID index[], size_t buf_size, NID fid) = 0;
+	virtual size_t DumpFileIndex(_NID index[], size_t buf_size, _NID fid) = 0;
 
 	virtual void GetGcTrace(std::vector<GC_TRACE>&) = 0;
 };

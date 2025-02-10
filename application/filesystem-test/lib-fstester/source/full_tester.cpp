@@ -719,7 +719,7 @@ void CTestState::OutputState(FILE* log_file)
 	fwprintf_s(log_file, L"ref fs=\n");
 	auto endit = m_ref_fs.End();
 	auto it = m_ref_fs.Begin();
-	for (; it != endit; it++)
+	for (; it != endit; ++it)
 	{
 		const CReferenceFs::CRefFile& ref_file = m_ref_fs.GetFile(it);
 		std::wstring path;

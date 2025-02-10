@@ -89,17 +89,17 @@ DWORD CF2fsSimulator::f2fs_set_main_bitmap(F2FS_FSCK* fsck, PHY_BLK blk)
 	return set_bitmap(fsck->main_area_map, blk);
 }
 
-DWORD CF2fsSimulator::f2fs_set_nat_bitmap(F2FS_FSCK* fsck, NID nid)
+DWORD CF2fsSimulator::f2fs_set_nat_bitmap(F2FS_FSCK* fsck, _NID nid)
 {
 	return set_bitmap(fsck->nat_area_map, nid);
 }
 
-DWORD CF2fsSimulator::f2fs_test_node_bitmap(F2FS_FSCK* fsck, NID nid)
+DWORD CF2fsSimulator::f2fs_test_node_bitmap(F2FS_FSCK* fsck, _NID nid)
 {
 	return test_bitmap(fsck->node_map, nid);
 }
 
-DWORD CF2fsSimulator::f2fs_set_node_bitmap(F2FS_FSCK* fsck, NID nid)
+DWORD CF2fsSimulator::f2fs_set_node_bitmap(F2FS_FSCK* fsck, _NID nid)
 {
 	return set_bitmap(fsck->node_map, nid);
 }
@@ -128,7 +128,7 @@ int CF2fsSimulator::fsck_chk_metadata(F2FS_FSCK* fsck)
 			THROW_FS_ERROR(ERR_SIT_MISMATCH, L"seg [%d] valid block count in sit=%d mismatch valid block count in bitmap %d", 
 				ii, seg.valid_blk_nr, seg_valid_blk);
 		}
-		// µ±Ç°segment¼ÆËãÈçvalid segment£»
+		// å½“å‰segmentè®¡ç®—å¦‚valid segmentï¼›
 		if (m_segments.m_cur_segs[seg.seg_temp].seg_no == ii || seg.valid_blk_nr != 0) valid_seg_nr++;
 //		if (seg.valid_blk_nr != 0)		valid_seg_nr++;
 	}
@@ -140,7 +140,7 @@ int CF2fsSimulator::fsck_chk_metadata(F2FS_FSCK* fsck)
 
 	// check NAT
 	UINT valid_node_nr = 0;
-	for (NID nn = 0; nn < NODE_NR; ++nn)
+	for (_NID nn = 0; nn < NODE_NR; ++nn)
 	{
 		PHY_BLK blk = m_nat.get_phy_blk(nn);
 		if ( is_valid(blk) ) {
@@ -155,16 +155,16 @@ int CF2fsSimulator::fsck_chk_metadata(F2FS_FSCK* fsck)
 
 int CF2fsSimulator::fsck_verify(F2FS_FSCK* fsck)
 {
-	// ¼ì²énatÖĞÓĞÃ»ÓĞÎ´´¦ÀíµÄnode
+	// æ£€æŸ¥natä¸­æœ‰æ²¡æœ‰æœªå¤„ç†çš„node
 	UINT valid_node_nr = 0;
-	for (NID nn = 0; nn < NODE_NR; ++nn)
+	for (_NID nn = 0; nn < NODE_NR; ++nn)
 	{
 		PHY_BLK blk = m_nat.get_phy_blk(nn);
 		if (is_valid(blk) ) {
 			valid_node_nr++;
 			if (f2fs_test_node_bitmap(fsck, nn) == 0)
-			{	// ÓĞÎ´´¦ÀíµÄnode£¬
-				if (fsck->need_to_fix) {	// <TODO> Òª×÷Îªorphan inode´¦Àí
+			{	// æœ‰æœªå¤„ç†çš„nodeï¼Œ
+				if (fsck->need_to_fix) {	// <TODO> è¦ä½œä¸ºorphan inodeå¤„ç†
 					LOG_ERROR(L"nid [%d] allocated but not used, blk=%d.", nn, blk);
 					m_nat.put_node(nn);
 //					m_segments.InvalidBlock(blk);
@@ -175,7 +175,7 @@ int CF2fsSimulator::fsck_verify(F2FS_FSCK* fsck)
 		}
 	}
 
-	// ¼ì²éblockÖĞÓĞÃ»ÓĞÎ´´¦ÀíµÄ
+	// æ£€æŸ¥blockä¸­æœ‰æ²¡æœ‰æœªå¤„ç†çš„
 	SEG_T total_seg_nr = m_segments.get_seg_nr();
 	for (SEG_T ii = 0; ii < total_seg_nr; ++ii)
 	{
@@ -199,7 +199,7 @@ int CF2fsSimulator::fsck_verify(F2FS_FSCK* fsck)
 }
 
 
-int CF2fsSimulator::fsck_chk_data_blk(F2FS_FSCK* fsck, NID nid, WORD offset, PHY_BLK blk, F2FS_FILE_TYPE file_type)
+int CF2fsSimulator::fsck_chk_data_blk(F2FS_FSCK* fsck, _NID nid, WORD offset, PHY_BLK blk, F2FS_FILE_TYPE file_type)
 {
 	if (blk >= MAIN_BLK_NR) {
 		THROW_FS_ERROR(ERR_INVALID_BLK, L"data [%d, %d], phy block addr=%d is invalid", nid, offset, blk);
@@ -211,8 +211,8 @@ int CF2fsSimulator::fsck_chk_data_blk(F2FS_FSCK* fsck, NID nid, WORD offset, PHY
 	}
 	f2fs_set_main_bitmap(fsck, blk);
 
-	// check SIT,  SSA: ÔÚ´ËÄ£ĞÍÖĞ£¬Ã»ÓĞSIT bitmap¡£SIT bitmapÍ¨¹ıSSAÊµÏÖ¡£
-	NID ssa_nid;
+	// check SIT,  SSA: åœ¨æ­¤æ¨¡å‹ä¸­ï¼Œæ²¡æœ‰SIT bitmapã€‚SIT bitmapé€šè¿‡SSAå®ç°ã€‚
+	_NID ssa_nid;
 	WORD ssa_offset;
 	m_segments.GetBlockInfo(ssa_nid, ssa_offset, blk);
 	if ((ssa_nid != nid) || (ssa_offset != offset)) {
@@ -248,7 +248,7 @@ int CF2fsSimulator::fsck_chk_data_blk(F2FS_FSCK* fsck, NID nid, WORD offset, PHY
 	return 0;
 }
 
-int CF2fsSimulator::fsck_chk_node_blk(F2FS_FSCK* fsck, NID nid, F2FS_FILE_TYPE file_type, BLOCK_DATA::BLOCK_TYPE block_type, UINT &blk_cnt)
+int CF2fsSimulator::fsck_chk_node_blk(F2FS_FSCK* fsck, _NID nid, F2FS_FILE_TYPE file_type, BLOCK_DATA::BLOCK_TYPE block_type, UINT &blk_cnt)
 {
 	//f2fs_sanity_check_nid();
 
@@ -267,7 +267,7 @@ int CF2fsSimulator::fsck_chk_node_blk(F2FS_FSCK* fsck, NID nid, F2FS_FILE_TYPE f
 	if (f2fs_test_main_bitmap(fsck, blk) != 0) {
 		THROW_FS_ERROR(ERR_DOUBLED_BLK, L"block %d is double assigned", blk);
 	}
-	// ¼ì²énodeÓëSITµÄbitmapÊÇ·ñÆ¥Åä£¬
+	// æ£€æŸ¥nodeä¸SITçš„bitmapæ˜¯å¦åŒ¹é…ï¼Œ
 	SEG_T seg_no;
 	BLK_T blk_no;
 	CF2fsSegmentManager::BlockToSeg(seg_no, blk_no, blk);
@@ -277,7 +277,7 @@ int CF2fsSimulator::fsck_chk_node_blk(F2FS_FSCK* fsck, NID nid, F2FS_FILE_TYPE f
 		THROW_FS_ERROR(ERR_SIT_MISMATCH, L"nid [%d] phy_blk=%d, is not valid in SIT[%d, %d]", nid, blk, seg_no, blk_no);
 	}
 
-	NID ssa_nid;
+	_NID ssa_nid;
 	WORD ssa_offset;
 	m_segments.GetBlockInfo(ssa_nid, ssa_offset, blk);
 	if ((ssa_nid != nid) || (is_valid(ssa_offset)) ) {
@@ -325,20 +325,20 @@ int CF2fsSimulator::fsck_chk_node_blk(F2FS_FSCK* fsck, NID nid, F2FS_FILE_TYPE f
 	return 0;
 }
 
-int CF2fsSimulator::fsck_chk_inode_blk(F2FS_FSCK* fsck, NID ino, PHY_BLK blk, F2FS_FILE_TYPE file_type, NODE_INFO & node_data)
+int CF2fsSimulator::fsck_chk_inode_blk(F2FS_FSCK* fsck, _NID ino, PHY_BLK blk, F2FS_FILE_TYPE file_type, NODE_INFO & node_data)
 {
-	// ¼ì²émain bitmap£¬È·±£ÎŞÖØ¸´ £¨sanity checkÖĞÒÑ¾­¼ì²é£©¡£
+	// æ£€æŸ¥main bitmapï¼Œç¡®ä¿æ— é‡å¤ ï¼ˆsanity checkä¸­å·²ç»æ£€æŸ¥ï¼‰ã€‚
 	f2fs_set_main_bitmap(fsck, blk);
 
 	file_type = node_data.inode.file_type;
 	if (node_data.m_ino != node_data.m_nid) {
 		THROW_FS_ERROR(ERR_INVALID_NID, L"nid [%d] inode id (%d) does not match", ino, node_data.m_ino);
 	}
-	// ¼ì²éÃ¿¸öindex
+	// æ£€æŸ¥æ¯ä¸ªindex
 	UINT blk_cnt = 0;
 	for (int ii = 0; ii < INDEX_TABLE_SIZE; ++ii)
 	{
-		NID  index_nid = node_data.inode.index[ii];
+		_NID  index_nid = node_data.inode.index[ii];
 		if ( is_valid(index_nid) )
 		{
 			fsck_chk_node_blk(fsck, index_nid, file_type, BLOCK_DATA::BLOCK_INDEX, blk_cnt);
@@ -352,12 +352,12 @@ int CF2fsSimulator::fsck_chk_inode_blk(F2FS_FSCK* fsck, NID ino, PHY_BLK blk, F2
 	return 0;
 }
 
-int CF2fsSimulator::fsck_chk_index_blk(F2FS_FSCK* fsck, NID nid, PHY_BLK blk, F2FS_FILE_TYPE file_type, NODE_INFO& node_data, UINT &blk_cnt)
+int CF2fsSimulator::fsck_chk_index_blk(F2FS_FSCK* fsck, _NID nid, PHY_BLK blk, F2FS_FILE_TYPE file_type, NODE_INFO& node_data, UINT &blk_cnt)
 {
-	// ¼ì²émain bitmap£¬È·±£ÎŞÖØ¸´ £¨sanity checkÖĞÒÑ¾­¼ì²é£©¡£
+	// æ£€æŸ¥main bitmapï¼Œç¡®ä¿æ— é‡å¤ ï¼ˆsanity checkä¸­å·²ç»æ£€æŸ¥ï¼‰ã€‚
 	f2fs_set_main_bitmap(fsck, blk);
 
-	// ¼ì²éÂò¸ödata block
+	// æ£€æŸ¥ä¹°ä¸ªdata block
 	UINT valid_index =0;
 	for (int ii = 0; ii < INDEX_SIZE; ++ii)
 	{

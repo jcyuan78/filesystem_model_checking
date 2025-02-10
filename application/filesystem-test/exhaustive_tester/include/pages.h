@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// pages.h: ¶¨ÒåpageºÍblock data buffer¡£ÕâÁ½¸öÄ£ÄâLinuxµÄ»º´æ¹ÜÀí
+// pages.h: å®šä¹‰pageå’Œblock data bufferã€‚è¿™ä¸¤ä¸ªæ¨¡æ‹ŸLinuxçš„ç¼“å­˜ç®¡ç†
 #pragma once
 
 #include "config.h"
@@ -16,25 +16,25 @@ public:
 	void Init();
 
 public:
-	PHY_BLK phy_blk = INVALID_BLK;	// pageËùÔÚÎïÀíÎ»ÖÃ
-	// ±ê¼ÇpageµÄÎÂ¶È£¬µ±page±»Ğ´ÈëSSDÊ±¸üĞÂ¡£Õâ¸öÎÂ¶È²»ÊÇÊµ¼Ê·ÖÅäµ½ÎÂ¶È£¬ËùÓĞËã·¨ÏÂ¶¼ÏàÍ¬¡£½öÓÃÓÚÍ³¼Æ¡£
+	PHY_BLK phy_blk = INVALID_BLK;	// pageæ‰€åœ¨ç‰©ç†ä½ç½®
+	// æ ‡è®°pageçš„æ¸©åº¦ï¼Œå½“pageè¢«å†™å…¥SSDæ—¶æ›´æ–°ã€‚è¿™ä¸ªæ¸©åº¦ä¸æ˜¯å®é™…åˆ†é…åˆ°æ¸©åº¦ï¼Œæ‰€æœ‰ç®—æ³•ä¸‹éƒ½ç›¸åŒã€‚ä»…ç”¨äºç»Ÿè®¡ã€‚
 	BLK_TEMP ttemp;
-	// nidºÍoffsetÔÚÒ»Æğ±íÊ¾pageµÄÂß¼­µØÖ·£¨ÔÚ¸¸½ÚµãÖĞµÄÎ»ÖÃ£©¡£Ö÷ÒªÓÃÓÚGCÊ±¸üĞÂ¸¸½ÚµãµÄÄÚÈİ¡£ÕâÁ½¸ö²ÎÊıÔÚµ÷ÓÃ WriteBlockToSeg() Ç°ÉèÖÃ
-	// µ±pageÖ¸Ïònode block£¨inode, index£©Ê±£¬Æä¸¸½ÚµãÎªNAT¡£ nid±íÊ¾node id£¬offset =-1 ±íÊ¾Ö¸Ïònode
-	// µ±pageÖ¸Ïòdata block£¨data, dentry)µÈ¡£Æä¸¸½ÚµãÎªinode/index£¬nid±íÊ¾¸¸½ÚµãµÄnid£¬offset±íÊ¾ÔÚ¸¸½ÚµãÖĞµÄÎ»ÖÃ¡£
+	// nidå’Œoffsetåœ¨ä¸€èµ·è¡¨ç¤ºpageçš„é€»è¾‘åœ°å€ï¼ˆåœ¨çˆ¶èŠ‚ç‚¹ä¸­çš„ä½ç½®ï¼‰ã€‚ä¸»è¦ç”¨äºGCæ—¶æ›´æ–°çˆ¶èŠ‚ç‚¹çš„å†…å®¹ã€‚è¿™ä¸¤ä¸ªå‚æ•°åœ¨è°ƒç”¨ WriteBlockToSeg() å‰è®¾ç½®
+	// å½“pageæŒ‡å‘node blockï¼ˆinode, indexï¼‰æ—¶ï¼Œå…¶çˆ¶èŠ‚ç‚¹ä¸ºNATã€‚ nidè¡¨ç¤ºnode idï¼Œoffset =-1 è¡¨ç¤ºæŒ‡å‘node
+	// å½“pageæŒ‡å‘data blockï¼ˆdata, dentry)ç­‰ã€‚å…¶çˆ¶èŠ‚ç‚¹ä¸ºinode/indexï¼Œnidè¡¨ç¤ºçˆ¶èŠ‚ç‚¹çš„nidï¼Œoffsetè¡¨ç¤ºåœ¨çˆ¶èŠ‚ç‚¹ä¸­çš„ä½ç½®ã€‚
 
-	NID	nid;					// Õâ¸öpageËùÔÚµÄnodeµÄnid¡£¶ÔÓÚnode block£¬²»ĞèÒª¸üĞÂ¸¸½Úµã£¬¸üĞÂNAT¼´¿É¡£nid=-1Ê±£¬±íÊ¾pageÎŞĞ§¡£
-	LBLK_T offset = INVALID_BLK;// Èç¹ûpageÊÇÒ»¸önode£¬offset=-1
+	_NID	nid;					// è¿™ä¸ªpageæ‰€åœ¨çš„nodeçš„nidã€‚å¯¹äºnode blockï¼Œä¸éœ€è¦æ›´æ–°çˆ¶èŠ‚ç‚¹ï¼Œæ›´æ–°NATå³å¯ã€‚nid=-1æ—¶ï¼Œè¡¨ç¤ºpageæ— æ•ˆã€‚
+	LBLK_T offset = INVALID_BLK;// å¦‚æœpageæ˜¯ä¸€ä¸ªnodeï¼Œoffset=-1
 	bool dirty = false;
 	bool in_use = false;
 public:
-	// ÓÃÓÚĞÔÄÜÍ³¼Æ
+	// ç”¨äºæ€§èƒ½ç»Ÿè®¡
 //	UINT host_write = 0;
 	friend class CPageAllocator;
 protected:
-	// Êı¾İ(¶ÔÓÚinode »òÕß direct node)
+	// æ•°æ®(å¯¹äºinode æˆ–è€… direct node)
 	union {
-		PAGE_INDEX free_link;	// Ö¸Ïò ÏÂÒ»¸öfree page
+		PAGE_INDEX free_link;	// æŒ‡å‘ ä¸‹ä¸€ä¸ªfree page
 		BLOCK_DATA data;
 	};
 };
@@ -52,7 +52,7 @@ public:
 
 public:
 	void Init(size_t page_nr);
-	// ÉêÇëÒ»¸öpage£¬data:true£¬Í¬Ê±ÉêÇëÊı¾İ£¬false£¬²»ÒªÊı¾İ
+	// ç”³è¯·ä¸€ä¸ªpageï¼Œdata:trueï¼ŒåŒæ—¶ç”³è¯·æ•°æ®ï¼Œfalseï¼Œä¸è¦æ•°æ®
 	CPageInfo* allocate(bool data);
 	void free(CPageInfo* page);
 
@@ -63,7 +63,7 @@ public:
 	}
 	inline PAGE_INDEX page_id(CPageInfo* page) const { return (PAGE_INDEX)(page - m_pages); }
 
-// »ñÈ¡Ïà¹ØĞÅÏ¢
+// è·å–ç›¸å…³ä¿¡æ¯
 public:
 	UINT total_page_nr(void) { return MAX_PAGE_NUM; }
 	UINT free_page_nr(void) { return MAX_PAGE_NUM - m_used_nr; }

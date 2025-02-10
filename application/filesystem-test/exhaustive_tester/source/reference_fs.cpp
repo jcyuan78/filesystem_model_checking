@@ -21,50 +21,100 @@ void CReferenceFs::Initialize(const std::string & root_path)
 	memset(m_files, 0, sizeof(m_files));
 	// add root
 	m_files[0].InitFile(-1, nullptr, root_path, true, 0);
-	m_ref.insert(std::make_pair(m_files[0].m_fn, 0));
+	m_files[0].next = INVALID_BLK;
+	m_used_list = 0;
 
 	for (UINT32 ii = 1; ii < MAX_FILE_NUM; ++ii)
 	{
-		// checksum◊˜Œ™¡¥±Ì÷∏’Î£ø
-		m_files[ii].checksum = ii + 1;
+		// checksum‰Ωú‰∏∫ÈìæË°®ÊåáÈíàÔºü
+		m_files[ii].next = ii + 1;
 		m_files[ii].fid = INVALID_BLK;
 	}
-	m_files[MAX_FILE_NUM - 1].checksum = 0;
+	m_files[MAX_FILE_NUM - 1].next = INVALID_BLK;
 	m_free_list = 1;
 	m_free_num = MAX_FILE_NUM;
-	m_dir_num = 1;		// ∏˘ƒø¬º
+	m_dir_num = 1;		// Ê†πÁõÆÂΩï
 	m_free_num--;
 	m_reset_count = 0;
 }
 
 void CReferenceFs::CopyFrom(const CReferenceFs & src)
 {
-	m_ref = src.m_ref;
-	memcpy_s(m_files, sizeof(m_files), src.m_files, sizeof(m_files));
-	m_free_list = src.m_free_list;
-	m_free_num = src.m_free_num;
-	m_file_num = src.m_file_num;
-	m_dir_num = src.m_dir_num;
-	m_opened = src.m_opened;
-	m_reset_count = src.m_reset_count;
+	memcpy_s(this, sizeof(CReferenceFs), &src, sizeof(CReferenceFs));
 }
 
-bool CReferenceFs::IsExist(const std::string & path)
+UINT CReferenceFs::get_file(void)
 {
-	auto it= m_ref.find(path);
-	return (it != m_ref.end());
+	//wprintf_s(L"pre get file: used_list=%d, next_used=%d, free_list=%d, next_free=%d\n",
+	//	m_used_list, m_files[m_used_list].next, m_free_list, m_files[m_free_list].next);
+	UINT obj_id = m_free_list;
+	CRefFile* obj = m_files + obj_id;
+	m_free_list = obj->next;
+	m_free_num--;
+	// Âä†ÂÖ•used list
+	obj->next = m_used_list;
+	m_used_list = obj_id;
+
+	//wprintf_s(L"post get file: used_list=%d, next_used=%d, free_list=%d, next_free=%d\n",
+	//	m_used_list, m_files[m_used_list].next, m_free_list, m_files[m_free_list].next);
+	return obj_id;
 }
 
-CReferenceFs::CRefFile * CReferenceFs::AddPath(const std::string & path, bool dir, UINT fid )
+void CReferenceFs::put_file(UINT index)
+{
+	UINT next = m_files[m_used_list].next;
+	//wprintf_s(L"pre put file: index=%d, used_list=%d, next_used=%d, free_list=%d, next_free=%d\n",
+	//	index, m_used_list, m_files[m_used_list].next, m_free_list, m_files[m_free_list].next);
+	//debug_out_used_files();
+
+	CRefFile& obj = m_files[index];
+	if (m_used_list == index)
+	{
+		m_used_list = obj.next;
+	}
+	else {
+	// ÊâæÂà∞Ââç‰∏Ä‰∏™
+		UINT pre = m_used_list;
+		while ((is_valid(pre)) && (m_files[pre].next != index)) {
+			pre = m_files[pre].next;
+		}
+		if (is_invalid(pre)) THROW_ERROR(ERR_APP, L"the ref file before %d is invalid", index);
+		m_files[pre].next = obj.next;
+	}
+	obj.fid = INVALID_BLK;
+
+//	m_used_list = obj.next;
+	// Âä†ÂÖ•free list
+	obj.next = m_free_list;
+	m_free_list = index;
+	m_free_num++;
+
+	//wprintf_s(L"post put file, index=%d, next=%d, used_list=%d, used_nr=%d, free_list=%d, free_nr=%d\n", index, obj.next,
+	//	m_used_list, (MAX_FILE_NUM - m_free_num), m_free_list, m_free_num);
+	//debug_out_used_files();
+
+}
+
+void CReferenceFs::debug_out_used_files(void)
+{
+	wprintf_s(L"out used list:\n");
+//	UINT used = MAX_FILE_NUM - m_free_num;
+	for (UINT jj = 0; jj < MAX_FILE_NUM; ++jj)
+	{
+		if (is_valid(m_files[jj].fid)) {
+			wprintf_s(L"index:%d, next:%d, fid=%d, fn:%S\n", jj, m_files[jj].next, m_files[jj].fid, m_files[jj].m_fn);
+		}
+	}
+}
+
+CReferenceFs::CRefFile * CReferenceFs::AddPath(const std::string & path, bool dir, _NID fid )
 {
 	if (m_free_num <= 0) return nullptr;
 	// find a free object;
-	UINT obj_id = m_free_list;
-	CRefFile * obj = m_files + m_free_list;
-	m_free_list = obj->checksum;
-	m_free_num--;
+	UINT obj_id = get_file();
+//	debug_out_used_files();
 
-	// ≤È’“∏∏Ω⁄µ„
+	// Êü•ÊâæÁà∂ËäÇÁÇπ
 	size_t pos = path.find_last_of("\\");
 	std::string parent_fn;
 	if (pos >0 ) parent_fn =std::string(path.c_str(), pos);
@@ -84,26 +134,30 @@ CReferenceFs::CRefFile * CReferenceFs::AddPath(const std::string & path, bool di
 		THROW_ERROR(ERR_APP, L"[err] the parent (%s) is not a dir!", parent_fn.c_str() );
 		return nullptr;
 	}
-	// ≥ı ºªØfile obj
-	obj->InitFile(parent_id, parent, path, dir, fid);
+	// ÂàùÂßãÂåñfile obj
+	m_files[obj_id].InitFile(parent_id, parent, path, dir, fid);
+	//wprintf_s(L"add file, index=%d, fid=%d, fn=%S, used_list=%d, used_nr=%d, free_list=%d, free_nr=%d\n", obj_id, fid, path.c_str(),
+	//	m_used_list, (MAX_FILE_NUM - m_free_num), m_free_list, m_free_num);
+	//debug_out_used_files();
 
-	// ÃÌº”µΩ∏∏Ω⁄µ„
+	// Ê∑ªÂä†Âà∞Áà∂ËäÇÁÇπ
 	parent->m_children[parent->size] = obj_id;
+//	m_files[obj_id].pos = parent->size;
 	parent->size++;
 	if (dir) m_dir_num++;
 	else m_file_num++;
 
 //	LOG_DEBUG(L"this = 0x%08p", this);
-	m_ref.insert(std::make_pair(path, obj_id));
+//	m_ref.insert(std::make_pair(path, obj_id));
 
-	// ∏¸–¬encode
+	// Êõ¥Êñ∞encode
 	parent->UpdateEncode(m_files);
-	return obj;
+	return m_files + obj_id;
 }
 
 void CReferenceFs::GetFileInfo(const CRefFile & file, DWORD & checksum, FSIZE & len) const
 {
-	checksum = file.checksum;
+	checksum = 0;
 	len = file.size;
 }
 
@@ -124,32 +178,14 @@ void CReferenceFs::UpdateFile(const std::string & path, DWORD checksum, size_t l
 
 void CReferenceFs::UpdateFile(CRefFile & file, DWORD checksum, size_t len)
 {
-	file.checksum = checksum;
+//	file.checksum = checksum;
 	file.size = boost::numeric_cast<int>(len);
 	file.m_write_count++;
-	// ∏¸–¬encode
+	// Êõ¥Êñ∞encode
 	file.UpdateEncode(m_files);
-	//if (file.m_write_count <= 2) file.m_encode[0] = '0' + file.m_write_count;
-	//else file.m_encode[0] = '2';
-	//file.m_encode[1] = 0;
-	//file.m_encode_size = 1;
-
-	//UINT parent_id = file.m_parent;
-	//if (parent_id <MAX_FILE_NUM) m_files[parent_id].UpdateEncode(m_files);
-
-	//while (1)
-	//{
-	//	parent->UpdateEncode(m_files);
-	//	parent_id = parent->m_parent;
-	//	if (parent_id > MAX_FILE_NUM) break;
-	//	parent = m_files + parent_id;
-	//}
 }
 
-const CReferenceFs::CRefFile & CReferenceFs::GetFile(CReferenceFs::CONST_ITERATOR & it) const
-{
-	return *(m_files+it->second);
-}
+
 
 void CReferenceFs::OpenFile(CRefFile& file)
 {
@@ -171,7 +207,7 @@ void CReferenceFs::CloseFile(CRefFile& file)
 }
 
 void CReferenceFs::Demount(void)
-{	// πÿ±’À˘”–Œƒº˛
+{	// ÂÖ≥Èó≠ÊâÄÊúâÊñá‰ª∂
 	for (int ii=0; ii<MAX_FILE_NUM; ++ii)
 	{
 		if (is_valid(m_files[ii].fid))
@@ -183,11 +219,29 @@ void CReferenceFs::Demount(void)
 	m_opened = 0;
 }
 
+UINT CReferenceFs::FindFileIndex(const std::string& path)
+{
+	UINT ii = m_used_list;
+	while (is_valid(ii))
+	{
+		CRefFile& file = m_files[ii];
+		if (path == file.m_fn) { return ii; }
+		ii = file.next;
+	}
+	return ii;
+}
+
 CReferenceFs::CRefFile * CReferenceFs::FindFile(const std::string & path)
 {
-	auto it = m_ref.find(path);
-	if (it == m_ref.end()) return NULL;
-	return m_files + it->second;
+	UINT ii = FindFileIndex(path);
+	if (is_invalid(ii)) return nullptr;
+	return m_files + ii;
+}
+
+bool CReferenceFs::IsExist(const std::string& path)
+{
+	UINT ii = FindFileIndex(path);
+	return is_valid(ii);
 }
 
 void CReferenceFs::RemoveFile(const std::string & path)
@@ -198,29 +252,28 @@ void CReferenceFs::RemoveFile(const std::string & path)
 	CRefFile * obj = m_files + obj_id;
 	bool isdir = obj->isdir();
 
-	// ¥”∏∏Ω⁄µ„÷–…æ≥˝Œƒº˛
+	// ‰ªéÁà∂ËäÇÁÇπ‰∏≠Âà†Èô§Êñá‰ª∂
 	CRefFile * parent = &m_files[obj->m_parent];
 	parent->RemoveChild(obj_id);
 	if (isdir) m_dir_num--;
 	else m_file_num--;
 
-	// ∏¸–¬encode
+	// Êõ¥Êñ∞encode
 	parent->UpdateEncode(m_files);
-	memset(obj, 0, sizeof(CRefFile));
-	obj->fid = INVALID_BLK;
-	// º”»Îfree list
-	obj->checksum = m_free_list;
-	m_free_list = obj_id;
-	m_free_num++;
-	size_t erased = m_ref.erase(path);
+//	memset(obj, 0, sizeof(CRefFile));
+	_NID fid = obj->fid;
+//	obj->fid = INVALID_BLK;
+
+	// ÁßªÈô§used list
+	put_file(obj_id);
+	//wprintf_s(L"remove file, index=%d, fid=%d, fn=%S, used_list=%d, used_nr=%d, free_list=%d, free_nr=%d\n", 
+	//	obj_id, fid, path.c_str(),
+	//	m_used_list, (MAX_FILE_NUM - m_free_num), m_free_list, m_free_num);
+//	debug_out_used_files();
+
 }
 
-UINT CReferenceFs::FindFileIndex(const std::string & path)
-{
-	auto it = m_ref.find(path);
-	if (it == m_ref.end()) return -1;
-	return it->second;
-}
+
 
 size_t CReferenceFs::Encode(char* code, size_t buf_len) const
 {
@@ -246,15 +299,16 @@ size_t CReferenceFs::Encode(char* code, size_t buf_len) const
 
 #define ENCODE_TYPE 2
 
-void CReferenceFs::CRefFile::InitFile(UINT parent_id, CRefFile * parent, const std::string& path, bool isdir, UINT fid)
+void CReferenceFs::CRefFile::InitFile(UINT parent_id, CRefFile * parent, const std::string& path, bool isdir, _NID _fid)
 {
 	m_parent = parent_id;
-	this->fid = fid;
+	this->fid = _fid;
 	strcpy_s(m_fn, path.c_str());
+	size = 0;
+	m_is_open = false;
+	m_is_dir = isdir;
 	if (isdir)
 	{
-		checksum = -1;	// ƒø¬º±Í÷æ
-		size = 0;		// √ø∏ˆdir“ª∂®”–“ª∏ˆ"."Œƒº˛£¨”√”⁄«¯∑÷Œƒº˛µƒ“∂Ω⁄µ„°£
 #if ENCODE_TYPE==1
 		strcpy_s(m_encode, "0011");
 		m_encode_size = 4;
@@ -265,8 +319,6 @@ void CReferenceFs::CRefFile::InitFile(UINT parent_id, CRefFile * parent, const s
 	}
 	else
 	{
-		checksum = 0;
-		size = 0;
 #if ENCODE_TYPE==1
 		strcpy_s(m_encode, "01");
 		m_encode_size = 2;
@@ -286,10 +338,10 @@ void CReferenceFs::CRefFile::InitFile(UINT parent_id, CRefFile * parent, const s
 
 void CReferenceFs::CRefFile::UpdateEncode(CRefFile* files)
 {
-	//ºÏ≤È «∑Ò «ƒø¬º
+	//Ê£ÄÊü•ÊòØÂê¶ÊòØÁõÆÂΩï
 //	if (!isdir() ) THROW_ERROR(ERR_APP, L"[err] file cannot run encode");
 	if (!isdir())
-	{	// ππΩ®Œƒº˛µƒEncode
+	{	// ÊûÑÂª∫Êñá‰ª∂ÁöÑEncode
 		char* p = m_encode;
 		m_encode_size = 0;
 		if (m_is_open)
@@ -304,10 +356,10 @@ void CReferenceFs::CRefFile::UpdateEncode(CRefFile* files)
 		m_encode_size++;
 	}
 	else
-	{	// ππΩ®ƒø¬ºµƒEncode
+	{	// ÊûÑÂª∫ÁõÆÂΩïÁöÑEncode
 
-		//∂‘◊”Ω⁄µ„≈≈–Ú
-		qsort_s(m_children, size, sizeof(UINT), CRefFile::CompareEncode, files);
+		//ÂØπÂ≠êËäÇÁÇπÊéíÂ∫è
+		qsort_s(m_children, size, sizeof(_NID), CRefFile::CompareEncode, files);
 		char* ptr = m_encode;
 #if ENCODE_TYPE==1
 	* ptr = '0';
@@ -326,7 +378,7 @@ void CReferenceFs::CRefFile::UpdateEncode(CRefFile* files)
 			m_encode_size += len;
 			ptr += len;
 		}
-		// ◊Ó∫ÛÃÌº” .
+		// ÊúÄÂêéÊ∑ªÂä† .
 #if ENCODE_TYPE==1
 	memcpy_s(ptr, MAX_ENCODE_SIZE - m_encode_size, "011", 4);
 	m_encode_size += 3;
@@ -335,7 +387,7 @@ void CReferenceFs::CRefFile::UpdateEncode(CRefFile* files)
 		m_encode_size += 1;
 #endif
 	}
-	// ∏¸–¬∏∏Ω⁄µ„µƒ Encode
+	// Êõ¥Êñ∞Áà∂ËäÇÁÇπÁöÑ Encode
 	if (m_parent > MAX_FILE_NUM) return;
 	CRefFile& parent = files[m_parent];
 	parent.UpdateEncode(files);
@@ -345,7 +397,7 @@ void CReferenceFs::CRefFile::UpdateEncode(CRefFile* files)
 int CReferenceFs::CRefFile::CompareEncode(void* _files, const void* e1, const void* e2)
 {
 	CRefFile* files = reinterpret_cast<CRefFile*>(_files);
-	UINT fid1 = *(UINT*)e1, fid2 = *(UINT*)e2;
+	_NID fid1 = *(_NID*)e1, fid2 = *(_NID*)e2;
 
 	CRefFile& f1 = files[fid1];
 	CRefFile& f2 = files[fid2];
@@ -354,9 +406,9 @@ int CReferenceFs::CRefFile::CompareEncode(void* _files, const void* e1, const vo
 	return strcmp(code1, code2);
 }
 
-void CReferenceFs::CRefFile::RemoveChild(UINT fid)
+void CReferenceFs::CRefFile::RemoveChild(_NID fid)
 {
-	//’“µΩchild
+	//ÊâæÂà∞child
 	UINT ii = 0;
 	for (; ii < size; ++ii)
 	{

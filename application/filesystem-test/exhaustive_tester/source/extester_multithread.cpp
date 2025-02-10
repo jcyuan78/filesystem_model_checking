@@ -302,7 +302,7 @@ ERROR_CODE CExTester::EnumerateOp_Thread_V2(TRACE_ENTRY* ops, size_t op_size, CF
 
 bool CExTester::DoFsOperator_Queue(CFsState* cur_state, TRACE_ENTRY& op, WORK_CONTEXT* context)
 {
-	LOG_STACK_PERFORM(L"");
+//	LOG_STACK_PERFORM(L"");
 	//	context->state = m_states.duplicate(cur_state);
 	context->src_state = cur_state;
 	cur_state->add_ref();
@@ -322,7 +322,7 @@ bool CExTester::DoFsOperator_Queue(CFsState* cur_state, TRACE_ENTRY& op, WORK_CO
 bool CExTester::DoFsOperator_Thread(CFsState* cur_state, TRACE_ENTRY& op, WORK_CONTEXT* context)
 {
 #ifdef MULTI_THREAD
-	LOG_STACK_PERFORM(L"");
+//	LOG_STACK_PERFORM(L"");
 	context->src_state = cur_state;
 	InterlockedIncrement(&(cur_state->m_ref));
 
@@ -339,7 +339,7 @@ bool CExTester::DoFsOperator_Thread(CFsState* cur_state, TRACE_ENTRY& op, WORK_C
 bool CExTester::DoFsOperator_Pool(CFsState* cur_state, TRACE_ENTRY& op, WORK_CONTEXT* context)
 {
 #ifdef THREAD_POOL
-	LOG_STACK_PERFORM(L"");
+//	LOG_STACK_PERFORM(L"");
 	//	context->state = m_states.duplicate(cur_state);
 	context->src_state = cur_state;
 	InterlockedIncrement(&(cur_state->m_ref));
@@ -395,7 +395,7 @@ DWORD __stdcall CExTester::FsOperator_Thread(PVOID _context)
 VOID CExTester::FsOperator_Pool(PTP_CALLBACK_INSTANCE instance, PVOID _context, PTP_WORK work)
 {
 #ifdef THREAD_POOL
-	LOG_STACK_PERFORM(L"");
+//	LOG_STACK_PERFORM(L"");
 	//	LOG_DEBUG(L"start work: context=%p, work=%p", context, work);
 	WORK_CONTEXT* context = (WORK_CONTEXT*)(_context);
 	FsOperator_Callback(context);
@@ -430,7 +430,9 @@ VOID CExTester::FsOperator_Callback(WORK_CONTEXT* context)
 		if (context->state->m_depth < tester->m_error_list[ir])
 		{
 			InterlockedExchange(&tester->m_error_list[ir], context->state->m_depth);
-			tester->OutputTrace_Thread(context->state, ir, err_msg, (DWORD)(ir), TRACE_REF_FS | TRACE_REAL_FS | TRACE_FILES | TRACE_JSON);
+			char str[512];
+			sprintf_s(str, "[depth=%d], %s", context->state->m_depth, err_msg.c_str());
+			tester->OutputTrace_Thread(context->state, ir, str, (DWORD)(ir), TRACE_REF_FS | TRACE_REAL_FS | TRACE_FILES | TRACE_JSON);
 		}
 	}
 	context->result = ir;
@@ -439,7 +441,7 @@ VOID CExTester::FsOperator_Callback(WORK_CONTEXT* context)
 
 bool CExTester::OutputTrace_Thread(CFsState* state, ERROR_CODE ir, const std::string& err, DWORD tid, DWORD _option)
 {
-	LOG_STACK_PERFORM(L"OutputTrace");
+//	LOG_STACK_PERFORM(L"OutputTrace");
 //	EnterCriticalSection(&m_trace_crit);
 	if (tid == 0) tid = GetCurrentThreadId();
 	char str_fn[MAX_PATH];
