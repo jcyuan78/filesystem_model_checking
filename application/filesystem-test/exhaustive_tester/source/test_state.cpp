@@ -32,7 +32,7 @@ void CFsState::OutputState(FILE* log_file)
 	fprintf_s(log_file, "[REF FS]: encode={%s}\n", str_encode);
 	auto endit = m_ref_fs.End();
 	auto it = m_ref_fs.Begin();
-	for (; it != endit; it++)
+	for (; it != endit; ++it)
 	{
 		const CReferenceFs::CRefFile& ref_file = m_ref_fs.GetFile(it);
 		std::string path;
@@ -60,7 +60,6 @@ void CFsState::DuplicateFrom(CFsState* src_state)
 	m_depth = src_state->m_depth + 1;
 	m_parent = src_state;
 	InterlockedIncrement(&src_state->m_ref);
-
 }
 
 void CFsState::DuplicateWithoutFs(CFsState* src_state)
@@ -136,7 +135,7 @@ void CStateManager::put(CFsState*& state)
 		UINT ref = InterlockedDecrement(&state->m_ref);
 //		UINT ref = --(state->m_ref);
 		if (ref != 0) break;
-		if (!m_duplicate_real_fs) {
+		if (!m_duplicate_real_fs && state->m_real_fs!=nullptr) {
 			state->m_real_fs->release();
 			state->m_real_fs = nullptr;
 		}

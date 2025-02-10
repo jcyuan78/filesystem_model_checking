@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// node.h £º¶¨Òå¸÷ÖÖnode ÀàĞÍµÄÊı¾İ½á¹¹
+// node.h ï¼šå®šä¹‰å„ç§node ç±»å‹çš„æ•°æ®ç»“æ„
 #pragma once
 
 #include "config.h"
@@ -10,20 +10,20 @@
 enum F2FS_FILE_TYPE {
 	F2FS_FILE_REG, F2FS_FILE_DIR, F2FS_FILE_UNKNOWN,
 };
-// ÓÃÓÚ¼ÇÂ¼Ò»¸öÊµ¼ÊµÄinode
+// ç”¨äºè®°å½•ä¸€ä¸ªå®é™…çš„inode
 struct INODE
 {
-	UINT blk_num;		// ÎÄ¼şÕ¼ÓÃµÄÓĞĞ§¿éÊı¡£¿ÉÄÜĞ¡ÓÚÎÄ¼ş³¤¶È£¬ÅÅ³ı¿Õ¶´¡£
-	UINT file_size;		// ÎÄ¼ş³¤¶È£¬×Ö½Úµ¥Î»¡£ÎÄ¼şÊµ¼Ê¿éÊıÍ¨¹ıfile_size¼ÆËã»ñµÃ¡£
+	UINT blk_num;		// æ–‡ä»¶å ç”¨çš„æœ‰æ•ˆå—æ•°ã€‚å¯èƒ½å°äºæ–‡ä»¶é•¿åº¦ï¼Œæ’é™¤ç©ºæ´ã€‚
+	UINT file_size;		// æ–‡ä»¶é•¿åº¦ï¼Œå­—èŠ‚å•ä½ã€‚æ–‡ä»¶å®é™…å—æ•°é€šè¿‡file_sizeè®¡ç®—è·å¾—ã€‚
 	F2FS_FILE_TYPE file_type;
 	UINT ref_count;
-	UINT nlink;			// ÎÄ¼şÁ¬½ÓÊı
-	NID index[INDEX_TABLE_SIZE];		// ´ÅÅÌÊı¾İ£¬
+	UINT nlink;			// æ–‡ä»¶è¿æ¥æ•°
+	_NID index[INDEX_TABLE_SIZE];		// ç£ç›˜æ•°æ®ï¼Œ
 	//		index[]		index_buf[]
-	//		null		null			£ºÔÚÎÄ¼şÖĞ£¬Õâ¸öindex block²»´æÔÚ¡£²»ĞèÒª»ØĞ´
-	//		null		valid			£ºÕâ¸öindex blockĞÂ½¨£¬»¹Î´´æÅÌ¡£ĞèÒª»ØĞ´
-	//		valid		null			£ºÕâ¸öindex blockÎ´±»¶ÁÈ¡¡£²»ĞèÒª»ØĞ´
-	//		valid		valid			£ºÕâ¸öindex blockÒÑ¾­±»¶ÁÈ¡¡£ÊÇ·ñĞŞ¸Ä£¬ÊÇ·ñ»ØĞ´Òª¿´page->dirty
+	//		null		null			ï¼šåœ¨æ–‡ä»¶ä¸­ï¼Œè¿™ä¸ªindex blockä¸å­˜åœ¨ã€‚ä¸éœ€è¦å›å†™
+	//		null		valid			ï¼šè¿™ä¸ªindex blockæ–°å»ºï¼Œè¿˜æœªå­˜ç›˜ã€‚éœ€è¦å›å†™
+	//		valid		null			ï¼šè¿™ä¸ªindex blockæœªè¢«è¯»å–ã€‚ä¸éœ€è¦å›å†™
+	//		valid		valid			ï¼šè¿™ä¸ªindex blockå·²ç»è¢«è¯»å–ã€‚æ˜¯å¦ä¿®æ”¹ï¼Œæ˜¯å¦å›å†™è¦çœ‹page->dirty
 };
 
 struct INDEX_NODE
@@ -32,13 +32,13 @@ struct INDEX_NODE
 	PHY_BLK index[INDEX_SIZE];
 };
 
-// °üº¬ nid ºÍ index node
+// åŒ…å« nid å’Œ index node
 struct NODE_INFO
 {
 public:
-	NID m_nid;				// ±íÊ¾Õâ¸önodeµÄid
-	NID m_ino;				// ±íÊ¾Õâ¸önodeµÄËùÔÚµÄinode
-	PAGE_INDEX page_id;		// Õâ¸önode¶ÔÓ¦µÄpageµÄid
+	_NID m_nid;				// è¡¨ç¤ºè¿™ä¸ªnodeçš„id
+	_NID m_ino;				// è¡¨ç¤ºè¿™ä¸ªnodeçš„æ‰€åœ¨çš„inode
+	PAGE_INDEX page_id;		// è¿™ä¸ªnodeå¯¹åº”çš„pageçš„id
 	union {
 		INODE inode;
 		INDEX_NODE index;
@@ -46,11 +46,11 @@ public:
 };
 
 // == dentry ==
-// dentryµÄÊı¾İ½á¹¹£¬ÒÔ¼°¿éÔÚdentryÖĞ²â´æ´¢
+// dentryçš„æ•°æ®ç»“æ„ï¼Œä»¥åŠå—åœ¨dentryä¸­æµ‹å­˜å‚¨
 
 struct DENTRY
 {
-	NID ino;
+	_NID ino;
 	WORD hash;
 	WORD name_len;
 	BYTE file_type;
@@ -92,7 +92,7 @@ struct BLOCK_DATA
 };
 
 
-// ¹ÜÀíBuffer£¬Ä£ÄâÎÄ¼şÏµÍ³µÄÒ³»º´æ¡£
+// ç®¡ç†Bufferï¼Œæ¨¡æ‹Ÿæ–‡ä»¶ç³»ç»Ÿçš„é¡µç¼“å­˜ã€‚
 template <typename BLOCK_TYPE>
 class _CBufferManager
 {
@@ -100,19 +100,19 @@ public:
 	typedef UINT _INDEX;
 public:
 	_CBufferManager(void) {}
-	// ·µ»Ø rootµÄ NODE
+	// è¿”å› rootçš„ NODE
 	BLOCK_TYPE* Init(void) {
-		// ¹¹½¨free list
+		// æ„å»ºfree list
 		for (UINT ii = 1; ii < BLOCK_BUF_SIZE; ++ii)
 		{
 			m_data_buffer[ii].NODE_NEXT_FREE = ii + 1;
 			m_data_buffer[ii].m_type = BLOCK_DATA::BLOCK_FREE;
 		}
 		m_data_buffer[BLOCK_BUF_SIZE - 1].NODE_NEXT_FREE = INVALID_BLK;
-		m_data_buffer[0].NODE_NEXT_FREE = 0;	// ±£ÁôµÚ0ºÅnode
+		m_data_buffer[0].NODE_NEXT_FREE = 0;	// ä¿ç•™ç¬¬0å·node
 		m_free_ptr = 1;
 		m_used_nr = 1;
-		// FID = 0±íÊ¾root
+		// FID = 0è¡¨ç¤ºroot
 		return m_data_buffer + 0;
 	}
 	_INDEX get_block(void)
@@ -126,7 +126,7 @@ public:
 	void put_block(_INDEX index)
 	{
 		m_data_buffer[index].m_type = BLOCK_DATA::BLOCK_FREE;
-		m_data_buffer[index].NODE_NEXT_FREE = (NID)m_free_ptr;
+		m_data_buffer[index].NODE_NEXT_FREE = (_NID)m_free_ptr;
 		m_free_ptr = index;
 		m_used_nr--;
 	}

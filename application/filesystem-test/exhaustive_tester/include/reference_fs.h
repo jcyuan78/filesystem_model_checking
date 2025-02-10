@@ -2,9 +2,10 @@
 #pragma once
 
 #include <stdext.h>
-#include <map>
+//#include <map>
 
 typedef UINT FSIZE;
+typedef WORD _NID;
 
 
 #define	MAX_DEPTH		(500)
@@ -15,6 +16,8 @@ typedef UINT FSIZE;
 #define MAX_ENCODE_SIZE (MAX_FILE_NUM *2)
 
 //#define INVALID_BLK		(0xFFFFFFFF)
+
+//#undef _NID
 
 enum OP_CODE
 {
@@ -31,16 +34,13 @@ enum OP_CODE
 class TRACE_ENTRY
 {
 public:
-//	UINT64 ts;
 	OP_CODE op_code = OP_CODE::OP_NOP;
-//	DWORD thread_id;
 	std::string file_path;
-	UINT fid;				// ¶ÔÓÚÒÑ¾­´ò¿ªµÄÎÄ¼ş£¬´«µİÎÄ¼şºÅ
-//	UINT64 duration = 0;	// ²Ù×÷ËùÓÃµÄÊ±¼ä
+	_NID fid;				// å¯¹äºå·²ç»æ‰“å¼€çš„æ–‡ä»¶ï¼Œä¼ é€’æ–‡ä»¶å·
 	UINT op_sn;
 	union {
 		struct {
-			UINT rollback;		// ÓÃÓÚpower outage²âÊÔ£¬
+			UINT rollback;		// ç”¨äºpower outageæµ‹è¯•ï¼Œ
 		};
 		struct {	// for thread
 			DWORD new_thread_id;
@@ -70,26 +70,28 @@ public:
 	class CRefFile
 	{
 	protected:
-		FSIZE size;				// ¶ÔÓÚÎÄ¼ş£¬size±íÊ¾ÎÄ¼ş´óĞ¡£¬¶ÔÓÚÄ¿Â¼£¬size±íÊ¾×ÓÏîµÄÊıÁ¿
-		UINT checksum;			// ¶ÔÓÚÎÄ¼ş£¬ÎÄ¼şµÄchecksum£»¶ÔÓÚÄ¿Â¼£¬-1; µÈÎÄ¼şÎŞĞ§Ê±£¬checksum×÷ÎªfreeÁ´±íÖ¸ÕëÊ¹ÓÃ£»
-		UINT fid;
+		FSIZE size;				// å¯¹äºæ–‡ä»¶ï¼Œsizeè¡¨ç¤ºæ–‡ä»¶å¤§å°ï¼Œå¯¹äºç›®å½•ï¼Œsizeè¡¨ç¤ºå­é¡¹çš„æ•°é‡
+//		UINT checksum;			// å¯¹äºæ–‡ä»¶ï¼Œæ–‡ä»¶çš„checksumï¼›å¯¹äºç›®å½•ï¼Œ-1; ç­‰æ–‡ä»¶æ— æ•ˆæ—¶ï¼Œchecksumä½œä¸ºfreeé“¾è¡¨æŒ‡é’ˆä½¿ç”¨ï¼›
+		UINT next;				// ç”¨äºæ–‡ä»¶åˆ—è¡¨ï¼Œä½¿ç”¨åˆ—è¡¨æˆ–è€…freeåˆ—è¡¨
 
 		char m_fn[MAX_PATH_SIZE+1];
-		// Ê÷µÄÍ¬¹¹±àÂë
+		// æ ‘çš„åŒæ„ç¼–ç 
 		char m_encode[MAX_ENCODE_SIZE];
 		int m_encode_size;
-		// ¹¹ÔìÊ÷½á¹¹¡£Õâ¸öÊ÷½á¹¹ĞèÒª¸´ÖÆ£¬ÕâÀïÖ»ÄÜÊ¹ÓÃindex´úÌæÖ¸Õë
-		UINT m_children[MAX_CHILD_NUM];
-		UINT m_parent;		// ¸¸½Úµãid;
-		UINT m_depth;		// Ä¿Â¼Éî¶È
-		int m_write_count;	// ¶ÔÓÚÎÄ¼ş£¬Ğ´Èë´ÎÊı£¬°æ±¾ºÅ
-		bool m_is_open;		// Õâ¸öÎÄ¼şÊÇ·ñ±»´ò¿ª
+		// æ„é€ æ ‘ç»“æ„ã€‚è¿™ä¸ªæ ‘ç»“æ„éœ€è¦å¤åˆ¶ï¼Œè¿™é‡Œåªèƒ½ä½¿ç”¨indexä»£æ›¿æŒ‡é’ˆ
+		_NID m_children[MAX_CHILD_NUM];
+		UINT m_parent;		// çˆ¶èŠ‚ç‚¹id;
+		UINT m_depth;		// ç›®å½•æ·±åº¦
+		int m_write_count;	// å¯¹äºæ–‡ä»¶ï¼Œå†™å…¥æ¬¡æ•°ï¼Œç‰ˆæœ¬å·
+		_NID fid;
+		bool m_is_open;		// è¿™ä¸ªæ–‡ä»¶æ˜¯å¦è¢«æ‰“å¼€
+		bool m_is_dir;
 
 		friend class CReferenceFs;
 
 	public:
-		void InitFile(UINT parent_id, CRefFile * parent, const std::string& path, bool isdir, UINT fid);
-		void RemoveChild(UINT fid);
+		void InitFile(UINT parent_id, CRefFile * parent, const std::string& path, bool isdir, _NID fid);
+		void RemoveChild(_NID fid);
 		void UpdateEncode(CRefFile* files);
 		static int CompareEncode(void*, const void* e1, const void* e2);
 //		void GetEncodeString(std::string& str) const { str = m_encode; }
@@ -97,22 +99,22 @@ public:
 			memcpy_s(str, len, m_encode, m_encode_size);
 			str[m_encode_size] = 0;
 		}
-		inline bool isdir(void) const { return checksum == (UINT)(-1); }
+		inline bool isdir(void) const { return m_is_dir; }
 		inline int depth(void) const { return m_depth; }
 		inline int write_count(void) const { return m_write_count; }
 		inline UINT child_num(void) const { return size; }
-		inline UINT get_fid(void) const { return fid; }
+		inline _NID get_fid(void) const { return fid; }
 		inline bool is_open(void) const { return m_is_open; }
 	};
 public:
-	typedef std::map<std::string, UINT>::iterator ITERATOR;
-	typedef std::map<std::string, UINT>::const_iterator CONST_ITERATOR;
+//	typedef std::map<std::string, UINT>::iterator ITERATOR;
+//	typedef std::map<std::string, UINT>::const_iterator CONST_ITERATOR;
 
 public:
 	void Initialize(const std::string & root_path = "\\");
 	void CopyFrom(const CReferenceFs & src);
-	bool IsExist(const std::string & path);		// ÅĞ¶ÏÂ·¾¶ÊÇ·ñ´æÔÚ
-	CRefFile * AddPath(const std::string & path, bool dir, UINT fid);		// Ìí¼ÓÒ»¸öÂ·¾¶
+	bool IsExist(const std::string & path);		// åˆ¤æ–­è·¯å¾„æ˜¯å¦å­˜åœ¨
+	CRefFile * AddPath(const std::string & path, bool dir, _NID fid);		// æ·»åŠ ä¸€ä¸ªè·¯å¾„
 	void GetFileInfo(const CRefFile & file, DWORD & checksum, FSIZE &len) const;
 	void GetFilePath(const CRefFile& file, std::string & path) const;
 	void UpdateFile(const std::string & path, DWORD checksum, size_t len);
@@ -121,7 +123,7 @@ public:
 		return dir.m_depth;
 	}
 	size_t GetFileNumber(void) const {
-		JCASSERT((m_free_num + m_file_num + m_dir_num) == MAX_FILE_NUM);
+//		JCASSERT((m_free_num + m_file_num + m_dir_num) == MAX_FILE_NUM);
 		return (MAX_FILE_NUM - m_free_num);
 	}
 	//void AddRoot(void);
@@ -134,7 +136,7 @@ public:
 	CRefFile * FindFile(const std::string & path);
 	void RemoveFile(const std::string & path);
 
-	// ¶ÔÊ÷½øĞĞÍ¬¹¹±àÂë£¬ÓÃÓÚÅĞ¶ÏÊ÷µÄÍ¬¹¹ĞÔ
+	// å¯¹æ ‘è¿›è¡ŒåŒæ„ç¼–ç ï¼Œç”¨äºåˆ¤æ–­æ ‘çš„åŒæ„æ€§
 #if 0
 	template <size_t S>
 	int Encode(DWORD(&code)[S]) const
@@ -156,19 +158,35 @@ protected:
 	UINT FindFileIndex(const std::string & path);
 
 public:
-	CONST_ITERATOR Begin() const { return m_ref.begin(); }
-	CONST_ITERATOR End() const { return m_ref.end(); }
-	const CRefFile & GetFile(CONST_ITERATOR & it) const;
-	UINT m_file_num=0, m_dir_num=0; // ÎÄ¼şÊıÁ¿ºÍÄ¿Â¼ÊıÁ¿
+	class CONST_ITERATOR
+	{
+	public:
+		CONST_ITERATOR(UINT init, CRefFile * ff) : index(init), files(ff) {}
+		CONST_ITERATOR(const CONST_ITERATOR& ii) :index(ii.index), files(ii.files) {}
+		CONST_ITERATOR& operator ++ (void) { index = files[index].next; return (*this); }
+		bool operator != (const CONST_ITERATOR& b) { return (index != b.index); }
+		friend class CReferenceFs;
+	protected:
+		UINT index;
+		CRefFile* files;
+	};
+	CReferenceFs::CONST_ITERATOR Begin() { return CONST_ITERATOR(m_used_list, m_files); }
+	CReferenceFs::CONST_ITERATOR End() { return CONST_ITERATOR((UINT)-1, m_files); }
+	const CRefFile& GetFile(CONST_ITERATOR& it) const { return m_files[it.index]; }
+	UINT m_file_num=0, m_dir_num=0; // æ–‡ä»¶æ•°é‡å’Œç›®å½•æ•°é‡
 
 protected:
-	// ¶ÔÓÚÎÄ¼ş£¬UINT64´æ·Ålength | checksum, ¶ÔÓÚdir£¬´æ·Å×ÓÄ¿Â¼ÊıÁ¿
-	//	mapÖĞ´æ·½ref fileµÄindex
-	std::map<std::string, UINT> m_ref;
+	UINT get_file(void);
+	void put_file(UINT index);
+	void debug_out_used_files(void);
+	// å¯¹äºæ–‡ä»¶ï¼ŒUINT64å­˜æ”¾length | checksum, å¯¹äºdirï¼Œå­˜æ”¾å­ç›®å½•æ•°é‡
+	//	mapä¸­å­˜æ–¹ref fileçš„index
+//	std::map<std::string, UINT> m_ref;
 	CRefFile m_files[MAX_FILE_NUM];
-	// ÀûÓÃm_files±¾Éí¹¹½¨Ò»¸öfree list¡£free listµÄchecksumÖ¸ÏòÆäÏÂÒ»¸ö¶ÔÏó¡£m_free_listÖ¸ÏòÆäÍ·²¿¡£
+	// åˆ©ç”¨m_filesæœ¬èº«æ„å»ºä¸€ä¸ªfree listã€‚free listçš„checksumæŒ‡å‘å…¶ä¸‹ä¸€ä¸ªå¯¹è±¡ã€‚m_free_listæŒ‡å‘å…¶å¤´éƒ¨ã€‚
 	UINT m_free_list;
-	size_t m_free_num;
-	UINT m_opened =0;		// ´ò¿ªµÄÎÄ¼şÊıÁ¿
-	UINT m_reset_count = 0;	// ÖØÖÃ´ÎÊı
+	UINT m_used_list;
+	UINT m_free_num;
+	UINT m_opened =0;		// æ‰“å¼€çš„æ–‡ä»¶æ•°é‡
+	UINT m_reset_count = 0;	// é‡ç½®æ¬¡æ•°
 };

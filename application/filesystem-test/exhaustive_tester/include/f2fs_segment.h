@@ -8,7 +8,7 @@ class CPageInfo;
 
 //#define ENABLE_FS_TRACE
 
-// [change] 2024.05.03: ½«free segmentµÄ¹ÜÀí¸ÄÎªÁ¬±íÊ¾¡£²»ÔÚ±£Áôfree segÊı×é£¬Í¨¹ıÒ»¸öfreeµÄÖ¸ÕëÖ¸ÏòµÚÒ»¸öfreeµÄsegment, segmentµÄvalid_blk×÷ÎªÖ¸ÏòÏÂÒ»¸öfree segmentµÄÖ¸Õë¡£
+// [change] 2024.05.03: å°†free segmentçš„ç®¡ç†æ”¹ä¸ºè¿è¡¨ç¤ºã€‚ä¸åœ¨ä¿ç•™free segæ•°ç»„ï¼Œé€šè¿‡ä¸€ä¸ªfreeçš„æŒ‡é’ˆæŒ‡å‘ç¬¬ä¸€ä¸ªfreeçš„segment, segmentçš„valid_blkä½œä¸ºæŒ‡å‘ä¸‹ä¸€ä¸ªfree segmentçš„æŒ‡é’ˆã€‚
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // == page info and page allocator ==
@@ -19,17 +19,17 @@ class CStorage;
 class CPageAllocator;
 
 
-// segment info£ºÒ»¸ösegmentµÄĞÅÏ¢
+// segment infoï¼šä¸€ä¸ªsegmentçš„ä¿¡æ¯
 struct SEG_INFO
 {
 public:
-	// block´æ·ÅÔÚstorageÖĞ£¬
+	// blockå­˜æ”¾åœ¨storageä¸­ï¼Œ
 	DWORD valid_bmp[BITMAP_SIZE];
-	// µ±segment freeµÄÊ±ºò£¬×÷ÎªfreeÁ´±íµÄÖ¸ÕëÊ¹ÓÃ¡£valid_blk_nr == -1 ±íÊ¾blockÎªfree£¬¿ÉÒÔÔÙ·ÖÅä
+	// å½“segment freeçš„æ—¶å€™ï¼Œä½œä¸ºfreeé“¾è¡¨çš„æŒ‡é’ˆä½¿ç”¨ã€‚valid_blk_nr == -1 è¡¨ç¤ºblockä¸ºfreeï¼Œå¯ä»¥å†åˆ†é…
 	DWORD valid_blk_nr;		
-//	DWORD cur_blk;			// ¿ÉÒÔ·ÖÅäµÄÏÂÒ»¸öblock, 0:±íÊ¾Õâ¸ösegmentÎ´±»Ê¹ÓÃ£¬BLOCK_PER_SEG£º±íÊ¾ÒÑ¾­ÌîÂú£¬ÆäËû£ºµ±Ç°segment
-							// µ±block freeÊ±£¬ cur_blk±íÊ¾freeÖ¸Õë
-	BLK_TEMP seg_temp;		// Ö¸Ê¾segmentµÄÎÂ¶È£¬ÓÃÓÚGCºÍ
+//	DWORD cur_blk;			// å¯ä»¥åˆ†é…çš„ä¸‹ä¸€ä¸ªblock, 0:è¡¨ç¤ºè¿™ä¸ªsegmentæœªè¢«ä½¿ç”¨ï¼ŒBLOCK_PER_SEGï¼šè¡¨ç¤ºå·²ç»å¡«æ»¡ï¼Œå…¶ä»–ï¼šå½“å‰segment
+							// å½“block freeæ—¶ï¼Œ cur_blkè¡¨ç¤ºfreeæŒ‡é’ˆ
+	BLK_TEMP seg_temp;		// æŒ‡ç¤ºsegmentçš„æ¸©åº¦ï¼Œç”¨äºGCå’Œ
 };
 
 struct SIT_BLOCK
@@ -39,7 +39,7 @@ struct SIT_BLOCK
 
 struct SUMMARY
 {
-	NID nid;
+	_NID nid;
 	WORD offset;
 };
 
@@ -54,7 +54,7 @@ struct CURSEG_INFO {
 };
 
 struct NAT_JOURNAL_ENTRY {
-	NID nid;
+	_NID nid;
 	PHY_BLK phy_blk;
 };
 
@@ -86,8 +86,8 @@ struct CKPT_BLOCK
 	SIT_JOURNAL_ENTRY sit_journals[JOURNAL_NR];
 };
 
-// Segment InfoµÄÄÚ´æÊı¾İ½á¹¹£º
-//	free segmentµÄ±íÊ¾£ºvalid_blk_nr == 0£»
+// Segment Infoçš„å†…å­˜æ•°æ®ç»“æ„ï¼š
+//	free segmentçš„è¡¨ç¤ºï¼švalid_blk_nr == 0ï¼›
 //	free link: cur_blk
 //#define SEG_NEXT_FREE	cur_blk
 
@@ -95,13 +95,13 @@ class SegmentInfo
 {
 public:
 	DWORD valid_bmp[BITMAP_SIZE];
-	UINT valid_blk_nr;	// µ±segment freeµÄÊ±ºò£¬×÷ÎªfreeÁ´±íµÄÖ¸ÕëÊ¹ÓÃ¡£valid_blk_nr == -1 ±íÊ¾blockÎªfree£¬¿ÉÒÔÔÙ·ÖÅä
-//	DWORD cur_blk;		// ¿ÉÒÔ·ÖÅäµÄÏÂÒ»¸öblock, 0:±íÊ¾Õâ¸ösegmentÎ´±»Ê¹ÓÃ£¬BLOCK_PER_SEG£º±íÊ¾ÒÑ¾­ÌîÂú£¬ÆäËû£ºµ±Ç°segment
-	// µ±block freeÊ±£¬ cur_blk±íÊ¾freeÖ¸Õë
-	BLK_TEMP seg_temp;	// Ö¸Ê¾segmentµÄÎÂ¶È£¬ÓÃÓÚGCºÍ
-	NID		nids[BLOCK_PER_SEG];
+	UINT valid_blk_nr;	// å½“segment freeçš„æ—¶å€™ï¼Œä½œä¸ºfreeé“¾è¡¨çš„æŒ‡é’ˆä½¿ç”¨ã€‚valid_blk_nr == -1 è¡¨ç¤ºblockä¸ºfreeï¼Œå¯ä»¥å†åˆ†é…
+//	DWORD cur_blk;		// å¯ä»¥åˆ†é…çš„ä¸‹ä¸€ä¸ªblock, 0:è¡¨ç¤ºè¿™ä¸ªsegmentæœªè¢«ä½¿ç”¨ï¼ŒBLOCK_PER_SEGï¼šè¡¨ç¤ºå·²ç»å¡«æ»¡ï¼Œå…¶ä»–ï¼šå½“å‰segment
+	// å½“block freeæ—¶ï¼Œ cur_blkè¡¨ç¤ºfreeæŒ‡é’ˆ
+	BLK_TEMP seg_temp;	// æŒ‡ç¤ºsegmentçš„æ¸©åº¦ï¼Œç”¨äºGCå’Œ
+	_NID		nids[BLOCK_PER_SEG];
 	WORD	offset[BLOCK_PER_SEG];
-	SEG_T	free_next;	// ¹¹³ÉfreeÁ´±íµÄË«ÏòÖ¸Õë
+	SEG_T	free_next;	// æ„æˆfreeé“¾è¡¨çš„åŒå‘æŒ‡é’ˆ
 };
 
 inline DWORD OffsetToBlock(LBLK_T& start_blk, LBLK_T& end_blk, FSIZE start_lba, FSIZE secs)
@@ -122,16 +122,16 @@ class GcPoolHeap
 public:
 	GcPoolHeap(SEG_TYPE* s) {}
 public:
-	// Ïë´ó¶¥¶ÑÖĞ·ÅÈësegment
+	// æƒ³å¤§é¡¶å †ä¸­æ”¾å…¥segment
 	void Push(SEG_TYPE* seg)
 	{
 		if (large_len < (N - 1)) { large_add(seg); }
 		else if (seg->valid_blk_nr < large_heap[0]->valid_blk_nr) { large_heapify(seg); }
 	}
-	// ½«´ó¶¥¶ÑÖĞµÄÊı¾İÒÆÈëĞ¡¶¥¶Ñ
+	// å°†å¤§é¡¶å †ä¸­çš„æ•°æ®ç§»å…¥å°é¡¶å †
 	void Sort(void)
 	{
-		// ´Ólarge heapÖĞ´Ó´óµ½Ğ¡È¡³ö£¬·ÅÈësmall_heapÖĞ£»
+		// ä»large heapä¸­ä»å¤§åˆ°å°å–å‡ºï¼Œæ”¾å…¥small_heapä¸­ï¼›
 		small_len = large_len;
 		for (; ;)
 		{
@@ -142,7 +142,7 @@ public:
 		}
 		pop_ptr = 0;
 	}
-	// ´ÓĞ¡¶¥¶ÑÖĞÈ¡³ö×îĞ¡ÔªËØ
+	// ä»å°é¡¶å †ä¸­å–å‡ºæœ€å°å…ƒç´ 
 	SEG_TYPE* Pop(void)
 	{
 		if (pop_ptr >= small_len) return nullptr;
@@ -173,10 +173,10 @@ protected:
 		int cur = large_len;
 		DWORD key_val = key->valid_blk_nr;
 		while (cur > 0)
-		{	// ±È½Ï¸¸½Úµã
+		{	// æ¯”è¾ƒçˆ¶èŠ‚ç‚¹
 			int pp = (cur - 1) >> 1;
 			if (key_val <= large_heap[pp]->valid_blk_nr) break;
-			// ½»»»
+			// äº¤æ¢
 			large_heap[cur] = large_heap[pp];
 			cur = pp;
 		}
@@ -203,7 +203,7 @@ protected:
 				largest = right;
 			}
 			if (largest == cur) break;
-			large_heap[cur] = large_heap[largest];		// ´ËÊ±largest=left»òÕßright£¬keyĞ¡ÓÚleft»òÕßright
+			large_heap[cur] = large_heap[largest];		// æ­¤æ—¶largest=leftæˆ–è€…rightï¼Œkeyå°äºleftæˆ–è€…right
 			cur = largest;
 		}
 		//		JCASSERT(cur < large_len);
@@ -211,14 +211,14 @@ protected:
 	}
 
 protected:
-	int large_len = 0, small_len = 0;		// ¶ÑµÄÓĞĞ§³¤¶È
-	SEG_TYPE* large_heap[N]; //ÓÃÓÚÑ¡³öÒ»¶¨ÊıÁ¿µÄsegmeng
-	SEG_TYPE* small_heap[N];	// °´Ğ¡¶¥¶ÑÅÅĞò£¬ÓÃÓÚÌôÑ¡×÷ÎªGCÔ´
+	int large_len = 0, small_len = 0;		// å †çš„æœ‰æ•ˆé•¿åº¦
+	SEG_TYPE* large_heap[N]; //ç”¨äºé€‰å‡ºä¸€å®šæ•°é‡çš„segmeng
+	SEG_TYPE* small_heap[N];	// æŒ‰å°é¡¶å †æ’åºï¼Œç”¨äºæŒ‘é€‰ä½œä¸ºGCæº
 	int pop_ptr;
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// == segment manager : ÄÚ´æÖĞµÄsegment¹ÜÀí ==
+// == segment manager : å†…å­˜ä¸­çš„segmentç®¡ç† ==
 class CF2fsSegmentManager
 {
 public:
@@ -265,22 +265,22 @@ public:
 
 
 public:
-	// ½«±ØÒªµÄÊı¾İ±£´æµ½Storage
+	// å°†å¿…è¦çš„æ•°æ®ä¿å­˜åˆ°Storage
 	void SyncSIT(void);
 	void SyncSSA(void);
 	void f2fs_flush_sit_entries(CKPT_BLOCK& checkpoint);
 	void f2fs_out_sit_journal(SIT_JOURNAL_ENTRY* journal, UINT &journal_nr);
 	void fill_seg_info(SEG_INFO* seg_info, SEG_T seg);
 	void read_seg_info(SEG_INFO* seg_info, SEG_T seg);
-	// ´ÓstorageÖĞ¶ÁÈ¡ 
+	// ä»storageä¸­è¯»å– 
 	bool Load(CKPT_BLOCK & checkpoint);
 
 protected:
-	// ²éÕÒÒ»¸ö¿ÕµÄsegment: force£º¿ÉÒÔÊ¹ÓÃ±£ÁôÇøÓò
+	// æŸ¥æ‰¾ä¸€ä¸ªç©ºçš„segment: forceï¼šå¯ä»¥ä½¿ç”¨ä¿ç•™åŒºåŸŸ
 	SEG_T AllocSegment(BLK_TEMP temp, bool by_gc, bool force);
-	// »ØÊÕÒ»¸ösegment
+	// å›æ”¶ä¸€ä¸ªsegment
 	void FreeSegment(SEG_T seg_id);
-	// ½«segment iiÌí¼Óµ½free queue (head)ÖĞ
+	// å°†segment iiæ·»åŠ åˆ°free queue (head)ä¸­
 	void free_en_queue(SEG_T ii);
 	SEG_T free_de_queue(void);
 	void build_free_link(void);
@@ -294,7 +294,7 @@ public:
 	bool InvalidBlock(PHY_BLK phy_blk);
 	bool InvalidBlock(SEG_T seg_id, BLK_T blk_id);
 
-	// ½«src_seg, src_blkÖĞµÄblock£¬ÒÆ¶¯µ½tempÏà¹ØµÄµ±Ç°segment£¬·µ»ØÄ¿±ê(segment,block)
+	// å°†src_seg, src_blkä¸­çš„blockï¼Œç§»åŠ¨åˆ°tempç›¸å…³çš„å½“å‰segmentï¼Œè¿”å›ç›®æ ‡(segment,block)
 	SEG_T get_seg_nr(void) const { return MAIN_SEG_NR; }
 	SEG_T get_free_nr(void) const { return m_free_nr; }
 	PHY_BLK get_free_blk_nr(void) const { return MAIN_SEG_NR * BLOCK_PER_SEG - m_used_blk_nr; }
@@ -312,14 +312,14 @@ public:
 		return test_bitmap(m_segments[seg_id].valid_bmp, blk);
 	}
 
-	void GetBlockInfo(NID& nid, WORD& offset, PHY_BLK phy_blk);
-	void SetBlockInfo(NID nid, WORD offset, PHY_BLK phy_blk);
+	void GetBlockInfo(_NID& nid, WORD& offset, PHY_BLK phy_blk);
+	void SetBlockInfo(_NID nid, WORD offset, PHY_BLK phy_blk);
 
-	// Ğ´Èëdata blockµ½segment, file_index ÎÄ¼şid, blk£ºÎÄ¼şÖĞµÄÏà¶Ôblock£¬tempÎÂ¶È
+	// å†™å…¥data blockåˆ°segment, file_index æ–‡ä»¶id, blkï¼šæ–‡ä»¶ä¸­çš„ç›¸å¯¹blockï¼Œtempæ¸©åº¦
 	//void CheckGarbageCollection(CF2fsSimulator* fs)	{
 	//	if (m_free_nr < m_gc_lo) GarbageCollection(fs);
 	//}
-	// ½«pageĞ´Èë´ÅÅÌ
+	// å°†pageå†™å…¥ç£ç›˜
 	PHY_BLK WriteBlockToSeg(CPageInfo * page, bool force, bool by_gc=false);
 
 	ERROR_CODE GarbageCollection(CF2fsSimulator * fs);
@@ -335,19 +335,19 @@ public:
 	void set_dirty(SEG_T seg_id);
 	void clear_dirty(SEG_T seg_id);
 
-	// Ò»ÏÂÁ½¶ÎÊı¾İÊÇĞèÒª±£´æµÄ
-protected:	// ÁÙÊ±´ëÊ©£¬ĞèÒª¿¼ÂÇÈçºÎ´¦ÀíGcPool¡£(1)½«GC×÷ÎªËã·¨Æ÷·ÅÈësegment managementÖĞ£¬(2)Ìá¹©»ñÈ¡GcPoolµÄ½Ó¿Ú
+	// ä¸€ä¸‹ä¸¤æ®µæ•°æ®æ˜¯éœ€è¦ä¿å­˜çš„
+protected:	// ä¸´æ—¶æªæ–½ï¼Œéœ€è¦è€ƒè™‘å¦‚ä½•å¤„ç†GcPoolã€‚(1)å°†GCä½œä¸ºç®—æ³•å™¨æ”¾å…¥segment managementä¸­ï¼Œ(2)æä¾›è·å–GcPoolçš„æ¥å£
 	SegmentInfo m_segments[MAIN_SEG_NR];
 protected:
 //	SEG_T m_cur_segs[BT_TEMP_NR];
 	CURSEG_INFO m_cur_segs[BT_TEMP_NR];
 	SEG_T m_gc_lo, m_gc_hi;
-	// SIT entryµÄdirty±êÖ¾£¬Ò»¸öbit±íÊ¾Ò»¸öSIT entry¡£Ò»¸öDWORD±íÊ¾Ò»¸öSIT block¡£
+	// SIT entryçš„dirtyæ ‡å¿—ï¼Œä¸€ä¸ªbitè¡¨ç¤ºä¸€ä¸ªSIT entryã€‚ä¸€ä¸ªDWORDè¡¨ç¤ºä¸€ä¸ªSIT blockã€‚
 	DWORD m_dirty_map[SIT_BLK_NR];
 
 protected:
 	// free
-	SEG_T m_free_tail, m_free_head, m_free_nr; // headÖ¸ÏòÁ´±í×îºó£¬ÓÃÓÚen-queue; tailÖ¸ÏòÁ´±íÍ·£¬ÓÃÓÚde-queue
+	SEG_T m_free_tail, m_free_head, m_free_nr; // headæŒ‡å‘é“¾è¡¨æœ€åï¼Œç”¨äºen-queue; tailæŒ‡å‘é“¾è¡¨å¤´ï¼Œç”¨äºde-queue
 	PHY_BLK	m_used_blk_nr;
 
 protected:
@@ -360,7 +360,7 @@ protected:
 protected:
 	FsHealthInfo* m_health_info = nullptr;
 	struct DATA_PAGE_CACHE {
-		NID nid;
+		_NID nid;
 		UINT offset;
 		CPageInfo* page;
 	} m_data_cache;

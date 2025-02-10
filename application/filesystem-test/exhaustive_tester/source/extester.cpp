@@ -25,7 +25,7 @@ int GenerateFn(char* fn, int len)
 //== Exahustive Tester ==
 CExTester::CExTester(void)
 {
-	m_states.Initialize(0);
+	m_states.Initialize(4096);
 }
 
 CExTester::~CExTester(void)
@@ -37,7 +37,7 @@ int CExTester::PrepareTest(const boost::property_tree::wptree& config, IFsSimula
 	JCASSERT(fs);
 	m_fs_factory = fs;
 	m_timeout = config.get<DWORD>(L"timeout", INFINITE);
-	m_update_ms = config.get<DWORD>(L"message_interval", 30);		// ÒÔÃëÎªµ¥Î»µÄ¸üĞÂÊ±¼ä
+	m_update_ms = config.get<DWORD>(L"message_interval", 30);		// ä»¥ç§’ä¸ºå•ä½çš„æ›´æ–°æ—¶é—´
 	m_format = config.get<bool>(L"format_before_test", false);
 	m_mount = config.get<bool>(L"mount_before_test", false);
 	m_test_depth = config.get<int>(L"depth", 10);
@@ -48,7 +48,7 @@ int CExTester::PrepareTest(const boost::property_tree::wptree& config, IFsSimula
 	m_branch = config.get<int>(L"branch", -1);
 	m_check_power_loss = config.get<bool>(L"check_power_loss", false);
 
-	// ÎÄ¼şÏµÍ³Ö§³ÖµÄ×î´óÎÄ¼ş´óĞ¡¡£
+	// æ–‡ä»¶ç³»ç»Ÿæ”¯æŒçš„æœ€å¤§æ–‡ä»¶å¤§å°ã€‚
 	FSIZE max_file_secs = m_fs_factory->MaxFileSize() * BLOCK_SIZE;
 	m_max_file_size = config.get<FSIZE>(L"max_file_size", 8388608);		// 128 * 128 block * 512B
 	if (m_max_file_size > max_file_secs)
@@ -58,7 +58,7 @@ int CExTester::PrepareTest(const boost::property_tree::wptree& config, IFsSimula
 	}
 
 	m_clear_temp = config.get<int>(L"clear_temp", 1);
-	// ¶ÁÈ¡²âÊÔÏîÄ¿
+	// è¯»å–æµ‹è¯•é¡¹ç›®
 	const boost::property_tree::wptree& pt_ops = config.get_child(L"operaters");
 	for (auto it = pt_ops.begin(); it != pt_ops.end(); it++)
 	{
@@ -72,7 +72,7 @@ int CExTester::PrepareTest(const boost::property_tree::wptree& config, IFsSimula
 		else if (str_cond == L"FS") m_fs_op_set.push_back(op_id);
 	}
 
-	// ÉèÖÃlogÎÄ¼ş¼Ğ
+	// è®¾ç½®logæ–‡ä»¶å¤¹
 	m_log_path = log_path;
 	std::wstring trace_log_fn = m_log_path + L"\\log.txt";
 #ifdef ENABLE_LOG
@@ -81,7 +81,7 @@ int CExTester::PrepareTest(const boost::property_tree::wptree& config, IFsSimula
 #else
 	m_log_file = nullptr;
 #endif
-	// ÓÃÓÚÍ³¼Æ²âÊÔÊ±¼ä
+	// ç”¨äºç»Ÿè®¡æµ‹è¯•æ—¶é—´
 	_wfopen_s(&m_log_performance, (m_log_path + L"\\perf.csv").c_str(), L"w+");
 	if (!m_log_performance) THROW_ERROR(ERR_USER, L"failed on opening log file %s\\perf.csv", m_log_path.c_str());
 	fprintf_s(m_log_performance, "first_op,duration(us),op_num,avg_run(us)\n");
@@ -91,7 +91,7 @@ int CExTester::PrepareTest(const boost::property_tree::wptree& config, IFsSimula
 
 int CExTester::PreTest(void)
 {
-	// ×¼±¸²âÊÔ
+	// å‡†å¤‡æµ‹è¯•
 	CFsState* init_state = m_states.get();
 	IFsSimulator* fs = nullptr;
 	m_fs_factory->Clone(fs);
@@ -99,7 +99,7 @@ int CExTester::PreTest(void)
 
 	m_open_list.push_front(init_state);
 
-	// »ñÈ¡ÎÄ¼şÏµÍ³²ÎÊı
+	// è·å–æ–‡ä»¶ç³»ç»Ÿå‚æ•°
 	FS_INFO fs_info;
 	m_fs_factory->GetFsInfo(fs_info);
 
@@ -113,7 +113,7 @@ int CExTester::PreTest(void)
 		m_cmp_doorbell = CreateSemaphore(nullptr, 0, MAX_WORK_NR, nullptr);
 		m_thread_list = new HANDLE[m_thread_num];
 #elif defined THREAD_POOL
-		// ×¼±¸Ïß³Ì³Ø
+		// å‡†å¤‡çº¿ç¨‹æ± 
 		//CreateThreadpoolWork()
 		InitializeThreadpoolEnvironment(&m_tp_environ);
 #endif
@@ -160,7 +160,7 @@ void CExTester::FinishTest(void)
 		m_states.put(state);
 	}
 	m_open_list.clear();
-	//Í£Ö¹Ïß³Ì
+	//åœæ­¢çº¿ç¨‹
 
 	if (m_thread_num > 1)
 	{
@@ -273,8 +273,8 @@ size_t CExTester::GenerateOps(CFsState* cur_state, TRACE_ENTRY* ops, size_t op_s
 	TRACE_ENTRY* op = nullptr;
 	size_t file_nr = ref_fs.GetFileNumber();
 
-	// Éú³ÉËùÓĞ¿ÉÄÜµÄ²Ù×÷£¬·ÅÈëopsÊı×é
-	for (; it != endit; it++)
+	// ç”Ÿæˆæ‰€æœ‰å¯èƒ½çš„æ“ä½œï¼Œæ”¾å…¥opsæ•°ç»„
+	for (; it != endit; ++it)
 	{
 //		if (context_id >= MAX_WORK_NR) THROW_ERROR(ERR_APP, L"too many operations");
 		const CReferenceFs::CRefFile& file = ref_fs.GetFile(it);
@@ -289,7 +289,7 @@ size_t CExTester::GenerateOps(CFsState* cur_state, TRACE_ENTRY* ops, size_t op_s
 
 
 		if (isdir)
-		{	// Ä¿Â¼
+		{	// ç›®å½•
 			UINT child_num = file.child_num();
 			if (child_num >= m_max_child_num) continue;
 			if (file.depth() >= (m_max_dir_depth - 1)) continue;
@@ -302,7 +302,7 @@ size_t CExTester::GenerateOps(CFsState* cur_state, TRACE_ENTRY* ops, size_t op_s
 			}
 		}
 		else
-		{	// ÎÄ¼ş
+		{	// æ–‡ä»¶
 			FSIZE offset = (FSIZE)(file_len * ((float)(rand()) / RAND_MAX));
 			FSIZE len = (FSIZE)((m_max_file_size - offset) * ((float)(rand()) / RAND_MAX));
 			if (file.is_open())
@@ -322,7 +322,7 @@ size_t CExTester::GenerateOps(CFsState* cur_state, TRACE_ENTRY* ops, size_t op_s
 	}
 
 	AddOp(ops, op_size, index, OP_DEMOUNT_MOUNT);
-	// Éú³É¶Ôpower off²âÊÔµÄop
+	// ç”Ÿæˆå¯¹power offæµ‹è¯•çš„op
 	if (m_check_power_loss)
 	{
 		IFsSimulator* real_fs = cur_state->m_real_fs;
@@ -342,7 +342,7 @@ ERROR_CODE CExTester::RunTest(void)
 	ERROR_CODE ir = ERR_OK;
 	printf_s("Running EXHAUSTICE test\n");
 #if 0
-	// ¼ò»¯²âÊÔÁ÷³Ì
+	// ç®€åŒ–æµ‹è¯•æµç¨‹
 	m_cur_state = m_open_list.front();
 	IFsSimulator* fs = m_cur_state->m_real_fs;
 
@@ -364,8 +364,8 @@ ERROR_CODE CExTester::RunTest(void)
 	{
 		CFsState * cur_state = m_open_list.front();
 		m_open_list.pop_front();
-		// Èç¹ûverify³öÏÖ´íÎó£¬cur_state»áÔÚFinishTest()ÖĞ±»»ØÊÕ
-		// (1) ½«µ±Ç°×´Ì¬¼ÓÈëhash£¬½ö¼ÓÈëhash£¬²»±£´æ×´Ì¬
+		// å¦‚æœverifyå‡ºç°é”™è¯¯ï¼Œcur_stateä¼šåœ¨FinishTest()ä¸­è¢«å›æ”¶
+		// (1) å°†å½“å‰çŠ¶æ€åŠ å…¥hashï¼Œä»…åŠ å…¥hashï¼Œä¸ä¿å­˜çŠ¶æ€
 //		m_closed.Insert(cur_state);
 
 		// check depth
@@ -377,26 +377,26 @@ ERROR_CODE CExTester::RunTest(void)
 			m_max_depth_state = cur_state;
 			cur_state->add_ref();
 		}
-		// ÓÃ»§¿ØÖÆÍ£Ö¹
+		// ç”¨æˆ·æ§åˆ¶åœæ­¢
 		if (m_stop_test > 0)
 		{
-			m_states.put(cur_state);		// put()ÖĞ½«m_cur_stateÖÃ nullptr
+			m_states.put(cur_state);		// put()ä¸­å°†m_cur_stateç½® nullptr
 			wprintf_s(L"test stopped by user pressing ctrl C\n");
 			break;
 		}		
 		
 		if (depth >= m_test_depth)
 		{
-			m_states.put(cur_state);		// put()ÖĞ½«m_cur_stateÖÃ nullptr
+			m_states.put(cur_state);		// put()ä¸­å°†m_cur_stateç½® nullptr
 			continue;
 		}
-		// (2) À©Õ¹µ±Ç°×´Ì¬£¬
+		// (2) æ‰©å±•å½“å‰çŠ¶æ€ï¼Œ
 		auto it = m_open_list.begin();
 		if (m_thread_num > 1)		ir = EnumerateOp_Thread_V2(ops, MAX_WORK_NR, cur_state, it);
 		else						ir = EnumerateOpV2(ops, MAX_WORK_NR, cur_state, it);
-		// (3) ÒÆ³ıµ±Ç°×´Ì¬      
-		// Çå³ı¸¸½Úµã
-		m_states.put(cur_state);		// put()ÖĞ½«m_cur_stateÖÃ nullptr
+		// (3) ç§»é™¤å½“å‰çŠ¶æ€      
+		// æ¸…é™¤çˆ¶èŠ‚ç‚¹
+		m_states.put(cur_state);		// put()ä¸­å°†m_cur_stateç½® nullptr
 //		if (ir != ERR_OK) break;
 	}
 #endif
@@ -414,12 +414,12 @@ ERROR_CODE CExTester::RunTest(void)
 
 int CExTester::StartTest(void)
 {
-	// Ö÷Ïß³ÌÓÃÓÚ¼àÊÓ£¬×ÓÏß³ÌÓÃÓÚ²âÊÔ
+	// ä¸»çº¿ç¨‹ç”¨äºç›‘è§†ï¼Œå­çº¿ç¨‹ç”¨äºæµ‹è¯•
 	m_ts_start = boost::posix_time::microsec_clock::local_time();
-	// Æô¶¯²âÊÔ
+	// å¯åŠ¨æµ‹è¯•
 	m_test_thread = CreateThread(NULL, 0, _RunTest, (PVOID)this, 0, &m_test_thread_id);
 
-	// ¼àÊÓ²âÊÔ¹ı³Ì
+	// ç›‘è§†æµ‹è¯•è¿‡ç¨‹
 	while (1)
 	{
 		DWORD ir = WaitForSingleObject(m_test_thread, m_update_ms);
@@ -446,6 +446,7 @@ DWORD WINAPI CExTester::_RunTest(PVOID p)
 	{
 		tester->PreTest();
 		ir = tester->RunTest();
+		LOG_CRITICAL(L"test completed with code=%d", ir);
 		wprintf_s(L"test completed with code=%d\n", ir);
 	}
 	catch (jcvos::CJCException & err)
@@ -475,7 +476,7 @@ bool CExTester::PrintProgress(INT64 ts)
 	float mem_cost = (float)(pmc.WorkingSetSize / (1024.0 * 1024.0));	//MB
 	if (mem_cost > m_max_memory_cost) m_max_memory_cost = mem_cost;
 
-	// Êä³öµ½concole
+	// è¾“å‡ºåˆ°concole
 	wprintf_s(L"ts=%llds, op=%d, depth=%d, closed=%zd, open=%zd, mem=%.1fMB, max_mem=%.1fMB\n"
 		L"files=%d, logic=%d, phisic=%d, total=%d, free=%d, host write=%lld, media write= %lld\n",
 		ts, m_op_sn, m_max_depth, m_closed.size(), m_open_list.size(), mem_cost, m_max_memory_cost,
@@ -538,7 +539,7 @@ ERROR_CODE CExTester::EnumerateOpV2(TRACE_ENTRY* ops, size_t op_size, CFsState* 
 	auto endit = ref_fs.End();
 	auto it = ref_fs.Begin();
 	TRACE_ENTRY op;
-	ERROR_CODE ir = ERR_OK; // ¼ÇÂ¼²Ù×÷µÄ½á¹û
+	ERROR_CODE ir = ERR_OK; // è®°å½•æ“ä½œçš„ç»“æœ
 
 	for (; it != endit; it++)
 	{
@@ -553,17 +554,17 @@ ERROR_CODE CExTester::EnumerateOpV2(TRACE_ENTRY* ops, size_t op_size, CFsState* 
 		ref_fs.GetFileInfo(file, checksum, file_len);
 
 		if (isdir)
-		{	// Ä¿Â¼
+		{	// ç›®å½•
 			UINT child_num = file.child_num();
-			// ×ÓÎÄ¼ş£¬Ä¿Â¼ÊıÁ¿ÏŞÖÆ
+			// å­æ–‡ä»¶ï¼Œç›®å½•æ•°é‡é™åˆ¶
 			if (child_num >= m_max_child_num) continue;
-			// ÎÄ¼şÉî¶ÈÏŞÖÆ
+			// æ–‡ä»¶æ·±åº¦é™åˆ¶
 			if (file.depth() >= (m_max_dir_depth - 1)) continue;
-			// ÎÄ¼ş×ÜÊıÏŞÖÆ
+			// æ–‡ä»¶æ€»æ•°é™åˆ¶
 			if (ref_fs.GetFileNumber() >= MAX_FILE_NUM) continue;
 
 			// create a sub file
-			char fn[3];	//ÎÄ¼şÃû£¬Ëæ»ú²úÉú2×Ö·û
+			char fn[3];	//æ–‡ä»¶åï¼Œéšæœºäº§ç”Ÿ2å­—ç¬¦
 			GenerateFn(fn, 2);
 			op.op_code = OP_FILE_CREATE;
 			op.file_path = (path.size() > 1) ? (path + "\\" + fn) : (path + fn);
@@ -571,7 +572,7 @@ ERROR_CODE CExTester::EnumerateOpV2(TRACE_ENTRY* ops, size_t op_size, CFsState* 
 			if (ir != ERR_OK) return ir;
 			context_id++;
 
-			// dreate a sub dir		// Éî¶ÈÏŞÖÆ
+			// dreate a sub dir		// æ·±åº¦é™åˆ¶
 			GenerateFn(fn, 2);
 			op.op_code = OP_DIR_CREATE;
 			op.file_path = (path.size() > 1) ? (path + "\\" + fn) : (path + fn);
@@ -582,13 +583,13 @@ ERROR_CODE CExTester::EnumerateOpV2(TRACE_ENTRY* ops, size_t op_size, CFsState* 
 			// <TODO> delete dir
 		}
 		else
-		{	// ÎÄ¼ş
+		{	// æ–‡ä»¶
 			FSIZE offset = (FSIZE)(file_len * ((float)(rand()) / RAND_MAX));
 			FSIZE len = (FSIZE)((m_max_file_size - offset) * ((float)(rand()) / RAND_MAX));
 			if (file.is_open() )
-			{	// ÎÄ¼şÒÑ¾­´ò¿ª£¬¿ÉÒÔ£ºĞ´Èë£¬¹Ø±Õ£¬¶ÁÈ¡£¬É¾³ı
+			{	// æ–‡ä»¶å·²ç»æ‰“å¼€ï¼Œå¯ä»¥ï¼šå†™å…¥ï¼Œå…³é—­ï¼Œè¯»å–ï¼Œåˆ é™¤
 				op.fid = file.get_fid();
-				// Ğ´Èë
+				// å†™å…¥
 				if (file.write_count() < m_max_file_op)
 				{
 					op.op_code = OP_FILE_WRITE;
@@ -599,7 +600,7 @@ ERROR_CODE CExTester::EnumerateOpV2(TRACE_ENTRY* ops, size_t op_size, CFsState* 
 					if (ir != ERR_OK) return ir;
 					context_id++;
 				}
-				// ¹Ø±Õ
+				// å…³é—­
 				op.op_code = OP_FILE_CLOSE;
 				op.file_path = path;
 				ir = DoFsOperator(cur_state, op, insert);
@@ -609,7 +610,7 @@ ERROR_CODE CExTester::EnumerateOpV2(TRACE_ENTRY* ops, size_t op_size, CFsState* 
 				// <TODO> delete file
 			}
 			else
-			{	// ÎÄ¼şÃ»ÓĞ´ò¿ª£¬¿ÉÒÔ£º´ò¿ª£¬É¾³ı
+			{	// æ–‡ä»¶æ²¡æœ‰æ‰“å¼€ï¼Œå¯ä»¥ï¼šæ‰“å¼€ï¼Œåˆ é™¤
 				// delete
 				op.op_code = OP_FILE_DELETE;
 				op.file_path = path;
@@ -639,7 +640,7 @@ ERROR_CODE CExTester::EnumerateOpV2(TRACE_ENTRY* ops, size_t op_size, CFsState* 
 ERROR_CODE CExTester::FsOperatorCore(CFsState* state, TRACE_ENTRY& op)
 {
 	ERROR_CODE ir = ERR_OK;
-	// (2) ÔÚĞÂµÄ²âÊÔ×´Ì¬ÉÏÖ´ĞĞ²âÊÔ
+	// (2) åœ¨æ–°çš„æµ‹è¯•çŠ¶æ€ä¸Šæ‰§è¡Œæµ‹è¯•
 //	std::string &path =  op.file_path;
 	bool is_power_test = false;
 	switch (op.op_code)
@@ -716,7 +717,7 @@ ERROR_CODE CExTester::FsOperatorCore(CFsState* state, TRACE_ENTRY& op)
 		break;
 	}
 	state->m_result = ir;
-	// (3) ¼ì²é²âÊÔ½á¹û
+	// (3) æ£€æŸ¥æµ‹è¯•ç»“æœ
 	if (ir != ERR_OK && ir != ERR_NO_OPERATION)
 	{
 		THROW_FS_ERROR(ir, L"run test error op=%d, file=%S, ", ir, CFsException::ErrCodeToString(ir), op.op_code, op.file_path.c_str());
@@ -729,13 +730,13 @@ ERROR_CODE CExTester::FsOperatorCore(CFsState* state, TRACE_ENTRY& op)
 
 ERROR_CODE CExTester::DoFsOperator(CFsState* cur_state, TRACE_ENTRY& op, std::list<CFsState*>::iterator& insert)
 {
-	LOG_STACK_PERFORM(L"fs_operation");
+//	LOG_STACK_PERFORM(L"fs_operation");
 	UINT opsn = m_op_sn;
 //	LOG_DEBUG(L"start work: op=%d, code=%d", opsn, op.op_code);
 
 	JCASSERT(cur_state);
-	// ±ê×¼²âÊÔÁ÷³Ì£º
-	// (1) ¸´ÖÆ²âÊÔ×´Ì¬£¬¸´ÖÆµÄ×´Ì¬£¬ÒªÃ´·ÅÈëopen list£¬ÔÚFinishTestÖĞ»ØÊÕ£¬ÒªÃ´ÔÚ·µ»ØÇ°»ØÊÕ¡£
+	// æ ‡å‡†æµ‹è¯•æµç¨‹ï¼š
+	// (1) å¤åˆ¶æµ‹è¯•çŠ¶æ€ï¼Œå¤åˆ¶çš„çŠ¶æ€ï¼Œè¦ä¹ˆæ”¾å…¥open listï¼Œåœ¨FinishTestä¸­å›æ”¶ï¼Œè¦ä¹ˆåœ¨è¿”å›å‰å›æ”¶ã€‚
 	CFsState* new_state = m_states.duplicate(cur_state);
 //	InterlockedIncrement(&(cur_state->m_ref));
 
@@ -826,28 +827,28 @@ ERROR_CODE CExTester::VerifyForPower(CFsState* cur_state)
 		if ((err == ERR_OK) || (err == ERR_NO_OPERATION))
 		{
 			if (state != cur_state)
-			{	// ÓÃÕıÈ·µÄ×´Ì¬¸²¸ÇÔ­À´×´Ì¬
+			{	// ç”¨æ­£ç¡®çš„çŠ¶æ€è¦†ç›–åŸæ¥çŠ¶æ€
 				cur_state->m_ref_fs.CopyFrom(state->m_ref_fs);
 			}
 			break;
 		}
-		// ¶ÔÓÚpower off²âÊÔ£¬»ØËİµ½Ç°Ò»¸öÎÈ¶¨×´Ì¬¡£
+		// å¯¹äºpower offæµ‹è¯•ï¼Œå›æº¯åˆ°å‰ä¸€ä¸ªç¨³å®šçŠ¶æ€ã€‚
 		if (state->m_stable == true) break;
 		state = state->m_parent;
 	}
-	// ¹Ø±ÕËùÓĞÎÄ¼ş£¬
+	// å…³é—­æ‰€æœ‰æ–‡ä»¶ï¼Œ
 	cur_state->m_ref_fs.Demount();
 	return err;
 }
 
 ERROR_CODE CExTester::VerifyState(CReferenceFs & ref_fs, IFsSimulator * real_fs)
 {
-	LOG_STACK_PERFORM(L"verification");
+//	LOG_STACK_PERFORM(L"verification");
 	ERROR_CODE ir = ERR_OK;
 	TEST_LOG("[BEGIN VERIFY]\n");
 	size_t checked_file = 0, checked_total = 0;
 
-	// »ñÈ¡ÎÄ¼şÏµÍ³ĞÅÏ¢£ºÎÄ¼ş¡¢Ä¿Â¼×ÜÊı£»ÎÄ¼şÊıÁ¿£»Âß¼­±¥ºÍ¶È£»ÎïÀí±¥ºÍ¶È£»¿ÕÏĞ¿é£»host write; media write
+	// è·å–æ–‡ä»¶ç³»ç»Ÿä¿¡æ¯ï¼šæ–‡ä»¶ã€ç›®å½•æ€»æ•°ï¼›æ–‡ä»¶æ•°é‡ï¼›é€»è¾‘é¥±å’Œåº¦ï¼›ç‰©ç†é¥±å’Œåº¦ï¼›ç©ºé—²å—ï¼›host write; media write
 	try {
 		FS_INFO fs_info;
 		real_fs->GetFsInfo(fs_info);
@@ -855,7 +856,7 @@ ERROR_CODE CExTester::VerifyState(CReferenceFs & ref_fs, IFsSimulator * real_fs)
 
 		UINT ref_dir_nr = ref_fs.m_dir_num, ref_file_nr = ref_fs.m_file_num;
 		UINT real_file_nr = 0, real_dir_nr = 0;
-		real_fs->GetFileDirNum(0, real_file_nr, real_dir_nr);		// TODO: osĞèÒª±£´æfile numberÒÔ¹©¼ì²é
+		real_fs->GetFileDirNum(0, real_file_nr, real_dir_nr);		// TODO: oséœ€è¦ä¿å­˜file numberä»¥ä¾›æ£€æŸ¥
 
 		if (real_dir_nr != ref_dir_nr) {
 			THROW_FS_ERROR(ERR_WRONG_FILE_NUM, L"directory number does not match, ref:%d, fs:%d",
@@ -876,7 +877,7 @@ ERROR_CODE CExTester::VerifyState(CReferenceFs & ref_fs, IFsSimulator * real_fs)
 			const CReferenceFs::CRefFile& ref_file = ref_fs.GetFile(it);
 			std::string path;
 			ref_fs.GetFilePath(ref_file, path);
-			if (path == "\\") continue;	//²»¶Ô¸ùÄ¿Â¼×ö±È½Ï
+			if (path == "\\") continue;	//ä¸å¯¹æ ¹ç›®å½•åšæ¯”è¾ƒ
 
 			checked_total++;
 			bool dir = ref_fs.IsDir(ref_file);
@@ -888,12 +889,12 @@ ERROR_CODE CExTester::VerifyState(CReferenceFs & ref_fs, IFsSimulator * real_fs)
 
 			TEST_LOG("  check %s: %s\n", dir ? "DIR " : "FILE", path.c_str());
 //			if (dir) continue;
-			NID fid = INVALID_BLK;
+			_NID fid = INVALID_BLK;
 			ir = real_fs->FileOpen(fid, path);
 			if (ir == ERR_MAX_OPEN_FILE)
 			{
 				ir = ERR_OK;
-				continue;		// ´ò¿ªÎÄ¼şÒÑ¾­³¬¹ıÉÏÏŞ
+				continue;		// æ‰“å¼€æ–‡ä»¶å·²ç»è¶…è¿‡ä¸Šé™
 			}
 
 			if (ir != ERR_OK || is_invalid(fid) )
@@ -958,8 +959,8 @@ ERROR_CODE CExTester::TestCreateFile(CFsState* cur_state, const std::string& pat
 
 	ERROR_CODE ir = ERR_OK;
 
-	// ¼ì²é×Ô¼ºµãÊıÁ¿ÊÇ·ñ³¬±ê
-	NID fid = INVALID_BLK;
+	// æ£€æŸ¥è‡ªå·±ç‚¹æ•°é‡æ˜¯å¦è¶…æ ‡
+	_NID fid = INVALID_BLK;
 	try {
 		ir = real_fs->FileCreate(fid, path);
 	}
@@ -973,16 +974,16 @@ ERROR_CODE CExTester::TestCreateFile(CFsState* cur_state, const std::string& pat
 	}
 
 	if (ir == ERR_MAX_OPEN_FILE || ir == ERR_NO_SPACE )
-	{	// ´ïµ½ÎÄ¼şÏµÍ³¼«ÏŞ
+	{	// è¾¾åˆ°æ–‡ä»¶ç³»ç»Ÿæé™
 		return ERR_NO_OPERATION;
 	}
 
 	// check if doubled name, update ref fs
 	if (ref.IsExist(path))
-	{	// ÎÄ¼şÒÑ¾­´æÔÚ£¬ÒªÇó·µ»Øfalse
+	{	// æ–‡ä»¶å·²ç»å­˜åœ¨ï¼Œè¦æ±‚è¿”å›false
 		TEST_LOG("[OPERATE ](%d) CREATE FILE, path=%s, existing file\n", cur_state->m_op.op_sn, path.c_str());
-		if (is_valid(fid) ) { ir = ERR_CREATE_EXIST; }		// ²»Ó¦¸Ã´´½¨³É¹¦
-		else { ir = ERR_NO_OPERATION; }						// ´´½¨Ê§°Ü¡£²âÊÔ³É¹¦£¬·µ»Øno operation.
+		if (is_valid(fid) ) { ir = ERR_CREATE_EXIST; }		// ä¸åº”è¯¥åˆ›å»ºæˆåŠŸ
+		else { ir = ERR_NO_OPERATION; }						// åˆ›å»ºå¤±è´¥ã€‚æµ‹è¯•æˆåŠŸï¼Œè¿”å›no operation.
 	}
 	else
 	{	// create file in fs
@@ -1089,12 +1090,12 @@ ERROR_CODE CExTester::TestPowerOutage(CFsState* cur_state, UINT rollback)
 	CReferenceFs& ref = cur_state->m_ref_fs;
 //	ref.Demount();
 
-	// »ñÈ¡fsµÄio list
+	// è·å–fsçš„io list
 
 	// 
-	// ¶ÔÃ¿¸ö³¢ÊÔÃ¿¸öio, ²¢ÇÒ¼ì²éÍêÕûĞÔ
+	// å¯¹æ¯ä¸ªå°è¯•æ¯ä¸ªio, å¹¶ä¸”æ£€æŸ¥å®Œæ•´æ€§
 
-	// Ñ¡ÔñÒ»¸öio, mount£¬×öÏÂÒ»²½²âÊÔ
+	// é€‰æ‹©ä¸€ä¸ªio, mountï¼Œåšä¸‹ä¸€æ­¥æµ‹è¯•
 	cur_state->m_stable = false;
 	real_fs->Reset(rollback);
 	real_fs->fsck(true);
@@ -1121,7 +1122,7 @@ ERROR_CODE CExTester::TestCreateDir(CFsState* cur_state, const std::string& path
 	TEST_LOG("[OPERATE ](%d) CREATE DIR_, path=%s,", cur_state->m_op.op_sn, path.c_str());
 
 	//bool create_result = false;
-	NID fid = INVALID_BLK;
+	_NID fid = INVALID_BLK;
 	try {
 		ir = real_fs->DirCreate(fid, path);
 	}
@@ -1136,7 +1137,7 @@ ERROR_CODE CExTester::TestCreateDir(CFsState* cur_state, const std::string& path
 
 	// check if doubled name, update ref fs
 	if (ref.IsExist(path))
-	{	// ÎÄ¼şÒÑ¾­´æÔÚ£¬ÒªÇó·µ»Øfalse
+	{	// æ–‡ä»¶å·²ç»å­˜åœ¨ï¼Œè¦æ±‚è¿”å›false
 //		TEST_LOG(" existing dir");
 		if (is_valid(fid))
 		{
@@ -1165,7 +1166,7 @@ ERROR_CODE CExTester::TestCreateDir(CFsState* cur_state, const std::string& path
 }
 
 
-ERROR_CODE CExTester::TestWriteFileV2(CFsState* cur_state, NID fid, FSIZE offset, FSIZE len, const std::string & path)
+ERROR_CODE CExTester::TestWriteFileV2(CFsState* cur_state, _NID fid, FSIZE offset, FSIZE len, const std::string & path)
 {
 	JCASSERT(cur_state);
 	IFsSimulator* real_fs = cur_state->m_real_fs;
@@ -1174,8 +1175,8 @@ ERROR_CODE CExTester::TestWriteFileV2(CFsState* cur_state, NID fid, FSIZE offset
 
 	ERROR_CODE err = ERR_OK;
 
-	//Ëæ»úÉú³É¶ÁĞ´³¤¶ÈºÍÆ«ÒÆ
-	//	len &= ~3;		// DWORD¶ÔÆë
+	//éšæœºç”Ÿæˆè¯»å†™é•¿åº¦å’Œåç§»
+	//	len &= ~3;		// DWORDå¯¹é½
 	TEST_LOG("[OPERATE ](%d) WriteFile, path=%s, offset=%d, size=%d\n", cur_state->m_op.op_sn, path.c_str(), offset, len);
 
 	CReferenceFs::CRefFile* ref_file = ref.FindFile(path);
@@ -1228,7 +1229,7 @@ ERROR_CODE CExTester::TestOpenFile(CFsState* cur_state, const std::string& path)
 	CReferenceFs::CRefFile* ref_file = ref.FindFile(path);
 	if (!ref_file) THROW_ERROR(ERR_APP, L"cannof find ref file: %S", path.c_str());
 
-	NID fid = INVALID_BLK;
+	_NID fid = INVALID_BLK;
 	err = real_fs->FileOpen(fid, path);
 	if (err == ERR_MAX_OPEN_FILE) return ERR_OK;
 
@@ -1248,7 +1249,7 @@ ERROR_CODE CExTester::TestOpenFile(CFsState* cur_state, const std::string& path)
 	return err;
 }
 
-ERROR_CODE CExTester::TestCloseFile(CFsState* cur_state, NID fid, const std::string& path)
+ERROR_CODE CExTester::TestCloseFile(CFsState* cur_state, _NID fid, const std::string& path)
 {
 	JCASSERT(cur_state);
 	IFsSimulator* real_fs = cur_state->m_real_fs;

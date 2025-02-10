@@ -153,7 +153,7 @@ ERROR_CODE CExTraceTester::RunTest(void)
 			case OP_CODE::OP_MOVE:			break;
 			case OP_CODE::OP_FILE_WRITE: {
 				CReferenceFs::CRefFile* ref_file = next_state->m_ref_fs.FindFile(op.file_path);
-				NID fid = ref_file->get_fid();
+				_NID fid = ref_file->get_fid();
 				printf_s("[WriteFile] %s, fid=%d, offset=%d, len=%d\n", op.file_path.c_str(), fid, op.offset, op.length);
 				ir = TestWriteFileV2(next_state, fid, op.offset, op.length, op.file_path);
 				break; }
@@ -164,7 +164,7 @@ ERROR_CODE CExTraceTester::RunTest(void)
 
 			case OP_CODE::OP_FILE_CLOSE: {
 				CReferenceFs::CRefFile* ref_file = next_state->m_ref_fs.FindFile(op.file_path);
-				NID fid = ref_file->get_fid();
+				_NID fid = ref_file->get_fid();
 				printf_s("[CloseFile] %s, fid=%d\n", op.file_path.c_str(), fid);
 				ir = TestCloseFile(next_state, fid, op.file_path);
 				break; }
@@ -215,7 +215,7 @@ ERROR_CODE CExTraceTester::RunTest(void)
 
 void CExTester::TraceTestVerify(IFsSimulator* fs, const std::string& fn)
 {
-	NID fid = INVALID_BLK;
+	_NID fid = INVALID_BLK;
 	ERROR_CODE err = fs->FileOpen(fid, fn);
 	if (err == ERR_MAX_OPEN_FILE) return;
 
@@ -289,7 +289,7 @@ bool CExTester::OutputTrace(CFsState* state)
 		state = state->m_parent;
 	}
 
-	// ½«trace ×ª»¯ÎªjsonÎÄ¼ş£¬±ãÓÚºóĞøµ÷ÊÔ
+	// å°†trace è½¬åŒ–ä¸ºjsonæ–‡ä»¶ï¼Œä¾¿äºåç»­è°ƒè¯•
 	boost::property_tree::ptree prop_trace;
 	boost::property_tree::ptree prop_op_array;
 

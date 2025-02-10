@@ -11,7 +11,7 @@
 #include "pages.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// == ²ÎÊıÅäÖÃ  ==
+// == å‚æ•°é…ç½®  ==
 
 
 
@@ -21,7 +21,7 @@
 
 
 
-// ÓÃÓÚÃèÊö inodeÖĞindex tableµÄÓ³Éä¹ØÏµ
+// ç”¨äºæè¿° inodeä¸­index tableçš„æ˜ å°„å…³ç³»
 class CIndexPath
 {
 public:
@@ -44,8 +44,8 @@ class CNodeAddressTable
 {
 public:
 	CNodeAddressTable(CF2fsSimulator* fs);
-	NID Init(PHY_BLK root);
-	// ·µ»Ø¿ÕÏĞµÄ nodeÊıÁ¿
+	_NID Init(PHY_BLK root);
+	// è¿”å›ç©ºé—²çš„ nodeæ•°é‡
 	int build_free(void);
 	void CopyFrom(const CNodeAddressTable* src);
 public:
@@ -53,16 +53,16 @@ public:
 	void Sync(void);
 	void Reset(void);
 
-	NID get_node(void);
-	void put_node(NID node);
-	PHY_BLK get_phy_blk(NID nid);
-	void set_phy_blk(NID nid, PHY_BLK phy_blk);
+	_NID get_node(void);
+	void put_node(_NID node);
+	PHY_BLK get_phy_blk(_NID nid);
+	void set_phy_blk(_NID nid, PHY_BLK phy_blk);
 	void f2fs_flush_nat_entries(CKPT_BLOCK & checkpoint);
 	void f2fs_out_nat_journal(NAT_JOURNAL_ENTRY* journal, UINT & journal_nr);
 
-	void set_dirty(NID nid);
-	void clear_dirty(NID nid);
-	DWORD is_dirty(NID nid);
+	void set_dirty(_NID nid);
+	void clear_dirty(_NID nid);
+	DWORD is_dirty(_NID nid);
 	UINT get_dirty_node_nr(void);
 
 public:
@@ -70,17 +70,17 @@ public:
 	UINT free_nr;
 protected:
 	PHY_BLK nat[NODE_NR];
-	DWORD dirty[NAT_BLK_NR];	// ¼ÇÂ¼NATµÄdirty£¬Ã¿¸öbitÒ»¸öNAT¡£
-	NID next_scan;				// ´ÓÕâ¸öÎ»ÖÃ¿ªÊ¼ËÑË÷ÏÂÒ»¸öfree
+	DWORD dirty[NAT_BLK_NR];	// è®°å½•NATçš„dirtyï¼Œæ¯ä¸ªbitä¸€ä¸ªNATã€‚
+	_NID next_scan;				// ä»è¿™ä¸ªä½ç½®å¼€å§‹æœç´¢ä¸‹ä¸€ä¸ªfree
 	CPageAllocator* m_pages;
 	CStorage* m_storage;
 	CF2fsSimulator* m_fs;
 };
 
-// ÓÃÓÚ»º´æÒÑ¾­´ò¿ªµÄÎÄ¼ş£¬inodeµÄpage
+// ç”¨äºç¼“å­˜å·²ç»æ‰“å¼€çš„æ–‡ä»¶ï¼Œinodeçš„page
 struct OPENED_FILE
 {
-	NID ino;
+	_NID ino;
 	PAGE_INDEX ipage;
 };
 
@@ -114,52 +114,52 @@ protected:
 
 public:
 	virtual bool Initialzie(const boost::property_tree::wptree& config, const std::wstring & log_path);
-	virtual ERROR_CODE  FileCreate(NID & fid, const std::string& fn);
-	virtual ERROR_CODE  DirCreate(NID & fid, const std::string& fn);
+	virtual ERROR_CODE  FileCreate(_NID & fid, const std::string& fn);
+	virtual ERROR_CODE  DirCreate(_NID & fid, const std::string& fn);
 
-	virtual void SetFileSize(NID fid, FSIZE secs) {}
-	virtual FSIZE FileWrite(NID fid, FSIZE offset, FSIZE len);
-	virtual size_t FileRead(FILE_DATA blks[], NID fid, FSIZE offset, FSIZE secs);
-	// ¿ÉÒÔtruncate²¿·ÖÎÄ¼ş
-	virtual void FileTruncate(NID fid, FSIZE offset, FSIZE secs);
+	virtual void SetFileSize(_NID fid, FSIZE secs) {}
+	virtual FSIZE FileWrite(_NID fid, FSIZE offset, FSIZE len);
+	virtual size_t FileRead(FILE_DATA blks[], _NID fid, FSIZE offset, FSIZE secs);
+	// å¯ä»¥truncateéƒ¨åˆ†æ–‡ä»¶
+	virtual void FileTruncate(_NID fid, FSIZE offset, FSIZE secs);
 	virtual void FileDelete(const std::string & fn);
 	virtual ERROR_CODE DirDelete(const std::string& fn);
 
-	virtual void FileFlush(NID fid);
-	virtual void FileClose(NID fid);
-	virtual ERROR_CODE  FileOpen(NID & fid, const std::string& fn, bool delete_on_close = false);
+	virtual void FileFlush(_NID fid);
+	virtual void FileClose(_NID fid);
+	virtual ERROR_CODE  FileOpen(_NID & fid, const std::string& fn, bool delete_on_close = false);
 
-	virtual FSIZE GetFileSize(NID fid);
-	// ÓÃÓÚµ÷ÊÔ£¬²»ĞèÒª´ò¿ªÎÄ¼ş¡£size£ºÎÄ¼ş´óĞ¡¡£node block£º°üÀ¨inodeÔÚÄÚ£¬index blockÊıÁ¿£»data_blk£ºÊµ¼ÊÕ¼ÓÃblockÊıÁ¿
-	virtual void GetFileInfo(NID fid, FSIZE& size, FSIZE& node_blk, FSIZE& data_blk);
+	virtual FSIZE GetFileSize(_NID fid);
+	// ç”¨äºè°ƒè¯•ï¼Œä¸éœ€è¦æ‰“å¼€æ–‡ä»¶ã€‚sizeï¼šæ–‡ä»¶å¤§å°ã€‚node blockï¼šåŒ…æ‹¬inodeåœ¨å†…ï¼Œindex blockæ•°é‡ï¼›data_blkï¼šå®é™…å ç”¨blockæ•°é‡
+	virtual void GetFileInfo(_NID fid, FSIZE& size, FSIZE& node_blk, FSIZE& data_blk);
 
 	virtual void GetConfig(boost::property_tree::wptree& config, const std::wstring& config_name);
-	// ·µ»Ø×î´óÖ§³ÖÎÄ¼ş´óĞ¡µÄblockÊıÁ¿
+	// è¿”å›æœ€å¤§æ”¯æŒæ–‡ä»¶å¤§å°çš„blockæ•°é‡
 	virtual DWORD MaxFileSize(void) const { return MAX_FILE_BLKS - 10; }
 
 	//	virtual void SetLogFolder(const std::wstring& fn);
 	virtual void GetFsInfo(FS_INFO& space_info);
 	virtual void GetHealthInfo(FsHealthInfo& info) const;
 
-	// ¶Ôstorage£¬ÓÃÓÚstorageÏà¹Ø²âÊÔ
+	// å¯¹storageï¼Œç”¨äºstorageç›¸å…³æµ‹è¯•
 	virtual UINT GetCacheNum(void) { return m_storage.GetCacheNum(); }
-	// ·µ»ØfidÄ¿Â¼ÏÂµÄ×ÓÄ¿Â¼ºÍÎÄ¼ş×ÜÊı
-	virtual void GetFileDirNum(NID fid, UINT& file_nr, UINT& dir_nr);
+	// è¿”å›fidç›®å½•ä¸‹çš„å­ç›®å½•å’Œæ–‡ä»¶æ€»æ•°
+	virtual void GetFileDirNum(_NID fid, UINT& file_nr, UINT& dir_nr);
 
 	virtual bool Mount(void);
 	virtual bool Unmount(void);
 	virtual bool Reset(UINT rollback);
 	virtual ERROR_CODE fsck(bool fix);
 
-	// ÒÔÏÂ½Ó¿ÚÓÃÓÚ²âÊÔ¡£
+	// ä»¥ä¸‹æ¥å£ç”¨äºæµ‹è¯•ã€‚
 	virtual void DumpSegments(const std::wstring& fn, bool sanity_check);
 	virtual void DumpSegmentBlocks(const std::wstring& fn);
-	virtual void DumpFileMap(FILE* out, NID fid) { DumpFileMap_merge(out, fid); }
+	virtual void DumpFileMap(FILE* out, _NID fid) { DumpFileMap_merge(out, fid); }
 
 	virtual void DumpAllFileMap(const std::wstring& fn);
 	virtual void DumpBlockWAF(const std::wstring& fn);
-	virtual size_t DumpFileIndex(NID index[], size_t buf_size, NID fid);
-	void DumpFileMap_no_merge(FILE* out, NID fid);
+	virtual size_t DumpFileIndex(_NID index[], size_t buf_size, _NID fid);
+	void DumpFileMap_no_merge(FILE* out, _NID fid);
 
 	virtual void GetGcTrace(std::vector<GC_TRACE>& gc) { 
 #ifdef GC_TRACE
@@ -171,29 +171,29 @@ public:
 
 
 #ifdef ENABLE_FS_TRACE
-	void fs_trace(const char* op, NID fid, DWORD start_blk, DWORD blk_nr);
+	void fs_trace(const char* op, _NID fid, DWORD start_blk, DWORD blk_nr);
 #else
-	void fs_trace(const char* op, NID fid, DWORD start_blk, DWORD blk_nr) {}
+	void fs_trace(const char* op, _NID fid, DWORD start_blk, DWORD blk_nr) {}
 #endif
 
 
 // functions for fsck
 protected:
-	int fsck_chk_node_blk(F2FS_FSCK* fsck, NID nid, F2FS_FILE_TYPE file_type, BLOCK_DATA::BLOCK_TYPE block_type, UINT &blk_cnt);
+	int fsck_chk_node_blk(F2FS_FSCK* fsck, _NID nid, F2FS_FILE_TYPE file_type, BLOCK_DATA::BLOCK_TYPE block_type, UINT &blk_cnt);
 	int fsck_init(F2FS_FSCK* fsck);
-	int fsck_chk_inode_blk(F2FS_FSCK* fsck, NID nid, PHY_BLK blk, F2FS_FILE_TYPE file_type, NODE_INFO & node_data);
-	int fsck_chk_index_blk(F2FS_FSCK* fsck, NID nid, PHY_BLK blk, F2FS_FILE_TYPE file_type, NODE_INFO& node_date, UINT &blk_cnt);
-	int fsck_chk_data_blk (F2FS_FSCK* fsck, NID nid, WORD offset, PHY_BLK blk, F2FS_FILE_TYPE file_type);
+	int fsck_chk_inode_blk(F2FS_FSCK* fsck, _NID nid, PHY_BLK blk, F2FS_FILE_TYPE file_type, NODE_INFO & node_data);
+	int fsck_chk_index_blk(F2FS_FSCK* fsck, _NID nid, PHY_BLK blk, F2FS_FILE_TYPE file_type, NODE_INFO& node_date, UINT &blk_cnt);
+	int fsck_chk_data_blk (F2FS_FSCK* fsck, _NID nid, WORD offset, PHY_BLK blk, F2FS_FILE_TYPE file_type);
 	int fsck_chk_metadata(F2FS_FSCK* fsck);
 	int fsck_verify(F2FS_FSCK* fsck);
 	DWORD f2fs_test_main_bitmap(F2FS_FSCK* fsck, PHY_BLK blk);
 	DWORD f2fs_set_main_bitmap(F2FS_FSCK* fsck, PHY_BLK blk);
-	DWORD f2fs_set_nat_bitmap(F2FS_FSCK* fsck, NID nid);
-	DWORD f2fs_test_node_bitmap(F2FS_FSCK* fsck, NID nid);
-	DWORD f2fs_set_node_bitmap(F2FS_FSCK* fsck, NID nid);
+	DWORD f2fs_set_nat_bitmap(F2FS_FSCK* fsck, _NID nid);
+	DWORD f2fs_test_node_bitmap(F2FS_FSCK* fsck, _NID nid);
+	DWORD f2fs_set_node_bitmap(F2FS_FSCK* fsck, _NID nid);
 
-	// ¸ù¾İnid¶ÁÈ¡node£¬µ«ÊÇ²»»ácache node£¬ ½ö¸´ÖÆÊı¾İ
-	void ReadNodeNoCache(NODE_INFO& node, NID nid);
+	// æ ¹æ®nidè¯»å–nodeï¼Œä½†æ˜¯ä¸ä¼šcache nodeï¼Œ ä»…å¤åˆ¶æ•°æ®
+	void ReadNodeNoCache(NODE_INFO& node, _NID nid);
 	void ReadBlockNoCache(BLOCK_DATA& data, PHY_BLK blk);
 
 protected:
@@ -202,31 +202,32 @@ protected:
 	friend class CPageAllocator;
 	friend class CNodeAddressTable;
 
-	// ÕÒµ½ÎÄ¼şfn(È«Â·¾¶£©µÄNID£¬parent·µ»ØNIDËùÔÚ¸¸Ä¿Â¼µÄinodeµÄpage
-	NID FileOpenInternal(char* fn, CPageInfo* &parent);
-	// µ±unmountµÄÊ±ºò£¬Ç¿ÖÆ¹Ø±ÕËùÓĞÎÄ¼ş
+	// æ‰¾åˆ°æ–‡ä»¶fn(å…¨è·¯å¾„ï¼‰çš„NIDï¼Œparentè¿”å›NIDæ‰€åœ¨çˆ¶ç›®å½•çš„inodeçš„page
+	_NID FileOpenInternal(char* fn, CPageInfo* &parent);
+	// å½“unmountçš„æ—¶å€™ï¼Œå¼ºåˆ¶å…³é—­æ‰€æœ‰æ–‡ä»¶
 	void ForceClose(OPENED_FILE* file);
-	// ÔÚ¸¸Ä¿Â¼ÖĞ²éÕÒÎÄ¼şfn, ÕÒµ½·µ»Øfid£¬ÕÒ²»µ½·µ»Øinvalid_blk
-	NID FindFile(NODE_INFO& parent, const char* fn);
+	// åœ¨çˆ¶ç›®å½•ä¸­æŸ¥æ‰¾æ–‡ä»¶fn, æ‰¾åˆ°è¿”å›fidï¼Œæ‰¾ä¸åˆ°è¿”å›invalid_blk
+	_NID FindFile(NODE_INFO& parent, const char* fn);
 
-	OPENED_FILE* FindOpenFile(NID fid);
-	OPENED_FILE* AddFileToOpenList(NID fid, CPageInfo* page);
+	OPENED_FILE* FindOpenFile(_NID fid);
+	OPENED_FILE* AddFileToOpenList(_NID fid, CPageInfo* page);
 
 	void InitOpenList(void);
 
-	// ¹Ø±Õ´ò¿ªµÄinode£¬ÊÍ·Å±»inode»º´æµÄpage¡£·µ»ØÎÄ¼şÊÇ·ñdirty
+	// å…³é—­æ‰“å¼€çš„inodeï¼Œé‡Šæ”¾è¢«inodeç¼“å­˜çš„pageã€‚è¿”å›æ–‡ä»¶æ˜¯å¦dirty
 	bool CloseInode(CPageInfo* &ipage);
 
-	// pages: out ¶ÁÈ¡µ½µÄpage_id£¬µ÷ÓÃÕßÉêÇëÄÚ´æ
+	// pages: out è¯»å–åˆ°çš„page_idï¼Œè°ƒç”¨è€…ç”³è¯·å†…å­˜
 	void FileReadInternal(CPageInfo * pages[], NODE_INFO& inode, FSIZE start_blk, FSIZE end_blk);
-	// ·µ»ØÊµ¼ÊĞ´ÈëµÄ block ÊıÁ¿
-	UINT FileWriteInternal(NODE_INFO& inode, FSIZE start_blk, FSIZE end_blk, CPageInfo* pages[]);
+	// è¿”å›å®é™…å†™å…¥çš„ block æ•°é‡
+	UINT FileWriteInternal(NODE_INFO& inode, FSIZE start_blk, FSIZE end_blk, CPageInfo* pages[], bool force=false);
 	void FileTruncateInternal(CPageInfo * ipage, LBLK_T start_blk, LBLK_T end_blk);
 	void FileSyncInternal(CPageInfo* ipage);
 	ERROR_CODE sync_fs(void);
+	ERROR_CODE f2fs_sync_node_page(void);
 
 	void f2fs_write_checkpoint();
-	// ´Ó´ÅÅÌ¶ÁÈ¡checkpoint
+	// ä»ç£ç›˜è¯»å–checkpoint
 	bool load_checkpoint();
 	void save_checkpoint();
 
@@ -240,35 +241,35 @@ protected:
 		return ( (WORD)(seed & 0xFFFF) );
 	}
 
-	// == dir Ïà¹Øº¯Êı
-	ERROR_CODE InternalCreatreFile(CPageInfo * &page, NID & fid, const std::string& fn, bool is_dir);
+	// == dir ç›¸å…³å‡½æ•°
+	ERROR_CODE InternalCreatreFile(CPageInfo * &page, _NID & fid, const std::string& fn, bool is_dir);
 
-	// ½«ÎÄ¼şÌí¼Óµ½parentÖĞ£¬parent:ĞèÒªÌí¼ÓµÄÄ¿Â¼ÎÄ¼şµÄinode£¬nid£º×ÓÎÄ¼şµÄinode id
-	ERROR_CODE add_link(NODE_INFO* parent, const char* fn, NID nid);
-	// ´ÓparentÖĞ½«fidÒÆ³ı
-	void unlink(NID fid, CPageInfo* parent);
+	// å°†æ–‡ä»¶æ·»åŠ åˆ°parentä¸­ï¼Œparent:éœ€è¦æ·»åŠ çš„ç›®å½•æ–‡ä»¶çš„inodeï¼Œnidï¼šå­æ–‡ä»¶çš„inode id
+	ERROR_CODE add_link(NODE_INFO* parent, const char* fn, _NID nid);
+	// ä»parentä¸­å°†fidç§»é™¤
+	void unlink(_NID fid, CPageInfo* parent);
 
 	UINT GetChildNumber(NODE_INFO* inode);
 
 	void FileRemove(CPageInfo* &inode_page);
-	// ¼ÆËãblockµÄÊµ¼ÊÎÂ¶È£¬²»¿¼ÂÇÄ¿Ç°Ê¹ÓÃµÄËã·¨¡£
+	// è®¡ç®—blockçš„å®é™…æ¸©åº¦ï¼Œä¸è€ƒè™‘ç›®å‰ä½¿ç”¨çš„ç®—æ³•ã€‚
 	BLK_TEMP GetBlockTemp(CPageInfo* page);
-	// ¸ù¾İµ±Ç°µÄËã·¨¼ÆËãblockµÄÎÂ¶È¡£
+	// æ ¹æ®å½“å‰çš„ç®—æ³•è®¡ç®—blockçš„æ¸©åº¦ã€‚
 	BLK_TEMP GetAlgorithmBlockTemp(CPageInfo* page, BLK_TEMP temp);
-	// ÔÚÊä³öfile mapÊ±£¬²»ºÏ²¢Á¬ĞøµÄÎïÀíblock
+	// åœ¨è¾“å‡ºfile mapæ—¶ï¼Œä¸åˆå¹¶è¿ç»­çš„ç‰©ç†block
 	bool InvalidBlock(const char* reason, PHY_BLK phy_blk);
 	bool OffsetToIndex(CIndexPath& path, LBLK_T offset, bool alloc);
-	// ½«index_pathÒÆ¶¯µ½ÏÂÒ»¸öblockÎ»ÖÃ¡£ÓÃÓÚ¼ÓËÙoffsetµ½indexµÄ×ª»¯¡£Èç¹ûindex block·¢Éú±ä»¯£¬ÔòÇå³ıpath, ĞèÒªÖØĞÂ¼ÆËã¡£
+	// å°†index_pathç§»åŠ¨åˆ°ä¸‹ä¸€ä¸ªblockä½ç½®ã€‚ç”¨äºåŠ é€Ÿoffsetåˆ°indexçš„è½¬åŒ–ã€‚å¦‚æœindex blockå‘ç”Ÿå˜åŒ–ï¼Œåˆ™æ¸…é™¤path, éœ€è¦é‡æ–°è®¡ç®—ã€‚
 	void NextOffset(CIndexPath& path);
-	// ¼ì²éinodeÖĞµÄËùÓĞindex blockºÍinode block£¬Èç¹ûÃ»ÓĞÔÚ´ÅÅÌÉÏ£¬²â±£´æ, ·µ»ØinodeµÄphy blk
+	// æ£€æŸ¥inodeä¸­çš„æ‰€æœ‰index blockå’Œinode blockï¼Œå¦‚æœæ²¡æœ‰åœ¨ç£ç›˜ä¸Šï¼Œæµ‹ä¿å­˜, è¿”å›inodeçš„phy blk
 	PHY_BLK UpdateInode(CPageInfo * ipage, const char* caller = "");
 
-	// ÔÚÊä³öfile mapÊ±£¬²¢Á¬ĞøµÄÎïÀíblock
-	void DumpFileMap_merge(FILE* out, NID fid);
+	// åœ¨è¾“å‡ºfile mapæ—¶ï¼Œå¹¶è¿ç»­çš„ç‰©ç†block
+	void DumpFileMap_merge(FILE* out, _NID fid);
 
 	bool InitInode(BLOCK_DATA* block, CPageInfo* page, F2FS_FILE_TYPE type);
 
-	bool InitIndexNode(BLOCK_DATA* block, NID parent, CPageInfo* page);
+	bool InitIndexNode(BLOCK_DATA* block, _NID parent, CPageInfo* page);
 
 	void InitDentry(BLOCK_DATA* block)
 	{
@@ -278,24 +279,24 @@ protected:
 		entries.bitmap = 0;
 	}
 
-	// Í¨¹ıÎÄ¼ş³¤¶È¼ÆËãÎÄ¼şµÄblockÊıÁ¿£¨²»ÊÇÓĞĞ§¿éÊı£©
+	// é€šè¿‡æ–‡ä»¶é•¿åº¦è®¡ç®—æ–‡ä»¶çš„blockæ•°é‡ï¼ˆä¸æ˜¯æœ‰æ•ˆå—æ•°ï¼‰
 	inline static UINT get_file_blks(INODE& inode)
 	{
 		UINT blk = ROUND_UP_DIV(inode.file_size, BLOCK_SIZE);
 		return blk;
 	}
 
-	// ¸üĞÂNAT£¬nid£ºnode id£¬phy_blk£ºnodeĞÂµÄÎïÀíµØÖ·
-	void UpdateNat(NID nid, PHY_BLK phy_blk);
-	// ¸üĞÂindex tableÖĞ£¬blockµÄÎïÀíµØÖ·£¬nid£ºindex tableµÄnode id£¬offset£ºdata blockÔÚindexÖĞµÄoffset£¬phy_blk£ºdata blockĞÂµÄÎïÀíµØÖ·
-	void UpdateIndex(NID nid, UINT offset, PHY_BLK phy_blk);
+	// æ›´æ–°NATï¼Œnidï¼šnode idï¼Œphy_blkï¼šnodeæ–°çš„ç‰©ç†åœ°å€
+	void UpdateNat(_NID nid, PHY_BLK phy_blk);
+	// æ›´æ–°index tableä¸­ï¼Œblockçš„ç‰©ç†åœ°å€ï¼Œnidï¼šindex tableçš„node idï¼Œoffsetï¼šdata blockåœ¨indexä¸­çš„offsetï¼Œphy_blkï¼šdata blockæ–°çš„ç‰©ç†åœ°å€
+	void UpdateIndex(_NID nid, UINT offset, PHY_BLK phy_blk);
 
 	CPageInfo* AllocateDentryBlock();
-	// ¶ÁÈ¡Node£¬²¢±£´æÔÚpageÖĞ¡£page»á×Ô¶¯cache£¬²»ĞèÒªÊÍ·Å
-	NODE_INFO& ReadNode(NID fid, CPageInfo * &page);
-	// ÎÄ¼şÏµÍ³×´Ì¬±äÁ¿£¨CloneÊ±£¬ĞèÒª¸´ÖÆµÄ±äÁ¿£©
+	// è¯»å–Nodeï¼Œå¹¶ä¿å­˜åœ¨pageä¸­ã€‚pageä¼šè‡ªåŠ¨cacheï¼Œä¸éœ€è¦é‡Šæ”¾
+	NODE_INFO& ReadNode(_NID fid, CPageInfo * &page);
+	// æ–‡ä»¶ç³»ç»ŸçŠ¶æ€å˜é‡ï¼ˆCloneæ—¶ï¼Œéœ€è¦å¤åˆ¶çš„å˜é‡ï¼‰
 protected:
-	// Ä£Äâ´ÅÅÌlayout
+	// æ¨¡æ‹Ÿç£ç›˜layout
 	CKPT_BLOCK			m_checkpoint;
 	CF2fsSegmentManager m_segments;
 	CNodeAddressTable	m_nat;
@@ -304,31 +305,31 @@ protected:
 //	FS_INFO				m_fs_info;
 
 protected:
-	// OSµÄÊı¾İ»º´æ¡£m_pagesÄ£ÄâOSµÄÒ³»º´æ£¬m_block_bufÎªpageÌá¹©Êı¾İ¡£ÓÉÓÚÎÄ¼şÊı¾İ²»ĞèÒªÊµ¼ÊÊı¾İ£¬¿ÉÒÔÊ¡ÂÔ¡£
+	// OSçš„æ•°æ®ç¼“å­˜ã€‚m_pagesæ¨¡æ‹ŸOSçš„é¡µç¼“å­˜ï¼Œm_block_bufä¸ºpageæä¾›æ•°æ®ã€‚ç”±äºæ–‡ä»¶æ•°æ®ä¸éœ€è¦å®é™…æ•°æ®ï¼Œå¯ä»¥çœç•¥ã€‚
 	CPageAllocator m_pages;
 	OPENED_FILE m_open_files[MAX_OPEN_FILE];
-	UINT m_free_ptr;	// ¿ÕÏĞÁĞ±íµÄÍ·Ö¸Õë
-	UINT m_open_nr;		// ´ò¿ªµÄÎÄ¼şÊıÁ¿
+	UINT m_free_ptr;	// ç©ºé—²åˆ—è¡¨çš„å¤´æŒ‡é’ˆ
+	UINT m_open_nr;		// æ‰“å¼€çš„æ–‡ä»¶æ•°é‡
 
 protected:
 	int m_multihead_cnt = 0;
-	UINT m_node_blks = 0;	//Ê¹ÓÃµÄinode»òindex nodeµÄÊıÁ¿
-
+	UINT m_node_blks = 0;	//ä½¿ç”¨çš„inodeæˆ–index nodeçš„æ•°é‡
+	int m_op_segs = 0;
 	// data for log
-	// ¶ÔÓÚÉ¾³ıÎÄ¼şµÄĞ´ÈëÁ¿Í³¼Æ¡£
+	// å¯¹äºåˆ é™¤æ–‡ä»¶çš„å†™å…¥é‡ç»Ÿè®¡ã€‚
 
 protected:
-	// logºÍÍ³¼ÆĞÅÏ¢
+	// logå’Œç»Ÿè®¡ä¿¡æ¯
 	std::wstring m_log_path;
 #ifdef ENABLE_FS_TRACE
 	FILE* m_log_invalid_trace = nullptr;
-	FILE* m_log_write_trace = nullptr;		// ÎÄ¼ş£ºtrace_fs.csv
-	// ÓÃÓÚ¼ÇÂ¼ÎÄ¼şÏµÍ³²ã´ÎµÄĞ´Èë
-	FILE* m_log_fs_trace = nullptr;			// ÎÄ¼ş: fs_trace.csv;
+	FILE* m_log_write_trace = nullptr;		// æ–‡ä»¶ï¼štrace_fs.csv
+	// ç”¨äºè®°å½•æ–‡ä»¶ç³»ç»Ÿå±‚æ¬¡çš„å†™å…¥
+	FILE* m_log_fs_trace = nullptr;			// æ–‡ä»¶: fs_trace.csv;
 	FILE* m_gc_trace = nullptr;
 	FILE* m_inode_trace = nullptr;
 #endif
 
-	UINT m_ref;	//ÒıÓÃ¼ÆÊı
+	UINT m_ref;	//å¼•ç”¨è®¡æ•°
 };
 

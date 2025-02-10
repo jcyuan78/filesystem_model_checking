@@ -3,7 +3,7 @@
 #include "../include/f2fs_segment.h"
 #include "../include/f2fs_simulator.h"
 
-LOCAL_LOGGER_ENABLE(L"segment", LOGGER_LEVEL_DEBUGINFO);
+LOCAL_LOGGER_ENABLE(L"simulator.segment", LOGGER_LEVEL_DEBUGINFO);
 
 #define SORTING HEAP
 
@@ -19,7 +19,7 @@ CF2fsSegmentManager::CF2fsSegmentManager(CF2fsSimulator* fs)
 
 bool CF2fsSegmentManager::InitSegmentManager(SEG_T segment_nr, SEG_T gc_lo, SEG_T gc_hi)
 {
-	// ³õÊ¼»¯£¬Èç¹ûblk_mapÖ¸Ïòblock_id£¬³õÊ¼»¯Îª0xFF£¬Èç¹ûÖ¸ÏòÖ¸Õë£¬³õÊ¼»¯Îª0
+	// åˆå§‹åŒ–ï¼Œå¦‚æœblk_mapæŒ‡å‘block_idï¼Œåˆå§‹åŒ–ä¸º0xFFï¼Œå¦‚æœæŒ‡å‘æŒ‡é’ˆï¼Œåˆå§‹åŒ–ä¸º0
 	memset(m_segments, 0xFF, sizeof(SegmentInfo) * MAIN_SEG_NR);
 	for (SEG_T ii = 0; ii < MAIN_SEG_NR; ++ii)
 	{
@@ -27,7 +27,7 @@ bool CF2fsSegmentManager::InitSegmentManager(SEG_T segment_nr, SEG_T gc_lo, SEG_
 		memset(m_segments[ii].valid_bmp, 0, sizeof(SegmentInfo::valid_bmp));
 	}
 	memset(m_dirty_map, 0xFF, sizeof(m_dirty_map));
-	// ¹¹½¨freeÁ´±í
+	// æ„å»ºfreeé“¾è¡¨
 	build_free_link();
 	memset(m_cur_segs, 0xFF, sizeof(m_cur_segs));
 	m_gc_lo = gc_lo, m_gc_hi = gc_hi;
@@ -61,12 +61,12 @@ void CF2fsSegmentManager::Reset(void)
 
 void CF2fsSegmentManager::f2fs_out_sit_journal(SIT_JOURNAL_ENTRY* journal, UINT &journal_nr)
 {
-	// ½«journalÖĞµÄsitĞ´Èë´ÅÅÌ
+	// å°†journalä¸­çš„sitå†™å…¥ç£ç›˜
 	CPageInfo* pages[SIT_BLK_NR];
 	memset(pages, 0, sizeof(pages));
 	for (UINT ii = 0; ii < journal_nr; ++ii)
 	{
-		//¼ÆËãsegmentÔÚsitÖĞµÄÎ»ÖÃ
+		//è®¡ç®—segmentåœ¨sitä¸­çš„ä½ç½®
 		SEG_T seg_no = journal[ii].seg_no;
 		UINT sit_blk_id = seg_no / SIT_ENTRY_PER_BLK;
 		UINT offset = seg_no % SIT_ENTRY_PER_BLK;
@@ -77,12 +77,12 @@ void CF2fsSegmentManager::f2fs_out_sit_journal(SIT_JOURNAL_ENTRY* journal, UINT 
 			pages[sit_blk_id] = m_pages->allocate(true);
 			m_storage->BlockRead(sit_blk_id + SIT_START_BLK, pages[sit_blk_id]);
 		}
-		//¸üĞÂsit page
+		//æ›´æ–°sit page
 		sit_blk = &m_pages->get_data(pages[sit_blk_id])->sit;
 		memcpy_s(&sit_blk->sit_entries[offset], sizeof(SEG_INFO), &journal[ii].seg_info, sizeof(SEG_INFO));
 	}
 
-	// ½«¸üĞÂµÄpageĞ´Èësit block
+	// å°†æ›´æ–°çš„pageå†™å…¥sit block
 	for (UINT blk = 0; blk < SIT_BLK_NR; ++blk)
 	{
 		if (pages[blk] == nullptr) continue;
@@ -96,11 +96,11 @@ void CF2fsSegmentManager::f2fs_out_sit_journal(SIT_JOURNAL_ENTRY* journal, UINT 
 void CF2fsSegmentManager::f2fs_flush_sit_entries(CKPT_BLOCK& checkpoint)
 {
 	f2fs_out_sit_journal(checkpoint.sit_journals, checkpoint.sit_journal_nr);
-	// ½«sit¸üĞÂĞ´ÈëjournalÖĞ
+	// å°†sitæ›´æ–°å†™å…¥journalä¸­
 	for (SEG_T seg = 0; seg < MAIN_SEG_NR; seg++)
 	{
 		if (is_dirty(seg))
-		{	// segÌí¼Óµ½journalÖĞ
+		{	// segæ·»åŠ åˆ°journalä¸­
 			if (checkpoint.sit_journal_nr >= JOURNAL_NR)
 			{
 				f2fs_out_sit_journal(checkpoint.sit_journals, checkpoint.sit_journal_nr);
@@ -118,7 +118,7 @@ void CF2fsSegmentManager::f2fs_flush_sit_entries(CKPT_BLOCK& checkpoint)
 
 void CF2fsSegmentManager::SyncSIT(void)
 {
-	// ±£´æSIT
+	// ä¿å­˜SIT
 	UINT blk = 0;
 	size_t bmp_size = sizeof(DWORD) * BITMAP_SIZE;
 	CPageInfo* page = m_pages->allocate(true);
@@ -144,7 +144,7 @@ void CF2fsSegmentManager::SyncSIT(void)
 void CF2fsSegmentManager::SyncSSA(void)
 {
 	CPageInfo* page = m_pages->allocate(true);
-	// ¿¼ÂÇµ½Ò»¸ösummary block°üº¬Ò»¸ösegmetµÄĞÅÏ¢¡£
+	// è€ƒè™‘åˆ°ä¸€ä¸ªsummary blockåŒ…å«ä¸€ä¸ªsegmetçš„ä¿¡æ¯ã€‚
 	for (SEG_T seg_id = 0; seg_id < MAIN_SEG_NR; ++seg_id)
 	{
 		if (is_dirty(seg_id)) {
@@ -176,7 +176,7 @@ void CF2fsSegmentManager::read_seg_info(SEG_INFO* seg_info, SEG_T seg)
 
 bool CF2fsSegmentManager::Load(CKPT_BLOCK& checkpoint)
 {
-	// ¶ÁÈ¡SIT
+	// è¯»å–SIT
 	UINT lba = SIT_START_BLK;
 	SEG_T seg_id = 0;
 	CPageInfo* page = m_pages->allocate(true);
@@ -193,11 +193,11 @@ bool CF2fsSegmentManager::Load(CKPT_BLOCK& checkpoint)
 			read_seg_info(&seg_info[ii], seg_id);
 		}
 	}
-	// ¶ÁÈ¡cur_seg
+	// è¯»å–cur_seg
 	size_t curseg_size = sizeof(CURSEG_INFO) * BT_TEMP_NR;
 	memcpy_s(m_cur_segs, curseg_size, checkpoint.cur_segs, curseg_size);
 
-	// ´ÓjournalÖĞ»Ö¸´×îĞÂ¸Ä¶¯
+	// ä»journalä¸­æ¢å¤æœ€æ–°æ”¹åŠ¨
 	if (checkpoint.sit_journal_nr > JOURNAL_NR) {
 		THROW_FS_ERROR(ERR_INVALID_CHECKPOINT, L"SIT journal size is too large: %d", checkpoint.sit_journal_nr);
 	}
@@ -208,7 +208,7 @@ bool CF2fsSegmentManager::Load(CKPT_BLOCK& checkpoint)
 	}
 	
 	lba = SSA_START_BLK;
-	// ¿¼ÂÇµ½Ò»¸ösummary block°üº¬Ò»¸ösegmetµÄĞÅÏ¢¡£
+	// è€ƒè™‘åˆ°ä¸€ä¸ªsummary blockåŒ…å«ä¸€ä¸ªsegmetçš„ä¿¡æ¯ã€‚
 	for (SEG_T seg_id = 0; seg_id < MAIN_SEG_NR; ++seg_id, ++lba)
 	{
 		m_storage->BlockRead(lba, page);
@@ -221,7 +221,7 @@ bool CF2fsSegmentManager::Load(CKPT_BLOCK& checkpoint)
 	}
 	m_pages->free(page);
 	memset(m_dirty_map, 0, sizeof(m_dirty_map));
-	// ¹¹½¨free block chain
+	// æ„å»ºfree block chain
 	build_free_link();
 	return true;
 }
@@ -233,7 +233,7 @@ void CF2fsSegmentManager::build_free_link(void)
 	m_used_blk_nr = 0;
 
 	for (SEG_T ii = 0; ii < MAIN_SEG_NR; ++ii)
-	{	// ¶ÔÓÚmount»òÕß³õÊ¼»¯£¬Ö»Òªvalid block number ==0¼´Ê¹Õâ¸ösegmentÃ»ÓĞ±»Çå³ı£¬Ò²¿É×÷Îªfree segmentÊ¹ÓÃ¡£
+	{	// å¯¹äºmountæˆ–è€…åˆå§‹åŒ–ï¼Œåªè¦valid block number ==0å³ä½¿è¿™ä¸ªsegmentæ²¡æœ‰è¢«æ¸…é™¤ï¼Œä¹Ÿå¯ä½œä¸ºfree segmentä½¿ç”¨ã€‚
 		SegmentInfo & seg  = m_segments[ii];
 		m_used_blk_nr += seg.valid_blk_nr;
 		if (seg.valid_blk_nr == 0 && m_cur_segs[seg.seg_temp].seg_no != ii)
@@ -242,14 +242,14 @@ void CF2fsSegmentManager::build_free_link(void)
 			free_en_queue(ii);
 		}
 		else
-		{	// free_nextÖ¸ÕëÖ¸ÏòÏÂÒ»¸öfreeµÄsegment£¬INVALID_BLK±»Ê¹ÓÃ¡£
+		{	// free_nextæŒ‡é’ˆæŒ‡å‘ä¸‹ä¸€ä¸ªfreeçš„segmentï¼ŒINVALID_BLKè¢«ä½¿ç”¨ã€‚
 			seg.free_next = INVALID_BLK;
 		}
 	}
 	LOG_DEBUG_(1, L"[free_seg]:build free_nr=%d, tail=%d, head=%d", m_free_nr, m_free_tail, m_free_head);
 }
 
-// ²éÕÒÒ»¸ö¿ÕµÄsegment
+// æŸ¥æ‰¾ä¸€ä¸ªç©ºçš„segment
 SEG_T CF2fsSegmentManager::AllocSegment(BLK_TEMP temp, bool by_gc, bool force)
 {
 	if (m_free_nr == 0 || is_invalid(m_free_head)|| is_invalid(m_free_tail) )
@@ -259,7 +259,7 @@ SEG_T CF2fsSegmentManager::AllocSegment(BLK_TEMP temp, bool by_gc, bool force)
 	}
 
 	if (m_free_nr <= RESERVED_SEG && !by_gc)
-	{	// segment²»¹»£¬³¢ÊÔ»ØÊÕ¿Õ¼ä
+	{	// segmentä¸å¤Ÿï¼Œå°è¯•å›æ”¶ç©ºé—´
 		ERROR_CODE ir = GarbageCollection(m_fs);
 		LOG_DEBUG_(1, L"[data_cache] called GC, free seg = %d", m_free_nr);
 		if (m_free_nr <= 1 || ir != ERR_OK) {
@@ -286,29 +286,29 @@ SEG_T CF2fsSegmentManager::AllocSegment(BLK_TEMP temp, bool by_gc, bool force)
 	return new_seg;
 }
 
-// »ØÊÕÒ»¸ösegment
+// å›æ”¶ä¸€ä¸ªsegment
 void CF2fsSegmentManager::FreeSegment(SEG_T seg_id)
 {
 	SegmentInfo& seg = m_segments[seg_id];
-	// ±£Áôerase count
+	// ä¿ç•™erase count
 	seg.seg_temp = BT_TEMP_NR;
 	// en-queue
 	free_en_queue(seg_id);
 	LOG_DEBUG_(1, L"[free_seg]:free, seg=%d, free_nr=%d, tail=%d, head=%d", seg_id, m_free_nr, m_free_tail, m_free_head);
 //	seg.cur_blk = 0;
-	// ½«seg·ÅÈëfree listÖĞ£»
+	// å°†segæ”¾å…¥free listä¸­ï¼›
 	set_dirty(seg_id);
 }
 
 void CF2fsSegmentManager::free_en_queue(SEG_T ii)
 {
 	if (is_valid(m_free_head)) {
-		// Ô­À´¶ÓÁĞ²»¿Õ
+		// åŸæ¥é˜Ÿåˆ—ä¸ç©º
 		m_segments[ii].free_next = m_segments[m_free_head].free_next;
 		m_segments[m_free_head].free_next = ii;
 		m_free_head = ii;
 	}
-	else {	// Ô­À´¶ÓÁĞÎª¿Õ
+	else {	// åŸæ¥é˜Ÿåˆ—ä¸ºç©º
 		JCASSERT(is_invalid(m_free_tail));
 		m_segments[ii].free_next = ii;
 		m_free_head = ii;
@@ -338,14 +338,14 @@ SEG_T CF2fsSegmentManager::free_de_queue(void)
 
 
 
-void CF2fsSegmentManager::GetBlockInfo(NID& nid, WORD& offset, PHY_BLK phy_blk)
+void CF2fsSegmentManager::GetBlockInfo(_NID& nid, WORD& offset, PHY_BLK phy_blk)
 {
 	SEG_T seg_id;
 	BLK_T blk_id;
 	BlockToSeg(seg_id, blk_id, phy_blk);
 	SegmentInfo& seg = m_segments[seg_id];
 	if (test_bitmap(seg.valid_bmp, blk_id) == 0)
-	{	// ¶ÔÓÚinvalid block
+	{	// å¯¹äºinvalid block
 		nid = INVALID_BLK;
 		offset = INVALID_BLK;
 	}
@@ -356,7 +356,7 @@ void CF2fsSegmentManager::GetBlockInfo(NID& nid, WORD& offset, PHY_BLK phy_blk)
 	}
 }
 
-void CF2fsSegmentManager::SetBlockInfo(NID nid, WORD offset, PHY_BLK phy_blk)
+void CF2fsSegmentManager::SetBlockInfo(_NID nid, WORD offset, PHY_BLK phy_blk)
 {
 	SEG_T seg_id;
 	BLK_T blk_id;
@@ -370,12 +370,12 @@ void CF2fsSegmentManager::SetBlockInfo(NID nid, WORD offset, PHY_BLK phy_blk)
 PHY_BLK CF2fsSegmentManager::WriteBlockToSeg(CPageInfo* page, bool force, bool by_gc)
 {
 	//LOG_STACK_TRACE()
-	// ¼ÆËãpageµÄÎÂ¶È£¬£¨Êµ¼ÊÎÂ¶È£¬ÓÃÓÚÍ³¼Æ£©
+	// è®¡ç®—pageçš„æ¸©åº¦ï¼Œï¼ˆå®é™…æ¸©åº¦ï¼Œç”¨äºç»Ÿè®¡ï¼‰
 	page->ttemp = m_fs->GetBlockTemp(page);
 	BLK_TEMP temp = m_fs->GetAlgorithmBlockTemp(page, page->ttemp);
 
-	// ÓÉÓÚGCµÄtriggerÒÆµ½AllocSegment()ÖĞ£¬ÓĞ¿ÉÄÜÓöµ½GC ÕıÒªĞ´ÈëµÄpageµÄÇé¿ö¡£Õâ»áµ¼ÖÂpage->phy_blkµØÖ·¸Ä±ä¡£ÖØ¸´invalidÍ¬Ò»¸öÎïÀíµØÖ·¡£
-	// ¶Ô²ß£º¶ÔÓÚÕıÒªĞ´ÈëµÄpage cache¡£GCÊ±»á¼ì²épageÊÇ·ñÒÑ¾­ÔÚcacheÖĞÁË¡£Èç¹ûÔÚ£¬ÔòÌø¹ıGC¡£
+	// ç”±äºGCçš„triggerç§»åˆ°AllocSegment()ä¸­ï¼Œæœ‰å¯èƒ½é‡åˆ°GC æ­£è¦å†™å…¥çš„pageçš„æƒ…å†µã€‚è¿™ä¼šå¯¼è‡´page->phy_blkåœ°å€æ”¹å˜ã€‚é‡å¤invalidåŒä¸€ä¸ªç‰©ç†åœ°å€ã€‚
+	// å¯¹ç­–ï¼šå¯¹äºæ­£è¦å†™å…¥çš„page cacheã€‚GCæ—¶ä¼šæ£€æŸ¥pageæ˜¯å¦å·²ç»åœ¨cacheä¸­äº†ã€‚å¦‚æœåœ¨ï¼Œåˆ™è·³è¿‡GCã€‚
 	if (!by_gc) {
 //		JCASSERT(is_invalid(m_data_cache.nid) && is_invalid(m_data_cache.offset));
 		m_data_cache.nid = page->nid;
@@ -384,7 +384,7 @@ PHY_BLK CF2fsSegmentManager::WriteBlockToSeg(CPageInfo* page, bool force, bool b
 		LOG_DEBUG_(1, L"[data_cache] set data cache, nid=%d,offset=%d", m_data_cache.nid, m_data_cache.offset);
 	}
 
-	// °´ÕÕÎÂ¶È£¨Ëã·¨ÎÂ¶È£©¸øpage·ÖÅäsegment¡£
+	// æŒ‰ç…§æ¸©åº¦ï¼ˆç®—æ³•æ¸©åº¦ï¼‰ç»™pageåˆ†é…segmentã€‚
 	CURSEG_INFO& curseg = m_cur_segs[temp];
 	if (is_invalid(curseg.seg_no)) {
 		SEG_T seg_no = AllocSegment(temp, by_gc, force);
@@ -413,7 +413,7 @@ PHY_BLK CF2fsSegmentManager::WriteBlockToSeg(CPageInfo* page, bool force, bool b
 	m_used_blk_nr++;
 	//	seg.cur_blk++;
 	curseg.blk_offset++;
-	// segmentÔÚ·ÖÅäÊ±ÉèÖÃdirty
+	// segmentåœ¨åˆ†é…æ—¶è®¾ç½®dirty
 	set_dirty(curseg.seg_no);
 
 	InterlockedIncrement64(&m_health_info->m_total_media_write);
@@ -433,11 +433,11 @@ PHY_BLK CF2fsSegmentManager::WriteBlockToSeg(CPageInfo* page, bool force, bool b
 	PHY_BLK phy_blk = PhyBlock(tar_seg, tar_blk);
 	page->phy_blk = phy_blk;
 
-	// ÓÉÓÚWriteBlockToSeg()»áÔÚGCÖĞ±»µ÷ÓÃ£¬Ä¿Ç°µÄGCËã·¨Õë¶Ôsegment½øĞĞGC£¬GCºó²¢²»ÄÜÇå³şdirty±êÖ¾¡£
+	// ç”±äºWriteBlockToSeg()ä¼šåœ¨GCä¸­è¢«è°ƒç”¨ï¼Œç›®å‰çš„GCç®—æ³•é’ˆå¯¹segmentè¿›è¡ŒGCï¼ŒGCåå¹¶ä¸èƒ½æ¸…æ¥šdirtyæ ‡å¿—ã€‚
 	if (!by_gc) page->dirty = false;
 
 	if (curseg.blk_offset >= BLOCK_PER_SEG)
-	{	// µ±Ç°segmentÒÑ¾­Ğ´Âú
+	{	// å½“å‰segmentå·²ç»å†™æ»¡
 		curseg.seg_no = INVALID_BLK;
 	}
 	//clear data cache
@@ -468,13 +468,13 @@ ERROR_CODE CF2fsSegmentManager::GarbageCollection(CF2fsSimulator* fs)
 	for (SEG_T ss = 0; ss < MAIN_SEG_NR; ss++)
 	{
 		SegmentInfo* seg = m_segments + ss;
-		// µ±valid blockÎª0Ê±£¬Ö±½Ó»ØÊÕ¡£seg_temp±íÊ¾blockÊÇ·ñÒÑ¾­±»»ØÊÕ¡£
+		// å½“valid blockä¸º0æ—¶ï¼Œç›´æ¥å›æ”¶ã€‚seg_tempè¡¨ç¤ºblockæ˜¯å¦å·²ç»è¢«å›æ”¶ã€‚
 		if (seg->valid_blk_nr == 0 && is_invalid(seg->free_next)) {
 			if (seg->valid_bmp[0] != 0)	THROW_ERROR(ERR_USER, L"try to free a non-empty segment, seg=%d", ss);
 			FreeSegment(ss);
 			continue;
 		}
-//		if (seg->cur_blk < BLOCK_PER_SEG) continue;  // Ìø¹ıÎ´Ğ´ÂúµÄsegment
+//		if (seg->cur_blk < BLOCK_PER_SEG) continue;  // è·³è¿‡æœªå†™æ»¡çš„segment
 		if (m_cur_segs[seg->seg_temp].seg_no == ss) continue;
 		pool.Push(seg);
 	}
@@ -499,20 +499,20 @@ ERROR_CODE CF2fsSegmentManager::GarbageCollection(CF2fsSimulator* fs)
 		for (BLK_T bb = 0; bb < BLOCK_PER_SEG; ++bb)
 		{
 			if (test_bitmap(src_seg->valid_bmp, bb) == 0) continue;
-			NID nid = src_seg->nids[bb];		// block ËùÔÚµÄinode
+			_NID nid = src_seg->nids[bb];		// block æ‰€åœ¨çš„inode
 			WORD offset = src_seg->offset[bb];
-			// Èç¹ûÓĞĞ§£¬¼ì²éblockµÄnidºÍoffset
+			// å¦‚æœæœ‰æ•ˆï¼Œæ£€æŸ¥blockçš„nidå’Œoffset
 			PHY_BLK org_phy = PhyBlock(src_seg_id, bb);
 			UINT lba = phyblk_to_lba(org_phy);
-			// ¶ÁÈ¡page
-			// page ÊÇ·ñÎªnode£¬ÇÒÒÑ¾­cacheÁË£¬½«cache µÄpageÇ¿ÖÆË¢ĞÂ
-			// <TODO> ÔÚF2FSÖĞ£¬»¹ÒªÅĞ¶ÏL2PµÄphysicalµØÖ·ÊÇ·ñÆ¥Åä£¬²»Æ¥ÅäµÄÌø¹ıGC¡£
-			//		µ«ÊÇÈç¹ûÌø¹ıµÄ»°£¬»áµ¼ÖÂblockÎŞ·¨ÊÍ·Å¡££¨´Ë´¦½ö¼ì²éL2PÊÇ·ñÆ¥Åä£©
+			// è¯»å–page
+			// page æ˜¯å¦ä¸ºnodeï¼Œä¸”å·²ç»cacheäº†ï¼Œå°†cache çš„pageå¼ºåˆ¶åˆ·æ–°
+			// <TODO> åœ¨F2FSä¸­ï¼Œè¿˜è¦åˆ¤æ–­L2Pçš„physicalåœ°å€æ˜¯å¦åŒ¹é…ï¼Œä¸åŒ¹é…çš„è·³è¿‡GCã€‚
+			//		ä½†æ˜¯å¦‚æœè·³è¿‡çš„è¯ï¼Œä¼šå¯¼è‡´blockæ— æ³•é‡Šæ”¾ã€‚ï¼ˆæ­¤å¤„ä»…æ£€æŸ¥L2Pæ˜¯å¦åŒ¹é…ï¼‰
 
 			CPageInfo* node_page = nullptr;
 			m_fs->ReadNode(nid, node_page);
 			if ( is_invalid(offset) )
-			{	// node block, page ±»cache×¡
+			{	// node block, page è¢«cacheä½
 				PHY_BLK l2p = m_fs->m_nat.get_phy_blk(nid);
 				if (l2p != org_phy) {
 					THROW_FS_ERROR(ERR_PHY_ADDR_MISMATCH, L"phy_blk [%d] node=%d, L2P=%d mismatch", org_phy, nid, l2p);
@@ -526,7 +526,7 @@ ERROR_CODE CF2fsSegmentManager::GarbageCollection(CF2fsSimulator* fs)
 			else
 			{
 				if (m_data_cache.nid == nid && m_data_cache.offset == offset) {
-					// ´ËpageÒÑ¾­ÔÚwrite cacheÖĞ¡£ÂíÉÏ»á±»Ğ´Èë£¬Òò´Ë²»ĞèÒªÔÚ°áÒÆ¡£
+					// æ­¤pageå·²ç»åœ¨write cacheä¸­ã€‚é©¬ä¸Šä¼šè¢«å†™å…¥ï¼Œå› æ­¤ä¸éœ€è¦åœ¨æ¬ç§»ã€‚
 					continue;
 				}
 				BLOCK_DATA * node_blk = m_pages->get_data(node_page);
@@ -544,7 +544,7 @@ ERROR_CODE CF2fsSegmentManager::GarbageCollection(CF2fsSimulator* fs)
 				}
 
 				m_storage->BlockRead(lba, page);
-				// Ğ´Èëpage	// ×¢Òâ£ºGC²»Ó¦¸Ã¸Ä±äblockµÄÎÂ¶È£¬ÕâÀï×öÒ»¸ö¼ì²é
+				// å†™å…¥page	// æ³¨æ„ï¼šGCä¸åº”è¯¥æ”¹å˜blockçš„æ¸©åº¦ï¼Œè¿™é‡Œåšä¸€ä¸ªæ£€æŸ¥
 				page->phy_blk = org_phy;
 				page->nid = nid;
 				page->offset = offset;
@@ -552,7 +552,7 @@ ERROR_CODE CF2fsSegmentManager::GarbageCollection(CF2fsSimulator* fs)
 				m_fs->UpdateIndex(nid, offset, phy_blk);
 				LOG_DEBUG_(1, L"[gc] move data(%d,%d) from %d to %d", nid, offset, org_phy, phy_blk);
 			}
-			// Write Block To Segment¾Í»á´¥·¢invalid ¾ÉµÄblock£¬µ±Ô­segmentÖĞµÄËùÓĞblock¶¼ÎŞĞ§ÁË£¬»áfree. ´Ë´¦²»ÓÃÔÙ´Îinvalid
+			// Write Block To Segmentå°±ä¼šè§¦å‘invalid æ—§çš„blockï¼Œå½“åŸsegmentä¸­çš„æ‰€æœ‰blockéƒ½æ— æ•ˆäº†ï¼Œä¼šfree. æ­¤å¤„ä¸ç”¨å†æ¬¡invalid
 			// invalid original blk
 			media_write_count++;
 			// for debug
@@ -564,7 +564,7 @@ ERROR_CODE CF2fsSegmentManager::GarbageCollection(CF2fsSimulator* fs)
 			gc.org_phy = org_phy;
 			gc.new_phy = phy_blk;
 #endif
-			// µ±valid blockÎª0Ê±£¬source segmentÒÑ¾­±»»ØÊÕ£¬Òò´ËÆänidºÍoffset²»¿ÉĞÅ¡£
+			// å½“valid blockä¸º0æ—¶ï¼Œsource segmentå·²ç»è¢«å›æ”¶ï¼Œå› æ­¤å…¶nidå’Œoffsetä¸å¯ä¿¡ã€‚
 			valid_blk--;
 			if (valid_blk == 0) break;
 		}
@@ -605,7 +605,7 @@ bool CF2fsSegmentManager::InvalidBlock(SEG_T seg_id, BLK_T blk_id)
 	bool free_seg = false;
 	JCASSERT(seg_id < MAIN_SEG_NR);
 	SegmentInfo& seg = m_segments[seg_id];
-	// blockµÄÓĞĞ§ĞÔÅĞ¶ÏÒÔSITÎªÖ÷
+	// blockçš„æœ‰æ•ˆæ€§åˆ¤æ–­ä»¥SITä¸ºä¸»
 	if (test_bitmap(seg.valid_bmp, blk_id) == 0) {
 		THROW_FS_ERROR(ERR_DOUBLED_BLK, L"double invalid phy block, seg=%d, blk=%d,", seg_id, blk_id);
 	}
@@ -620,12 +620,12 @@ bool CF2fsSegmentManager::InvalidBlock(SEG_T seg_id, BLK_T blk_id)
 	seg.offset[blk_id] = INVALID_BLK;
 	set_dirty(seg_id);
 
-	// ²»»ØÊÕµ±Ç°µÄsegment
+	// ä¸å›æ”¶å½“å‰çš„segment
 	if (seg.valid_blk_nr == 0 // && seg.cur_blk >= BLOCK_PER_SEG)
 		&& m_cur_segs[seg.seg_temp].seg_no != seg_id)
 	{
 		SEG_T seg_id =SegId(&seg);
-#if 1		// for debug only, ¼ì²éÊÇ·ñËùÓĞblock¶¼invalid
+#if 1		// for debug only, æ£€æŸ¥æ˜¯å¦æ‰€æœ‰blockéƒ½invalid
 		if (seg.valid_bmp[0] != 0)	THROW_ERROR(ERR_USER, L"try to free a non-empty segment, seg=%d", seg_id);
 #endif
 		FreeSegment(seg_id);

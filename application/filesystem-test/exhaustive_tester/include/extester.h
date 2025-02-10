@@ -13,12 +13,12 @@
 #define MAX_WORK_NR		512
 //#define MAX_THREAD_NR	8
 
-// ²»Í¬ÀàĞÍµÄ¶àÏß³Ì´¦Àí·½Ê½£¬Ö»ÄÜ¶¨ÒåÒ»¸ö
+// ä¸åŒç±»å‹çš„å¤šçº¿ç¨‹å¤„ç†æ–¹å¼ï¼Œåªèƒ½å®šä¹‰ä¸€ä¸ª
 //#define SINGLE_THREAD
 //#define MULTI_THREAD
-// Ïß³Ì¶ÓÁĞ´¦Àí£ºÔÊĞíÏß³ÌÊıÁ¿ÉÙÓÚ×î´óopÊıÁ¿
+// çº¿ç¨‹é˜Ÿåˆ—å¤„ç†ï¼šå…è®¸çº¿ç¨‹æ•°é‡å°‘äºæœ€å¤§opæ•°é‡
 #define THREAD_QUEUE
-// Ïß³Ì³Ø·½Ê½´¦Àí£ºÔ¤ÏÈ×¼±¸×ã¹»µÄÏß³Ì
+// çº¿ç¨‹æ± æ–¹å¼å¤„ç†ï¼šé¢„å…ˆå‡†å¤‡è¶³å¤Ÿçš„çº¿ç¨‹
 //#define THREAD_POOL
 //#define STATE_MANAGER_THREAD_SAFE
 
@@ -31,14 +31,14 @@ public:
 public:
 	CReferenceFs m_ref_fs;
 	IFsSimulator* m_real_fs = nullptr;
-	TRACE_ENTRY m_op;		// ÉÏÒ»¸ö²Ù×÷ÈçºÎÖ´ĞĞµ½ÕâÒ»²½
+	TRACE_ENTRY m_op;		// ä¸Šä¸€ä¸ªæ“ä½œå¦‚ä½•æ‰§è¡Œåˆ°è¿™ä¸€æ­¥
 	CFsState* m_parent = nullptr;
-	UINT m_depth;			// ËÑË÷Éî¶È
-	bool		m_stable = false;	// true: ±íÊ¾ÕâÊÇÒ»¸öÎÈ¶¨×´Ì¬¡£Power LossµÄĞŞ¸´²»ÄÜ¿ç¹ıÕâ¸ö×´Ì¬¡£
+	UINT m_depth;			// æœç´¢æ·±åº¦
+	bool		m_stable = false;	// true: è¡¨ç¤ºè¿™æ˜¯ä¸€ä¸ªç¨³å®šçŠ¶æ€ã€‚Power Lossçš„ä¿®å¤ä¸èƒ½è·¨è¿‡è¿™ä¸ªçŠ¶æ€ã€‚
 	void add_ref() {	InterlockedIncrement(&m_ref);	}
 	ERROR_CODE m_result;
 protected:
-	UINT m_ref=1;			// (±»²Î¿¼µÄ×Ó½Ú)ÒıÓÃ¼ÆÊı¡£
+	UINT m_ref=1;			// (è¢«å‚è€ƒçš„å­èŠ‚)å¼•ç”¨è®¡æ•°ã€‚
 	friend class CStateManager;
 
 public:
@@ -48,9 +48,9 @@ public:
 		m_real_fs = fs;
 	}
 	void OutputState(FILE* log_file);
-	// ¸´ÖÆref fsºÍreal fs
+	// å¤åˆ¶ref fså’Œreal fs
 	void DuplicateFrom(CFsState* src_state);
-	// ½ö¸´ÖÆref fs, real fs¹²ÓÃÒ»¸öÊµÌå¡£
+	// ä»…å¤åˆ¶ref fs, real fså…±ç”¨ä¸€ä¸ªå®ä½“ã€‚
 	void DuplicateWithoutFs(CFsState* src_state);
 };
 
@@ -67,8 +67,8 @@ public:
 	CFsState* duplicate(CFsState* state);
 
 protected:
-	CFsState* m_free_list=nullptr;		// ±»»ØÊÕµÄ note ´æ·ÅÔÚÕâÀï
-	// ÔÚ¸´ÖÆ×´Ì¬µÄÊ±ºò£¬ÊÇ·ñÒª¸´ÖÆreal fs
+	CFsState* m_free_list=nullptr;		// è¢«å›æ”¶çš„ note å­˜æ”¾åœ¨è¿™é‡Œ
+	// åœ¨å¤åˆ¶çŠ¶æ€çš„æ—¶å€™ï¼Œæ˜¯å¦è¦å¤åˆ¶real fs
 	bool m_duplicate_real_fs;
 //#ifdef STATE_MANAGER_THREAD_SAFE
 	CRITICAL_SECTION m_lock;
@@ -112,7 +112,7 @@ inline size_t hash_value(const ENCODE& e)
 class CStateHeap
 {
 public:
-	//±È½ÏstateÊÇ·ñÒÑ¾­±»¼ì²é¹ı£¬Èç¹ûÊÇ£¬Ôò·µ»Øtrue£¬·ñÕßÌí¼Ó²¢·µ»Øfalse£»
+	//æ¯”è¾ƒstateæ˜¯å¦å·²ç»è¢«æ£€æŸ¥è¿‡ï¼Œå¦‚æœæ˜¯ï¼Œåˆ™è¿”å›trueï¼Œå¦è€…æ·»åŠ å¹¶è¿”å›falseï¼›
 	bool Check(const CFsState* state);
 	void Insert(const CFsState* state);
 	bool CheckAndInsert(const CFsState* state);
@@ -138,13 +138,13 @@ struct WORK_CONTEXT
 	ERROR_CODE result;
 	UINT test_id;
 	UINT seed;
+	HANDLE event_start;		// ç”¨äºå‡ºå‘å¼€å§‹æ¡ä»¶
+	HANDLE event_complete;	// ç”¨äºè§¦å‘ç»“æŸæ¡ä»¶
 #ifdef THREAD_POOL
-	HANDLE hevent;
-	HANDLE hstart;	//ÓÃÓÚ´¥·¢¿ªÊ¼Ìõ¼ş
 	PTP_WORK work_item;
 #endif
 #ifdef MULTI_THREAD
-	HANDLE hthread;	//Ïß³Ì¾ä±ú£¬ÓÃÓÚ×Ô¶¨Òå¹¤×÷Ïß³Ì
+	HANDLE hthread;	//çº¿ç¨‹å¥æŸ„ï¼Œç”¨äºè‡ªå®šä¹‰å·¥ä½œçº¿ç¨‹
 	DWORD tid;
 #endif
 };
@@ -160,19 +160,19 @@ public:
 public:
 	virtual int StartTest(void);
 	virtual int PrepareTest(const boost::property_tree::wptree & config, IFsSimulator * fs, const std::wstring& log_path);
-	// ÉÏ²ã³ÌĞòµ÷ÓÃStopTestÀ´Ç¿ÖÆÖÕÖ¹Ä¿Ç°²â²âÊÔ¡£
+	// ä¸Šå±‚ç¨‹åºè°ƒç”¨StopTestæ¥å¼ºåˆ¶ç»ˆæ­¢ç›®å‰æµ‹æµ‹è¯•ã€‚
 	virtual void StopTest(void);
 	virtual void GetTestSummary(boost::property_tree::wptree& sum);
 
-	// ¶àÌ¬»¯
+	// å¤šæ€åŒ–
 protected:
 	virtual int PreTest(void);
 	virtual ERROR_CODE RunTest(void);
 	virtual void FinishTest(void);
 
-	// ¹«¹²·½·¨
+	// å…¬å…±æ–¹æ³•
 protected:
-	// ¸ù¾İÏÖÔÚµÄ×´Ì¬£¬Ã¶¾ÙËùÓĞ¿ÉÄÜµÄ²Ù×÷£¬½á¹û·ÅÈëopsÖĞ
+	// æ ¹æ®ç°åœ¨çš„çŠ¶æ€ï¼Œæšä¸¾æ‰€æœ‰å¯èƒ½çš„æ“ä½œï¼Œç»“æœæ”¾å…¥opsä¸­
 	//size_t GenerateOps(CFsState* cur_state, std::vector<TRACE_ENTRY> &ops);
 	size_t GenerateOps(CFsState* cur_state, TRACE_ENTRY * ops, size_t op_size);
 
@@ -198,9 +198,9 @@ protected:
 	ERROR_CODE TestCreateFile(CFsState* cur_state, const std::string& path);
 	ERROR_CODE TestCreateDir (CFsState* cur_state, const std::string& path);
 //	ERROR_CODE TestWriteFile(CFsState * cur_state, const std::string& path, FSIZE offset, FSIZE len);
-	ERROR_CODE TestWriteFileV2(CFsState * cur_state, NID fid, FSIZE offset, FSIZE len, const std::string &path);
+	ERROR_CODE TestWriteFileV2(CFsState * cur_state, _NID fid, FSIZE offset, FSIZE len, const std::string &path);
 	ERROR_CODE TestOpenFile(CFsState* cur_state, const std::string& path);
-	ERROR_CODE TestCloseFile(CFsState* cur_state, NID fid, const std::string & path);
+	ERROR_CODE TestCloseFile(CFsState* cur_state, _NID fid, const std::string & path);
 	ERROR_CODE TestDeleteFile(CFsState* cur_state, const std::string& path);
 	ERROR_CODE TestDeleteDir(CFsState* cur_state, const std::string& path);
 	ERROR_CODE TestMount(CFsState * cur_state);
@@ -213,9 +213,9 @@ protected:
 
 	ERROR_CODE VerifyState(CReferenceFs& ref_fs, IFsSimulator* real_fs);
 
-	// Õë¶ÔÃ¿¸ö×ÓÏî£¬Ã¶¾ÙËùÓĞ¿ÉÄÜµÄ²Ù×÷¡£
+	// é’ˆå¯¹æ¯ä¸ªå­é¡¹ï¼Œæšä¸¾æ‰€æœ‰å¯èƒ½çš„æ“ä½œã€‚
 	//bool EnumerateOp(CFsState * cur_state, std::list<CFsState*>::iterator & insert);
-	// Ã¶¾Ù×Ó²Ù×÷Ê±£¬½«OpenºÍWrite·Ö¿ª£¬ÊµÏÖ¿ÉÒÔÍ¬Ê±´ò¿ª¶à¸öÎÄ¼ş¡£
+	// æšä¸¾å­æ“ä½œæ—¶ï¼Œå°†Openå’ŒWriteåˆ†å¼€ï¼Œå®ç°å¯ä»¥åŒæ—¶æ‰“å¼€å¤šä¸ªæ–‡ä»¶ã€‚
 	ERROR_CODE EnumerateOpV2(TRACE_ENTRY * ops, size_t op_size, CFsState* cur_state, std::list<CFsState*>::iterator& insert);
 
 	ERROR_CODE EnumerateOp_Thread(TRACE_ENTRY* ops, size_t op_size, CFsState* cur_state, std::list<CFsState*>::iterator& insert);
@@ -238,8 +238,8 @@ protected:
 	void RealFsState(FILE* out_file, IFsSimulator* real_fs, bool file_nr );
 
 protected:
-	// make fs, mount fs, ºÍunmount fsÊÇ¿ÉÑ¡Ïî¡£Ôİ²»Ö§³Ö¡£
-	// make fs½öÓÃÓÚ³õÊ¼»¯¡£mount fsÓÃÓÚ³õÊ¼»¯ºÍ²âÊÔ¡£²âÊÔÖĞÔÊĞíÔö¼ÓmountºÍunmount²Ù×÷
+	// make fs, mount fs, å’Œunmount fsæ˜¯å¯é€‰é¡¹ã€‚æš‚ä¸æ”¯æŒã€‚
+	// make fsä»…ç”¨äºåˆå§‹åŒ–ã€‚mount fsç”¨äºåˆå§‹åŒ–å’Œæµ‹è¯•ã€‚æµ‹è¯•ä¸­å…è®¸å¢åŠ mountå’Œunmountæ“ä½œ
 	void TraceTestVerify(IFsSimulator* fs, const std::string &fn);
 
 protected:
@@ -249,61 +249,61 @@ protected:
 protected:
 	CStateManager m_states;
 	std::list<CFsState*> m_open_list;
-	std::list<CFsState*> m_closed_list;		// ÓÃÓÚ»ØËİÕÒtrace
+	std::list<CFsState*> m_closed_list;		// ç”¨äºå›æº¯æ‰¾trace
 	CStateHeap m_closed;
 
 protected:
-	// ²âÊÔ²ÎÊı£º×î´óÉî¶È£¬×î´óÎÄ¼şÊıµÈ
-	DWORD m_update_ms = 50000;		// log/ÆÁÄ»¸üĞÂÊ±¼ä£¨ºÁÃëµ¥Î»£©
-	size_t m_max_child_num;					// Ä¿Â¼ÏÂµÄ×î´ó×ÓÎÄ¼ş/×ÓÄ¿Â¼ÊıÁ¿
-	size_t m_max_dir_depth;					// ×î´óÄ¿Â¼Éî¶È
-	size_t m_max_file_op;					// ×î´óÎÄ¼ş²Ù×÷£¨Ğ´Èë£©´ÎÊı
-	FSIZE m_max_file_size;					// ÎÄ¼şµÄ×î´ó³ß´ç
-	int m_clear_temp;						// ²âÊÔÍêÒÔºóÊÇ·ñÇå³ıËùÓĞÁÙÊ±ÎÄ¼ş
-	int m_test_depth;						// ×î´ó²âÊÔÉî¶È
-	size_t m_volume_size;					// ÎÄ¼şÏµÍ³´óĞ¡
-	int m_branch;							// Í³¼Æ²âÊÔÊ±£¬³éÑ¡µÄ·ÖÖ§ÊıÁ¿
+	// æµ‹è¯•å‚æ•°ï¼šæœ€å¤§æ·±åº¦ï¼Œæœ€å¤§æ–‡ä»¶æ•°ç­‰
+	DWORD m_update_ms = 50000;		// log/å±å¹•æ›´æ–°æ—¶é—´ï¼ˆæ¯«ç§’å•ä½ï¼‰
+	size_t m_max_child_num;					// ç›®å½•ä¸‹çš„æœ€å¤§å­æ–‡ä»¶/å­ç›®å½•æ•°é‡
+	size_t m_max_dir_depth;					// æœ€å¤§ç›®å½•æ·±åº¦
+	size_t m_max_file_op;					// æœ€å¤§æ–‡ä»¶æ“ä½œï¼ˆå†™å…¥ï¼‰æ¬¡æ•°
+	FSIZE m_max_file_size;					// æ–‡ä»¶çš„æœ€å¤§å°ºå¯¸
+	int m_clear_temp;						// æµ‹è¯•å®Œä»¥åæ˜¯å¦æ¸…é™¤æ‰€æœ‰ä¸´æ—¶æ–‡ä»¶
+	int m_test_depth;						// æœ€å¤§æµ‹è¯•æ·±åº¦
+	size_t m_volume_size;					// æ–‡ä»¶ç³»ç»Ÿå¤§å°
+	int m_branch;							// ç»Ÿè®¡æµ‹è¯•æ—¶ï¼ŒæŠ½é€‰çš„åˆ†æ”¯æ•°é‡
 	bool m_check_power_loss;				
 
-	std::vector<OP_CODE> m_file_op_set;		// ¶ÔÓÚÎÄ¼ş£¬ÔÊĞíµÄ²Ù×÷
-	std::vector<OP_CODE> m_dir_op_set;		// ¶ÔÓÚÄ¿Â¼£¬ÔÊĞíµÄ²Ù×÷
-	std::vector<OP_CODE> m_fs_op_set;			// ¶ÔÓÚÎÄ¼şÏµÍ³£¬ÔÊĞíµÄ²Ù×÷£¬ÀıÈçunmount/mount. sporµÈ
-	// ²âÊÔÌõ¼ş
-	bool m_mount, m_format;		// ÔÚ²âÊÔÇ°ÊÇ·ñÒªformatºÍmount fs
+	std::vector<OP_CODE> m_file_op_set;		// å¯¹äºæ–‡ä»¶ï¼Œå…è®¸çš„æ“ä½œ
+	std::vector<OP_CODE> m_dir_op_set;		// å¯¹äºç›®å½•ï¼Œå…è®¸çš„æ“ä½œ
+	std::vector<OP_CODE> m_fs_op_set;			// å¯¹äºæ–‡ä»¶ç³»ç»Ÿï¼Œå…è®¸çš„æ“ä½œï¼Œä¾‹å¦‚unmount/mount. sporç­‰
+	// æµ‹è¯•æ¡ä»¶
+	bool m_mount, m_format;		// åœ¨æµ‹è¯•å‰æ˜¯å¦è¦formatå’Œmount fs
 	DWORD m_timeout;
 
-	// ²âÊÔÔËĞĞ×´Ì¬
+	// æµ‹è¯•è¿è¡ŒçŠ¶æ€
 	UINT m_op_sn;
 	boost::posix_time::ptime m_ts_start;
 	DWORD m_test_thread_id;
 	HANDLE m_test_thread;
 	HANDLE m_test_event;
-	// ¼ÇÂ¼µ±Ç°²âÊÔµÄ×î´óÉî¶È£¬µ±²âÊÔÖÕÖ¹Ê±£¬»áÊä³öÕâ¸ö×´Ì¬µÄtrace¡£
+	// è®°å½•å½“å‰æµ‹è¯•çš„æœ€å¤§æ·±åº¦ï¼Œå½“æµ‹è¯•ç»ˆæ­¢æ—¶ï¼Œä¼šè¾“å‡ºè¿™ä¸ªçŠ¶æ€çš„traceã€‚
 	CFsState* m_max_depth_state = nullptr;
-	// ¿ØÖÆ²âÊÔÍ£Ö¹£¬µ½¸Ã±äÁ¿ÉèÖÃÎª1Ê±£¬²âÊÔÍ£Ö¹¡£
+	// æ§åˆ¶æµ‹è¯•åœæ­¢ï¼Œåˆ°è¯¥å˜é‡è®¾ç½®ä¸º1æ—¶ï¼Œæµ‹è¯•åœæ­¢ã€‚
 	LONG m_stop_test = 0;
 
-	float m_max_memory_cost = 0;		// ×î´óÄÚ´æÊ¹ÓÃÁ¿
+	float m_max_memory_cost = 0;		// æœ€å¤§å†…å­˜ä½¿ç”¨é‡
 	LONG m_max_depth = 0;
 
-	// ÎÄ¼şÏµÍ³ĞÔÄÜ£¨ËùÓĞ×´Ì¬½ÚµãÖĞ×î´óµÄ£©
+	// æ–‡ä»¶ç³»ç»Ÿæ€§èƒ½ï¼ˆæ‰€æœ‰çŠ¶æ€èŠ‚ç‚¹ä¸­æœ€å¤§çš„ï¼‰
 	FS_INFO m_max_fs_info;
-	UINT m_total_item_num = 0, m_file_num=0;			// ×ÜÎÄ¼ş,Ä¿Â¼ÊıÁ¿ , 
-	UINT m_logical_blks = 0, m_physical_blks = 0, m_total_blks, m_free_blks = -1;	// Âß¼­±¥ºÍ¶È£¬ÎïÀí±¥ºÍ¶È£¬¿ÕÏĞ¿é
+	UINT m_total_item_num = 0, m_file_num=0;			// æ€»æ–‡ä»¶,ç›®å½•æ•°é‡ , 
+	UINT m_logical_blks = 0, m_physical_blks = 0, m_total_blks, m_free_blks = -1;	// é€»è¾‘é¥±å’Œåº¦ï¼Œç‰©ç†é¥±å’Œåº¦ï¼Œç©ºé—²å—
 	LONG64 m_host_write=0, m_media_write=0;
-	// ÎÄ¼şÏµÍ³²ÎÊı£¬ÓÃÓÚÏŞÖÆ²âÊÔ·¶Î§
+	// æ–‡ä»¶ç³»ç»Ÿå‚æ•°ï¼Œç”¨äºé™åˆ¶æµ‹è¯•èŒƒå›´
 
 	// log support
 	std::wstring m_log_path;
 	FILE* m_log_file = nullptr;
 	char m_log_buf[1024];
 	FILE* m_log_performance;
-	UINT m_error_list[ERR_ERROR_NR];	// ÓÃÓÚ¼ÇÂ¼²»Í¬error code·¢ÉúµÄÉî¶È£¬±£´æÃ¿¸öerror code×îÏÂÉî¶ÈµÄtrace¡£
+	UINT m_error_list[ERR_ERROR_NR];	// ç”¨äºè®°å½•ä¸åŒerror codeå‘ç”Ÿçš„æ·±åº¦ï¼Œä¿å­˜æ¯ä¸ªerror codeæœ€ä¸‹æ·±åº¦çš„traceã€‚
 
-	// ÆäËû
-	IFsSimulator* m_fs_factory = nullptr;		// ÕâÀïµÄfs×÷ÎªÎÄ¼şÏµÍ³³õÊ¼×´Ì¬£¬ÒÔ¼°µÄfactory£¬ÓÃÓÚ´´½¨ÎÄ¼ş²âÊÔÓÃµÄÎÄ¼şÏµÍ³¡£
+	// å…¶ä»–
+	IFsSimulator* m_fs_factory = nullptr;		// è¿™é‡Œçš„fsä½œä¸ºæ–‡ä»¶ç³»ç»Ÿåˆå§‹çŠ¶æ€ï¼Œä»¥åŠçš„factoryï¼Œç”¨äºåˆ›å»ºæ–‡ä»¶æµ‹è¯•ç”¨çš„æ–‡ä»¶ç³»ç»Ÿã€‚
 
-	//ÓÃÓÚ¶àÏß³Ì
+	//ç”¨äºå¤šçº¿ç¨‹
 	TP_CALLBACK_ENVIRON m_tp_environ;
 	WORK_CONTEXT m_works[MAX_WORK_NR];
 	HANDLE m_work_events[MAX_WORK_NR];
@@ -326,7 +326,7 @@ public:
 
 protected:
 
-	// ¶àÌ¬»¯
+	// å¤šæ€åŒ–
 	virtual int PrepareTest(const boost::property_tree::wptree& config, IFsSimulator* fs, const std::wstring& log_path);
 	virtual int PreTest(void);
 	virtual ERROR_CODE RunTest(void);
@@ -335,17 +335,20 @@ protected:
 	virtual void GetTestSummary(boost::property_tree::wptree& sum);
 
 protected:
-	// Ñ¡ÔñÒ»¸ö¿ÉÖ´ĞĞµÄ²Ù×÷Ö´ĞĞ
+	// é€‰æ‹©ä¸€ä¸ªå¯æ‰§è¡Œçš„æ“ä½œæ‰§è¡Œ
 //	static DWORD WINAPI _OneTest(PTP_CALLBACK_ENVIRON instance, PVOID context, PTP_WORK work);
 
-	DWORD RunTestQueue(void);
+	DWORD RunTestQueue(WORK_CONTEXT * work);
 
 	static DWORD WINAPI _RunTestQueue(PVOID context)
 	{
-		CExStatisticTester* tester = (CExStatisticTester*)context;
-		return tester->RunTestQueue();
+//		CExStatisticTester* tester = (CExStatisticTester*)context;
+//		return tester->RunTestQueue();
+		WORK_CONTEXT* work = (WORK_CONTEXT*)context;
+		CExStatisticTester* tester = dynamic_cast<CExStatisticTester*>(work->tester);
+		return tester->RunTestQueue(work);
 	}
-	ERROR_CODE OneTest(CFsState* init_state, DWORD test_id, int seed, CStateManager * states = nullptr);
+	ERROR_CODE OneTest(CFsState* init_state, DWORD test_id, int seed, TRACE_ENTRY * op_buf, CStateManager * states = nullptr);
 
 protected:
 	LONG m_test_times;
@@ -362,7 +365,7 @@ public:
 
 protected:
 
-	// ¶àÌ¬»¯
+	// å¤šæ€åŒ–
 	virtual int PrepareTest(const boost::property_tree::wptree& config, IFsSimulator* fs, const std::wstring& log_path);
 	virtual int PreTest(void) { return 0; };
 	virtual ERROR_CODE RunTest(void);
@@ -400,7 +403,7 @@ protected:
 
 template <size_t N> void Op2String(char(&str)[N], TRACE_ENTRY& op);
 
-// len: fn»º´æ³¤¶È¡£·µ»Øfn³¤¶È
+// len: fnç¼“å­˜é•¿åº¦ã€‚è¿”å›fné•¿åº¦
 int GenerateFn(char* fn, int len);
 const char* OpName(OP_CODE op_code);
 

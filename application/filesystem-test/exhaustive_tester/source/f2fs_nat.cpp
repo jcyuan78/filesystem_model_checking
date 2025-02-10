@@ -12,7 +12,7 @@ CNodeAddressTable::CNodeAddressTable(CF2fsSimulator* fs)
 	fs->m_health_info.m_node_nr = NODE_NR;
 }
 
-NID CNodeAddressTable::Init(PHY_BLK root)
+_NID CNodeAddressTable::Init(PHY_BLK root)
 {
 	memset(nat, 0xFF, sizeof(PHY_BLK) * NODE_NR);
 	memset(node_cache, 0xFF, sizeof(PAGE_INDEX) * NODE_NR);
@@ -20,7 +20,7 @@ NID CNodeAddressTable::Init(PHY_BLK root)
 	if (!build_free()) {
 		THROW_FS_ERROR(ERR_NO_SPACE, L"no valid node during initializing");
 	}
-	Sync();			// Ω´NAT–¥»Î¥≈≈Ã
+	Sync();			// Â∞ÜNATÂÜôÂÖ•Á£ÅÁõò
 	return 0;
 }
 
@@ -36,7 +36,7 @@ void CNodeAddressTable::CopyFrom(const CNodeAddressTable* src)
 bool CNodeAddressTable::Load(CKPT_BLOCK& checkpoint)
 {
 	UINT lba = NAT_START_BLK;
-	for (NID nid = 0; nid < NODE_NR; )
+	for (_NID nid = 0; nid < NODE_NR; )
 	{
 		CPageInfo* page = m_pages->allocate(true);
 		m_storage->BlockRead(lba, page);
@@ -45,11 +45,11 @@ bool CNodeAddressTable::Load(CKPT_BLOCK& checkpoint)
 		nid += NAT_ENTRY_PER_BLK;
 		lba++;
 	}
-	// ¥”checkpointµƒjournal÷–ª÷∏¥
+	// ‰ªécheckpointÁöÑjournal‰∏≠ÊÅ¢Â§ç
 	if (checkpoint.nat_journal_nr > JOURNAL_NR) THROW_FS_ERROR(ERR_INVALID_CHECKPOINT, L"NAT journal size is too large: %d", checkpoint.nat_journal_nr);
 	for (UINT ii = 0; ii < checkpoint.nat_journal_nr; ++ii)
 	{
-		NID nid = checkpoint.nat_journals[ii].nid;
+		_NID nid = checkpoint.nat_journals[ii].nid;
 		nat[nid] = checkpoint.nat_journals[ii].phy_blk;
 	}
 	build_free();
@@ -61,7 +61,7 @@ void CNodeAddressTable::Sync(void)
 {
 //	UINT lba = NAT_START_BLK;
 	UINT nat_blk = 0;
-	for (NID nid = 0; nid < NODE_NR; )
+	for (_NID nid = 0; nid < NODE_NR; )
 	{
 		if (dirty[nat_blk] != 0)
 		{
@@ -101,9 +101,9 @@ int CNodeAddressTable::build_free(void)
 	return free_nr;
 }
 
-NID CNodeAddressTable::get_node(void)
+_NID CNodeAddressTable::get_node(void)
 {
-	NID cur = next_scan;
+	_NID cur = next_scan;
 	if (free_nr == 0) {
 //		THROW_ERROR(ERR_APP, L"remained node=0");
 		LOG_ERROR(L"no valid node, free_nr==0");
@@ -116,9 +116,9 @@ NID CNodeAddressTable::get_node(void)
 		{
 			free_nr--;
 			//			LOG_DEBUG(L"allocate_index nid: nid=%d, remain=%d", next_scan, free_nr);
-			nat[next_scan] = NID_IN_USE;	// ±‹√‚∑÷≈‰“‘∫Û£¨node√ª”––¥»Î¥≈≈Ã÷Æ«∞£¨±ª‘Ÿ¥Œ∑÷≈‰£¨”√NID_IN_USE±Í÷æ“— π”√°£
+			nat[next_scan] = NID_IN_USE;	// ÈÅøÂÖçÂàÜÈÖç‰ª•ÂêéÔºånodeÊ≤°ÊúâÂÜôÂÖ•Á£ÅÁõò‰πãÂâçÔºåË¢´ÂÜçÊ¨°ÂàÜÈÖçÔºåÁî®NID_IN_USEÊ†áÂøóÂ∑≤‰ΩøÁî®„ÄÇ
 			set_dirty(next_scan);
-			// TODO –Ë“™»∑»œf2fs’Ê µœµÕ≥÷–»Á∫Œ µœ÷°£
+			// TODO ÈúÄË¶ÅÁ°ÆËÆ§f2fsÁúüÂÆûÁ≥ªÁªü‰∏≠Â¶Ç‰ΩïÂÆûÁé∞„ÄÇ
 			return next_scan++;
 		}
 		next_scan++;
@@ -132,7 +132,7 @@ NID CNodeAddressTable::get_node(void)
 	}
 }
 
-void CNodeAddressTable::put_node(NID nid)
+void CNodeAddressTable::put_node(_NID nid)
 {
 	if (nid >= NODE_NR) THROW_ERROR(ERR_USER, L"wrong node id:%d", nid);
 	PHY_BLK blk = nat[nid];
@@ -151,13 +151,13 @@ void CNodeAddressTable::put_node(NID nid)
 	set_dirty(nid);
 }
 
-PHY_BLK CNodeAddressTable::get_phy_blk(NID nid)
+PHY_BLK CNodeAddressTable::get_phy_blk(_NID nid)
 {
 	if (nid >= NODE_NR) THROW_FS_ERROR(ERR_INVALID_NID, L"invalid node id %d", nid);
 	return nat[nid];
 }
 
-void CNodeAddressTable::set_phy_blk(NID nid, PHY_BLK phy_blk)
+void CNodeAddressTable::set_phy_blk(_NID nid, PHY_BLK phy_blk)
 {
 	if (nid >= NODE_NR) THROW_ERROR(ERR_APP, L"invalid node id %d", nid);
 	nat[nid] = phy_blk;
@@ -166,27 +166,27 @@ void CNodeAddressTable::set_phy_blk(NID nid, PHY_BLK phy_blk)
 
 void CNodeAddressTable::f2fs_out_nat_journal(NAT_JOURNAL_ENTRY* journal, UINT &journal_nr)
 {
-	// Ω´journal÷–µƒnat–¥»Î¥≈≈Ã
+	// Â∞Üjournal‰∏≠ÁöÑnatÂÜôÂÖ•Á£ÅÁõò
 	CPageInfo* pages[NAT_BLK_NR];
 	memset(pages, 0, sizeof(pages));
 	for (UINT ii = 0; ii < journal_nr; ++ii)
 	{
-		// º∆À„nidÀ˘‘⁄µƒblock
-		NID nid = journal[ii].nid;
+		// ËÆ°ÁÆónidÊâÄÂú®ÁöÑblock
+		_NID nid = journal[ii].nid;
 		UINT nat_blk_id = nid / NAT_ENTRY_PER_BLK;
 		UINT offset = nid % NAT_ENTRY_PER_BLK;
 		// cache nat page
 		NAT_BLOCK* nat_blk = nullptr;
 		if (pages[nat_blk_id] == nullptr)
-		{	// ∂¡»°page
+		{	// ËØªÂèñpage
 			pages[nat_blk_id] = m_pages->allocate(true);
 			m_storage->BlockRead(nat_blk_id + NAT_START_BLK, pages[nat_blk_id]);
 		}
-		// ∏¸–¬ nat page
+		// Êõ¥Êñ∞ nat page
 		nat_blk = &m_pages->get_data(pages[nat_blk_id])->nat;
 		nat_blk->nat[offset] = journal[ii].phy_blk;
 	}
-	// Ω´∏¸–¬µƒpage–¥»Înat block
+	// Â∞ÜÊõ¥Êñ∞ÁöÑpageÂÜôÂÖ•nat block
 	for (UINT blk = 0; blk < NAT_BLK_NR; blk++)
 	{
 		if (!pages[blk]) continue;
@@ -202,11 +202,11 @@ void CNodeAddressTable::f2fs_flush_nat_entries(CKPT_BLOCK& checkpoint)
 {
 	f2fs_out_nat_journal(checkpoint.nat_journals, checkpoint.nat_journal_nr);
 //	checkpoint.nat_journal_nr = 0;
-	// Ω´nat–¥»Îjournal÷–°£
-	for (NID nid = 0; nid < NODE_NR; nid++) 
+	// Â∞ÜnatÂÜôÂÖ•journal‰∏≠„ÄÇ
+	for (_NID nid = 0; nid < NODE_NR; nid++) 
 	{
 		if (is_dirty(nid))
-		{	// nidÃÌº”µΩjournal÷–£¨ºÏ≤Ènid «∑Ò“—æ≠‘⁄journal÷–
+		{	// nidÊ∑ªÂä†Âà∞journal‰∏≠ÔºåÊ£ÄÊü•nidÊòØÂê¶Â∑≤ÁªèÂú®journal‰∏≠
 			if (checkpoint.nat_journal_nr >= JOURNAL_NR) {
 				f2fs_out_nat_journal(checkpoint.nat_journals, checkpoint.nat_journal_nr);
 				m_fs->m_health_info.nat_journal_overflow++;
@@ -225,7 +225,7 @@ void CNodeAddressTable::f2fs_flush_nat_entries(CKPT_BLOCK& checkpoint)
 
 
 
-void CNodeAddressTable::set_dirty(NID nid)
+void CNodeAddressTable::set_dirty(_NID nid)
 {
 	UINT blk = nid / NAT_ENTRY_PER_BLK;
 	UINT offset = nid % NAT_ENTRY_PER_BLK;
@@ -233,7 +233,7 @@ void CNodeAddressTable::set_dirty(NID nid)
 	dirty[blk] |= mask;
 }
 
-void CNodeAddressTable::clear_dirty(NID nid)
+void CNodeAddressTable::clear_dirty(_NID nid)
 {
 	UINT blk = nid / NAT_ENTRY_PER_BLK;
 	UINT offset = nid % NAT_ENTRY_PER_BLK;
@@ -241,7 +241,7 @@ void CNodeAddressTable::clear_dirty(NID nid)
 	dirty[blk] &= (~mask);
 }
 
-DWORD CNodeAddressTable::is_dirty(NID nid)
+DWORD CNodeAddressTable::is_dirty(_NID nid)
 {
 	UINT blk = nid / NAT_ENTRY_PER_BLK;
 	UINT offset = nid % NAT_ENTRY_PER_BLK;
