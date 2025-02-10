@@ -42,33 +42,32 @@ public:
 
 public:
 //	struct inode vfs_inode;		/* serve a vfs inode */
-	unsigned long i_flags;		/* keep an inode flags for ioctl */
-	unsigned char i_advise;		/* use to give file attribute hints */
+	unsigned long	i_flags;		/* keep an inode flags for ioctl */
+	unsigned char	i_advise;		/* use to give file attribute hints */
 	// TODO for dir only, move to CF2fsDirInode
-	unsigned char i_dir_level;	/* use for dentry level for large dir */ 
-	unsigned int i_current_depth;	/* only for directory depth */
+	unsigned char	i_dir_level;	/* use for dentry level for large dir */ 
+	unsigned int	i_current_depth;	/* only for directory depth */
 	/* for gc failure statistic */
-	unsigned int i_gc_failures[MAX_GC_FAILURE];
-	unsigned int i_pino;		/* parent inode number */
-	umode_t i_acl_mode;		/* keep file acl mode temporarily */
-	f2fs_sb_info* m_sbi;
+	unsigned int	i_gc_failures[MAX_GC_FAILURE];
+	unsigned int	i_pino;		/* parent inode number */
+	umode_t			i_acl_mode;		/* keep file acl mode temporarily */
+	f2fs_sb_info*	m_sbi;
 
 	/* Use below internally in f2fs*/
 	//unsigned long flags[BITS_TO_LONGS(FI_MAX)];	/* use to pass per-file flags */
 	//unsigned long flags[BITS_TO_<long>(FI_MAX)];	/* use to pass per-file flags */
-	UINT64 flags;
-	semaphore  i_sem;	/* protect fi info */
-	atomic_t dirty_pages;		/* # of dirty pages */
-	f2fs_hash_t chash;		/* hash value of given file name */
-	unsigned int clevel;		/* maximum level of given file name */
+	UINT64			flags;
+	semaphore		i_sem;	/* protect fi info */
+	atomic_t		dirty_pages;		/* # of dirty pages */
+	f2fs_hash_t		chash;		/* hash value of given file name */
+	unsigned int	clevel;		/* maximum level of given file name */
 //	struct task_struct* task;	/* lookup and create consistency */
-	nid_t i_xattr_nid;		/* node id that contains xattrs */
-	loff_t	last_disk_size;		/* lastly written file size */
+	nid_t			i_xattr_nid;		/* node id that contains xattrs */
+	loff_t			last_disk_size;		/* lastly written file size */
 	CRITICAL_SECTION i_size_lock;		/* protect last_disk_size */
 
 #ifdef CONFIG_QUOTA
 	struct dquot* i_dquot[MAXQUOTAS];
-
 	/* quota space reservation, managed internally by quota code */
 	qsize_t i_reserved_quota;
 #endif
@@ -141,6 +140,16 @@ public:
 		i_pino = pino;
 		f2fs_mark_inode_dirty_sync(true);
 	}
+	inline int get_inline_xattr_addrs(void)
+	{
+//		m_sbi->m_fs->m_config.feature
+		return i_inline_xattr_size;
+		//if (m_sbi->m_fs->m_config.feature & cpu_to_le32(F2FS_FEATURE_FLEXIBLE_INLINE_XATTR))
+		//	return le16_to_cpu(inode->_u._s.i_inline_xattr_size);
+		//else if (i_inline & F2FS_INLINE_XATTR || i_inline & F2FS_INLINE_DENTRY)
+		//	return DEFAULT_INLINE_XATTR_ADDRS;
+		//else			return 0;
+	}
 
 	inline void f2fs_i_links_write(bool inc)
 	{
@@ -198,7 +207,9 @@ public:
 		f2fs_mark_inode_dirty_sync(true);
 		if (clean || recover)	set_inode_flag(FI_AUTO_RECOVER);
 	}
-	inline int get_extra_isize(void) const 	{	return i_extra_isize / sizeof(__le32);	}
+	inline int get_extra_isize(void) const 	{
+		return i_extra_isize / sizeof(__le32);	
+	}
 
 //	static inline bool f2fs_skip_inode_update(f2fs_inode_info* inode, int dsync)
 	inline bool f2fs_skip_inode_update(int dsync);
@@ -310,8 +321,7 @@ protected:
 
 
 /* for inline dir */
-#define NR_INLINE_DENTRY(inode)	(MAX_INLINE_DATA(inode) * BITS_PER_BYTE / \
-				((SIZE_OF_DIR_ENTRY + F2FS_SLOT_LEN) * 	BITS_PER_BYTE + 1))
+#define NR_INLINE_DENTRY(inode)	(MAX_INLINE_DATA(inode) * BITS_PER_BYTE / ((SIZE_OF_DIR_ENTRY + F2FS_SLOT_LEN) * 	BITS_PER_BYTE + 1))
 
 #define INLINE_DENTRY_BITMAP_SIZE(inode) DIV_ROUND_UP<size_t>(NR_INLINE_DENTRY(inode), BITS_PER_BYTE)
 

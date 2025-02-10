@@ -59,15 +59,14 @@ int fatfs_init(struct fatfs *fs)
     fatfs_fat_init(fs);
 
     // Make sure we have a read function (write function is optional)
-    if (!fs->disk_io.read_media)
-        return FAT_INIT_MEDIA_ACCESS_ERROR;
+    //if (!fs->disk_io.read_media)        return FAT_INIT_MEDIA_ACCESS_ERROR;
 
     // MBR: Sector 0 on the disk
     // NOTE: Some removeable media does not have this.
 
     // Load MBR (LBA 0) into the 512 byte buffer
-    if (!fs->disk_io.read_media(0, fs->currentsector.sector, 1))
-        return FAT_INIT_MEDIA_ACCESS_ERROR;
+//    if (!fs->disk_io.read_media(0, fs->currentsector.sector, 1))        return FAT_INIT_MEDIA_ACCESS_ERROR;
+    if (!fatfs_sector_read(fs, 0, fs->currentsector.sector, 1))    return FAT_INIT_MEDIA_ACCESS_ERROR;
 
     // Make Sure 0x55 and 0xAA are at end of sector
     // (this should be the case regardless of the MBR or boot sector)
@@ -109,9 +108,9 @@ int fatfs_init(struct fatfs *fs)
     else
         fs->lba_begin = 0;
 
-    // Load Volume 1 table into sector buffer
-    // (We may already have this in the buffer if MBR less drive!)
-    if (!fs->disk_io.read_media(fs->lba_begin, fs->currentsector.sector, 1))
+    // Load Volume 1 table into sector buffer (We may already have this in the buffer if MBR less drive!)
+    if (!fatfs_sector_read(fs, fs->lba_begin, fs->currentsector.sector, 1))
+    //if (!fs->disk_io.read_media(fs->lba_begin, fs->currentsector.sector, 1))
         return FAT_INIT_MEDIA_ACCESS_ERROR;
 
     // Make sure there are 512 bytes per cluster
@@ -189,37 +188,15 @@ int fatfs_init(struct fatfs *fs)
         return FAT_INIT_WRONG_FILESYS_TYPE;
 }
 //-----------------------------------------------------------------------------
-// fatfs_lba_of_cluster: This function converts a cluster number into a sector /
-// LBA number.
+// fatfs_lba_of_cluster: This function converts a cluster number into a sector LBA number.
 //-----------------------------------------------------------------------------
 uint32 fatfs_lba_of_cluster(struct fatfs *fs, uint32 Cluster_Number)
 {
-    if (fs->fat_type == FAT_TYPE_16)
-        return (fs->cluster_begin_lba + (fs->root_entry_count * 32 / FAT_SECTOR_SIZE) + ((Cluster_Number-2) * fs->sectors_per_cluster));
-    else
-        return ((fs->cluster_begin_lba + ((Cluster_Number-2)*fs->sectors_per_cluster)));
+    if (fs->fat_type == FAT_TYPE_16)    return (fs->cluster_begin_lba + 
+        (fs->root_entry_count * 32 / FAT_SECTOR_SIZE) + ((Cluster_Number-2) * fs->sectors_per_cluster));
+    else        return ((fs->cluster_begin_lba + ((Cluster_Number-2)*fs->sectors_per_cluster)));
 }
-//-----------------------------------------------------------------------------
-// fatfs_sector_read:
-//-----------------------------------------------------------------------------
-int fatfs_sector_read(struct fatfs *fs, uint32 lba, uint8 *target, uint32 count)
-{
-    return fs->disk_io.read_media(lba, target, count);
-}
-//-----------------------------------------------------------------------------
-// fatfs_sector_write:
-//-----------------------------------------------------------------------------
-int fatfs_sector_write(struct fatfs *fs, uint32 lba, uint8 *target, uint32 count)
-{
-    return fs->disk_io.write_media(lba, target, count);
-}
-//-----------------------------------------------------------------------------
-//<YUAN> fatfs_sync:
-//-----------------------------------------------------------------------------
-int     fatfs_sync(struct fatfs* fs)
-{
-    return fs->disk_io.sync_media();
-}
+
 
 //-----------------------------------------------------------------------------
 // fatfs_sector_reader: From the provided startcluster and sector offset
@@ -256,12 +233,12 @@ int fatfs_sector_reader(struct fatfs *fs, uint32 start_cluster, uint32 offset, u
     }
 
     // User provided target array
-    if (target)        return fs->disk_io.read_media(lba, target, 1);
+    if (target)        return fatfs_sector_read(fs,lba, target, 1);
     // Else read sector if not already loaded
     else if (lba != fs->currentsector.address)
     {
         fs->currentsector.address = lba;
-        return fs->disk_io.read_media(fs->currentsector.address, fs->currentsector.sector, 1);
+        return fatfs_sector_read(fs,fs->currentsector.address, fs->currentsector.sector, 1);
     }
     else        return 1;
 }
@@ -286,7 +263,7 @@ int fatfs_read_sector(struct fatfs *fs, uint32 cluster, uint32 sector, uint8 *ta
         if (target)
         {
             // Read from disk
-            return fs->disk_io.read_media(lba, target, 1);
+            return fatfs_sector_read(fs,lba, target, 1);
         }
         else
         {
@@ -294,7 +271,7 @@ int fatfs_read_sector(struct fatfs *fs, uint32 cluster, uint32 sector, uint8 *ta
             fs->currentsector.address = lba;
 
             // Read from disk
-            return fs->disk_io.read_media(fs->currentsector.address, fs->currentsector.sector, 1);
+            return fatfs_sector_read(fs,fs->currentsector.address, fs->currentsector.sector, 1);
         }
     }
     // FAT16/32 Other
@@ -307,7 +284,7 @@ int fatfs_read_sector(struct fatfs *fs, uint32 cluster, uint32 sector, uint8 *ta
             uint32 lba = fatfs_lba_of_cluster(fs, cluster) + sector;
 
             // Read from disk
-            return fs->disk_io.read_media(lba, target, 1);
+            return fatfs_sector_read(fs,lba, target, 1);
         }
         else
         {
@@ -315,7 +292,7 @@ int fatfs_read_sector(struct fatfs *fs, uint32 cluster, uint32 sector, uint8 *ta
             fs->currentsector.address = fatfs_lba_of_cluster(fs, cluster)+sector;
 
             // Read from disk
-            return fs->disk_io.read_media(fs->currentsector.address, fs->currentsector.sector, 1);
+            return fatfs_sector_read(fs,fs->currentsector.address, fs->currentsector.sector, 1);
         }
     }
 }
@@ -327,9 +304,7 @@ int fatfs_read_sector(struct fatfs *fs, uint32 cluster, uint32 sector, uint8 *ta
 int fatfs_write_sector(struct fatfs *fs, uint32 cluster, uint32 sector, uint8 *target)
 {
     // No write access?
-    if (!fs->disk_io.write_media)
-        return 0;
-
+    if (!fs->m_disk_io)        return 0;
     // FAT16 Root directory
     if (fs->fat_type == FAT_TYPE_16 && cluster == 0)
     {
@@ -345,7 +320,7 @@ int fatfs_write_sector(struct fatfs *fs, uint32 cluster, uint32 sector, uint8 *t
         if (target)
         {
             // Write to disk
-            return fs->disk_io.write_media(lba, target, 1);
+            return fatfs_sector_write(fs,lba, target, 1);
         }
         else
         {
@@ -353,7 +328,7 @@ int fatfs_write_sector(struct fatfs *fs, uint32 cluster, uint32 sector, uint8 *t
             fs->currentsector.address = lba;
 
             // Write to disk
-            return fs->disk_io.write_media(fs->currentsector.address, fs->currentsector.sector, 1);
+            return fatfs_sector_write(fs,fs->currentsector.address, fs->currentsector.sector, 1);
         }
     }
     // FAT16/32 Other
@@ -366,7 +341,7 @@ int fatfs_write_sector(struct fatfs *fs, uint32 cluster, uint32 sector, uint8 *t
             uint32 lba = fatfs_lba_of_cluster(fs, cluster) + sector;
 
             // Write to disk
-            return fs->disk_io.write_media(lba, target, 1);
+            return fatfs_sector_write(fs,lba, target, 1);
         }
         else
         {
@@ -374,7 +349,7 @@ int fatfs_write_sector(struct fatfs *fs, uint32 cluster, uint32 sector, uint8 *t
             fs->currentsector.address = fatfs_lba_of_cluster(fs, cluster)+sector;
 
             // Write to disk
-            return fs->disk_io.write_media(fs->currentsector.address, fs->currentsector.sector, 1);
+            return fatfs_sector_write(fs,fs->currentsector.address, fs->currentsector.sector, 1);
         }
     }
 }
@@ -612,8 +587,7 @@ int fatfs_update_file_length(struct fatfs *fs, uint32 Cluster, char *shortname, 
     struct fat_dir_entry *directoryEntry;
 
     // No write access?
-    if (!fs->disk_io.write_media)
-        return 0;
+    if (!fs->m_disk_io)      return 0;
 
     // Main cluster following loop
     while (1)
@@ -657,13 +631,12 @@ int fatfs_update_file_length(struct fatfs *fs, uint32 Cluster, char *shortname, 
                         memcpy((uint8*)(fs->currentsector.sector+recordoffset), (uint8*)directoryEntry, sizeof(struct fat_dir_entry));
 
                         // Write sector back
-                        return fs->disk_io.write_media(fs->currentsector.address, fs->currentsector.sector, 1);
+                        return fatfs_sector_write(fs,fs->currentsector.address, fs->currentsector.sector, 1);
                     }
                 }
             } // End of if
         }
-        else
-            break;
+        else            break;
     } // End of while loop
 
     return 0;
@@ -682,8 +655,7 @@ int fatfs_mark_file_deleted(struct fatfs *fs, uint32 Cluster, char *shortname)
     struct fat_dir_entry *directoryEntry;
 
     // No write access?
-    if (!fs->disk_io.write_media)
-        return 0;
+    if (!fs->m_disk_io)        return 0;
 
     // Main cluster following loop
     while (1)
@@ -728,7 +700,7 @@ int fatfs_mark_file_deleted(struct fatfs *fs, uint32 Cluster, char *shortname)
                         memcpy((uint8*)(fs->currentsector.sector+recordoffset), (uint8*)directoryEntry, sizeof(struct fat_dir_entry));
 
                         // Write sector back
-                        return fs->disk_io.write_media(fs->currentsector.address, fs->currentsector.sector, 1);
+                        return fatfs_sector_write(fs,fs->currentsector.address, fs->currentsector.sector, 1);
                     }
                 }
             } // End of if

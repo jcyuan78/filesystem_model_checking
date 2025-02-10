@@ -3,7 +3,9 @@
 class CFileInfoFatIo : public IFileInfo
 {
 public:
-	CFileInfoFatIo(void) :/* m_dir(NULL),*/ m_file(NULL) {};
+//	CFileInfoFatIo(struct fatfs * fs) :/* m_dir(NULL),*/ m_file(NULL), m_fs(fs) {};
+	CFileInfoFatIo(void) :/* m_dir(NULL),*/ m_file(NULL), m_fs(NULL) {};
+	void Init(struct fatfs* fs) { m_fs = fs; };
 
 public:
 	virtual void Cleanup(void);
@@ -37,6 +39,7 @@ public:
 public:
 //	void SetFile(void * file) { JCASSERT(file); m_file = reinterpret_cast<FL_FILE*>(file); }
 public:
+	struct fatfs* m_fs;
 	FL_DIR	m_dir;
 	bool m_isdir;
 	FL_FILE * m_file;
@@ -78,17 +81,25 @@ public:
 	virtual bool Sync(void);
 
 	// local
-public:
-	bool MediaRead(UINT sector, void * buffer, size_t sector_count);
-	bool MediaWrite(UINT sector, void * buffer, size_t sector_count);
+//public:
+//	bool MediaRead(UINT sector, void * buffer, size_t sector_count);
+//	bool MediaWrite(UINT sector, void * buffer, size_t sector_count);
 
 protected:
 	virtual bool ConnectToDevice(IVirtualDisk * dev);
 	virtual void Disconnect(void);
 
 protected:
-	struct fatfs* m_fs;
-	IVirtualDisk * m_dev;
+	struct fatfs	m_fs;
+	//struct disk_if  *m_disk_io = NULL;
+	//FL_FILE         m_files[FATFS_MAX_OPEN_FILES];
+	//int             m_filelib_init = 0;
+	//int             m_filelib_valid = 0;
+	//struct fat_list m_open_file_list;
+	//struct fat_list m_free_file_list;
+
+
+//	IVirtualDisk * m_dev;
 };
 
 class CFatIoFactory : public IFsFactory

@@ -45,22 +45,16 @@ public:
 	int __f2fs_build_free_nids(bool sync, bool mount);
 	int scan_nat_page(page* nat_page, nid_t start_nid);
 	bool add_free_nid(nid_t nid, bool build, bool update);
-
 	inline void disable_nat_bits(bool lock);
-
 
 public:	// protected
 	void cache_nat_entry(nid_t nid, struct f2fs_nat_entry* ne);
 	nat_entry* __init_nat_entry(nat_entry* ne, f2fs_nat_entry* raw_ne, bool no_fail);
 	bool f2fs_alloc_nid(OUT nid_t* nid);
 	void f2fs_alloc_nid_done(nid_t nid);
-
 	void __update_nat_bits(nid_t start_nid, struct page* page);
 
-
-
 public:
-
 	block_t nat_blkaddr;		/* base disk address of NAT */
 	nid_t max_nid;			/* maximum possible node ids */
 	nid_t available_nids;		/* # of available node ids */

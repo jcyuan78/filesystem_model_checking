@@ -429,10 +429,7 @@ int Cf2fsDirInode::f2fs_move_inline_dirents(page* ipage, void* inline_dentry)
 	stat_dec_inline_dir(this);
 	clear_inode_flag(this, FI_INLINE_DENTRY);
 
-	/*
-	 * should retrieve reserved space which was used to keep
-	 * inline_dentry's structure for backward compatibility.
-	 */
+	/* should retrieve reserved space which was used to keep inline_dentry's structure for backward compatibility. */
 	if (!f2fs_sb_has_flexible_inline_xattr(F2FS_I_SB(this)) && !f2fs_has_inline_xattr(this))
 		i_inline_xattr_size = 0;
 
@@ -530,8 +527,7 @@ static int f2fs_move_rehashed_dirents(f2fs_inode_info *dir, struct page *ipage, 
 	clear_inode_flag(dir, FI_INLINE_DENTRY);
 
 	/* should retrieve reserved space which was used to keep inline_dentry's structure for backward compatibility. */
-	if (!f2fs_sb_has_flexible_inline_xattr(F2FS_I_SB(dir)) &&
-			!f2fs_has_inline_xattr(dir))
+	if (!f2fs_sb_has_flexible_inline_xattr(F2FS_I_SB(dir)) && !f2fs_has_inline_xattr(dir))
 		F2FS_I(dir)->i_inline_xattr_size = 0;
 
 	f2fs_kvfree(backup_dentry);
@@ -603,6 +599,8 @@ int Cf2fsDirInode::f2fs_try_convert_inline_dir(dentry* ddentry)
 
 //int f2fs_add_inline_entry(inode *dir, const f2fs_filename *fname, f2fs_inode_info *inode, nid_t ino, umode_t mode)
 // 将inode添加到this中，文件名为fname
+//	this：为父节点的inode, 相当于原函数中的dir
+//	iinode：为需要连接的子节点的inode，相当于原函数中的inode
 int Cf2fsDirInode::f2fs_add_inline_entry(const f2fs_filename *fname, f2fs_inode_info *iinode, nid_t ino, umode_t mode)
 {
 	f2fs_sb_info* sbi = m_sbi;
@@ -613,10 +611,10 @@ int Cf2fsDirInode::f2fs_add_inline_entry(const f2fs_filename *fname, f2fs_inode_
 	int slots = GET_DENTRY_SLOTS(fname->disk_name.len);
 	page *ppage = NULL;
 	int err = 0;
-
+	
+	// ipage为父节点inode对应的ondisk data 
 	ipage = sbi->f2fs_get_node_page(i_ino);
-	if (IS_ERR(ipage))
-		return PTR_ERR(ipage);
+	if (IS_ERR(ipage))		return PTR_ERR(ipage);
 
 	inline_dentry = inline_data_addr(ipage);
 	make_dentry_ptr_inline(&d, inline_dentry);
@@ -643,7 +641,7 @@ int Cf2fsDirInode::f2fs_add_inline_entry(const f2fs_filename *fname, f2fs_inode_
 	}
 
 	f2fs_wait_on_page_writeback(ipage, NODE, true, true);
-
+	// 将相关信息更新到 d中
 	f2fs_update_dentry(ino, mode, &d, &fname->disk_name, fname->hash, bit_pos);
 	set_page_dirty(ipage);
 
@@ -654,7 +652,6 @@ int Cf2fsDirInode::f2fs_add_inline_entry(const f2fs_filename *fname, f2fs_inode_
 		/* synchronize inode ppage's data from inode cache */
 		if (iinode->is_inode_flag_set(FI_NEW_INODE))
 			iinode->f2fs_update_inode( ppage);
-
 		f2fs_put_page(ppage, 1);
 	}
 

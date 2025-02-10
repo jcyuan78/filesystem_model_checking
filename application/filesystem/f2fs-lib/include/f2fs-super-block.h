@@ -589,6 +589,11 @@ protected:
 	friend void __submit_merged_write_cond(f2fs_sb_info* sbi, struct inode* inode, struct page* page, nid_t ino, enum page_type type, bool force);
 
 
+//protected:
+//	f2fs_fsck* fsck;
+//public:
+//	f2fs_fsck* F2FS_FSCK() { return fsck; }
+
 protected:
 
 // ==== node.cpp ====

@@ -38,6 +38,8 @@ public:
 	virtual bool SaveSnapshot(const std::wstring& fn) { return false; }
 	virtual bool GetHealthInfo(HEALTH_INFO& info) { return false; }
 	virtual size_t GetLogNumber(void) const { return 0; }
+	virtual size_t GetIoLogs(IO_ENTRY* entries, size_t io_nr) { return 0; }
+
 	virtual bool BackLog(size_t num) { return false; }
 	virtual void ResetLog(void) {}
 	virtual int  IoCtrl(int mode, UINT cmd, void* arg) { return 0; }

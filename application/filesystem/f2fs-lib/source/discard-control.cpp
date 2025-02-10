@@ -188,8 +188,9 @@ discard_cmd* discard_cmd_control::__create_discard_cmd(block_device* bdev, block
 	int index = plist_idx(len);
 	list_head* local_pend_list = &pend_list[index];
 
-	//	dc = f2fs_kmem_cache_alloc(discard_cmd_slab, GFP_NOFS);
-	dc = new discard_cmd;
+	dc = f2fs_kmem_cache_alloc<discard_cmd>(/*discard_cmd_slab*/nullptr, GFP_NOFS);
+	//dc = new discard_cmd;
+	
 	INIT_LIST_HEAD(&dc->list);
 	dc->bdev = bdev;
 	dc->lstart = lstart;

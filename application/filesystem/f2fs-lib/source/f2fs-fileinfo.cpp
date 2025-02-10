@@ -76,6 +76,8 @@ int CF2fsFile::DeleteThis(void)
 void CF2fsFile::CloseFile(void)
 {
 //	size_t page_cache_size, page_cache_free, page_cache_inactive, page_cache_active;
+	m_fs->SendMarkToDrive(L"Close");
+
 	CPageManager * pm = m_fs->m_sb_info->GetPageManager();
 
 	LOG_STACK_TRACE();
@@ -100,7 +102,7 @@ void CF2fsFile::CloseFile(void)
 		m_dentry = nullptr;
 		m_inode = nullptr;
 	}
-	m_fs->m_sb_info->DumpSegInfo();
+//	m_fs->m_sb_info->DumpSegInfo();
 }
 
 bool CF2fsFile::DokanReadFile(LPVOID buf, DWORD len, DWORD& read, LONGLONG offset)

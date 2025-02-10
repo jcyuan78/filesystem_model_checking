@@ -29,96 +29,58 @@
 //-----------------------------------------------------------------------------
 struct sFL_FILE;
 
-struct cluster_lookup
-{
-    uint32 ClusterIdx;
-    uint32 CurrentCluster;
-};
 
-typedef struct sFL_FILE
-{
-    uint32                  parentcluster;
-    uint32                  startcluster;
-    uint32                  bytenum;
-    uint32                  filelength;
-    int                     filelength_changed;
-    char                    path[FATFS_MAX_LONG_FILENAME];
-    char                    filename[FATFS_MAX_LONG_FILENAME];
-    uint8                   shortfilename[11];
-
-#ifdef FAT_CLUSTER_CACHE_ENTRIES
-    uint32                  cluster_cache_idx[FAT_CLUSTER_CACHE_ENTRIES];
-    uint32                  cluster_cache_data[FAT_CLUSTER_CACHE_ENTRIES];
-#endif
-
-    // Cluster Lookup
-    struct cluster_lookup   last_fat_lookup;
-
-    // Read/Write sector buffer
-    uint8                   file_data_sector[FAT_SECTOR_SIZE];
-    uint32                  file_data_address;
-    int                     file_data_dirty;
-
-    // File fopen flags
-    uint8                   flags;
-#define FILE_READ           (1 << 0)
-#define FILE_WRITE          (1 << 1)
-#define FILE_APPEND         (1 << 2)
-#define FILE_BINARY         (1 << 3)
-#define FILE_ERASE          (1 << 4)
-#define FILE_CREATE         (1 << 5)
-
-    struct fat_node         list_node;
-} FL_FILE;
 
 //-----------------------------------------------------------------------------
 // Prototypes
 //-----------------------------------------------------------------------------
 
 // External
-void                fl_init(void);
-void                fl_attach_locks(void (*lock)(void), void (*unlock)(void));
-int                 fl_attach_media(fn_diskio_read rd, fn_diskio_write wr, fn_sync sync);
-int					pre_attach_media(fn_diskio_read rd, fn_diskio_write wr, fn_sync sync);
-void                fl_shutdown(void);
+void                fl_init(struct fatfs* fs/*, struct disk_if * disk*/);
+void                fl_attach_locks(struct fatfs* fs, void (*lock)(void), void (*unlock)(void));
+//int                 fl_attach_media(struct fatfs* fs, fn_diskio_read rd, fn_diskio_write wr, fn_sync sync);
+//int					pre_attach_media(struct fatfs* fs, fn_diskio_read rd, fn_diskio_write wr, fn_sync sync);
+//int                 fl_attach_media(struct fatfs* fs, struct disk_if * io);
+//int					pre_attach_media(struct fatfs* fs, struct disk_if * io);
+void                fl_shutdown(struct fatfs* fs);
 
 // Standard API
-void*               fl_fopen(const char *path, const char *modifiers);
-void                fl_fclose(void *file);
-int                 fl_fflush(void *file);
-int                 fl_fgetc(void *file);
-char *              fl_fgets(char *s, int n, void *f);
-int                 fl_fputc(int c, void *file);
-int                 fl_fputs(const char * str, void *file);
-int                 fl_fwrite(const void * data, int size, int count, void *file );
-int                 fl_fread(void * data, int size, int count, void *file );
-int                 fl_fseek(void *file , long offset , int origin );
-int                 fl_fgetpos(void *file , uint32 * position);
-long                fl_ftell(void *f);
-int                 fl_feof(void *f);
-int                 fl_remove(const char * filename);
+void*               fl_fopen(struct fatfs* fs, const char *path, const char *modifiers);
+void                fl_fclose(struct fatfs* fs, void *file);
+int                 fl_fflush(struct fatfs* fs, void *file);
+int                 fl_fgetc(struct fatfs* fs, void *file);
+char *              fl_fgets(struct fatfs* fs, char *s, int n, void *f);
+int                 fl_fputc(struct fatfs* fs, int c, void *file);
+int                 fl_fputs(struct fatfs* fs, const char * str, void *file);
+int                 fl_fwrite(struct fatfs* fs, const void * data, int size, int count, void *file );
+int                 fl_fread(struct fatfs* fs, void * data, int size, int count, void *file );
+int                 fl_fseek(struct fatfs* fs, void *file , long offset , int origin );
+int                 fl_fgetpos(struct fatfs* fs, void *file , uint32 * position);
+long                fl_ftell(struct fatfs* fs, void *f);
+int                 fl_feof(struct fatfs* fs, void *f);
+int                 fl_remove(struct fatfs* fs, const char * filename);
 
 // Equivelant dirent.h
 typedef struct fs_dir_list_status    FL_DIR;
 typedef struct fs_dir_ent            fl_dirent;
 
-FL_DIR*             fl_opendir(const char* path, FL_DIR *dir);
-int                 fl_readdir(FL_DIR *dirls, fl_dirent *entry);
-int                 fl_closedir(FL_DIR* dir);
+FL_DIR*             fl_opendir(struct fatfs* fs, const char* path, FL_DIR *dir);
+int                 fl_readdir(struct fatfs* fs, FL_DIR *dirls, fl_dirent *entry);
+int                 fl_closedir(struct fatfs* fs, FL_DIR* dir);
 
 // Extensions
-void                fl_listdirectory(const char *path);
-int                 fl_createdirectory(const char *path);
-int                 fl_is_dir(const char *path);
+void                fl_listdirectory(struct fatfs* fs, const char *path);
+int                 fl_createdirectory(struct fatfs* fs, const char *path);
+int                 fl_is_dir(struct fatfs* fs, const char *path);
 
-int                 fl_format(uint32 volume_sectors, const char *name);
+int                 fl_format(struct fatfs* fs, uint32 volume_sectors, const char *name);
 
-int					fl_fsck(int repair);
+int					fl_fsck(struct fatfs * fs, int repair);
 
 // Test hooks
-#ifdef FATFS_INC_TEST_HOOKS
-struct fatfs*       fl_get_fs(void);
-#endif
+//#ifdef FATFS_INC_TEST_HOOKS
+//struct fatfs*       fl_get_fs(void);
+//#endif
 
 //-----------------------------------------------------------------------------
 // Stdio file I/O names

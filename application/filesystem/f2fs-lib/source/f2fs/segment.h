@@ -73,14 +73,11 @@ static inline void sanity_check_seg_type(struct f2fs_sb_info *sbi, unsigned shor
 //#define sbi->MAIN_SEGS()	(SM_I(sbi)->main_segments)
 //#define MAIN_SECS(sbi)	((sbi)->total_sections)
 
-#define TOTAL_SEGS(sbi)				(sbi->sm_info ? sbi->sm_info->segment_count : le32_to_cpu(sbi->raw_super->segment_count))
-
-#define TOTAL_BLKS(sbi)				(TOTAL_SEGS(sbi) << (sbi)->log_blocks_per_seg)
-
-#define MAX_BLKADDR(sbi)			(SEG0_BLKADDR(sbi) + TOTAL_BLKS(sbi))
-#define SEGMENT_SIZE(sbi)			(1ULL << ((sbi)->log_blocksize + (sbi)->log_blocks_per_seg))
-
-#define START_BLOCK(sbi, segno)		(SEG0_BLKADDR(sbi) + (GET_R2L_SEGNO(sbi->FREE_I(), segno) << (sbi)->log_blocks_per_seg))
+#define TOTAL_SEGS(sbi)		(sbi->sm_info ? sbi->sm_info->segment_count : le32_to_cpu(sbi->raw_super->segment_count))
+#define TOTAL_BLKS(sbi)		(TOTAL_SEGS(sbi) << (sbi)->log_blocks_per_seg)
+#define MAX_BLKADDR(sbi)	(SEG0_BLKADDR(sbi) + TOTAL_BLKS(sbi))
+#define SEGMENT_SIZE(sbi)	(1ULL << ((sbi)->log_blocksize + (sbi)->log_blocks_per_seg))
+#define START_BLOCK(sbi, segno)	(SEG0_BLKADDR(sbi) + (GET_R2L_SEGNO(sbi->FREE_I(), segno) << (sbi)->log_blocks_per_seg))
 
 #define NEXT_FREE_BLKADDR(sbi, curseg)	(START_BLOCK(sbi, (curseg)->segno) + (curseg)->next_blkoff)
 

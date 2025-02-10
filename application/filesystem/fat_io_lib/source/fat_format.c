@@ -104,7 +104,7 @@ static int fatfs_erase_sectors(struct fatfs *fs, uint32 lba, int count)
     memset(fs->currentsector.sector, 0, FAT_SECTOR_SIZE);
 
     for (i=0;i<count;i++)
-        if (!fs->disk_io.write_media(lba + i, fs->currentsector.sector, 1))
+        if (!fatfs_sector_write(fs,lba + i, fs->currentsector.sector, 1))
             return 0;
 
     return 1;
@@ -340,7 +340,7 @@ static int fatfs_create_boot_sector(struct fatfs *fs, uint32 boot_sector_lba, ui
         fs->currentsector.sector[511] = 0xAA;
     }
 
-    if (fs->disk_io.write_media(boot_sector_lba, fs->currentsector.sector, 1))
+    if (fatfs_sector_write(fs,boot_sector_lba, fs->currentsector.sector, 1))
         return 1;
     else
         return 0;
@@ -381,7 +381,7 @@ static int fatfs_create_fsinfo_sector(struct fatfs *fs, uint32 sector_lba)
     fs->currentsector.sector[510] = 0x55;
     fs->currentsector.sector[511] = 0xAA;
 
-    if (fs->disk_io.write_media(sector_lba, fs->currentsector.sector, 1))
+    if (fatfs_sector_write(fs,sector_lba, fs->currentsector.sector, 1))
         return 1;
     else
         return 0;
@@ -409,13 +409,13 @@ static int fatfs_erase_fat(struct fatfs *fs, int is_fat32)
         SET_32BIT_WORD(fs->currentsector.sector, 8, 0x0FFFFFFF);
     }
 
-    if (!fs->disk_io.write_media(fs->fat_begin_lba + 0, fs->currentsector.sector, 1))
+    if (!fatfs_sector_write(fs,fs->fat_begin_lba + 0, fs->currentsector.sector, 1))
         return 0;
 
     // Zero remaining FAT sectors
     memset(fs->currentsector.sector, 0, FAT_SECTOR_SIZE);
     for (i=1;i<fs->fat_sectors*fs->num_of_fats;i++)
-        if (!fs->disk_io.write_media(fs->fat_begin_lba + i, fs->currentsector.sector, 1))
+        if (!fatfs_sector_write(fs,fs->fat_begin_lba + i, fs->currentsector.sector, 1))
             return 0;
 
     return 1;
@@ -433,8 +433,7 @@ int fatfs_format_fat16(struct fatfs *fs, uint32 volume_sectors, const char *name
     fatfs_fat_init(fs);
 
     // Make sure we have read + write functions
-    if (!fs->disk_io.read_media || !fs->disk_io.write_media)
-        return FAT_INIT_MEDIA_ACCESS_ERROR;
+    if (!fs->m_disk_io)        return FAT_INIT_MEDIA_ACCESS_ERROR;
 
     // Volume is FAT16
     fs->fat_type = FAT_TYPE_16;
@@ -446,8 +445,7 @@ int fatfs_format_fat16(struct fatfs *fs, uint32 volume_sectors, const char *name
     // Sector 0: Boot sector
     // NOTE: We don't need an MBR, it is a waste of a good sector!
     fs->lba_begin = 0;
-    if (!fatfs_create_boot_sector(fs, fs->lba_begin, volume_sectors, name, 0))
-        return 0;
+    if (!fatfs_create_boot_sector(fs, fs->lba_begin, volume_sectors, name, 0))        return 0;
 
     // For FAT16 (which this may be), rootdir_first_cluster is actuall rootdir_first_sector
     fs->rootdir_first_sector = fs->reserved_sectors + (fs->num_of_fats * fs->fat_sectors);
@@ -460,12 +458,10 @@ int fatfs_format_fat16(struct fatfs *fs, uint32 volume_sectors, const char *name
     fs->cluster_begin_lba = fs->fat_begin_lba + (fs->num_of_fats * fs->fat_sectors);
 
     // Initialise FAT sectors
-    if (!fatfs_erase_fat(fs, 0))
-        return 0;
+    if (!fatfs_erase_fat(fs, 0))        return 0;
 
     // Erase Root directory
-    if (!fatfs_erase_sectors(fs, fs->lba_begin + fs->rootdir_first_sector, fs->rootdir_sectors))
-        return 0;
+    if (!fatfs_erase_sectors(fs, fs->lba_begin + fs->rootdir_first_sector, fs->rootdir_sectors))        return 0;
 
     return 1;
 }
@@ -482,8 +478,7 @@ int fatfs_format_fat32(struct fatfs *fs, uint32 volume_sectors, const char *name
     fatfs_fat_init(fs);
 
     // Make sure we have read + write functions
-    if (!fs->disk_io.read_media || !fs->disk_io.write_media)
-        return FAT_INIT_MEDIA_ACCESS_ERROR;
+    if (!fs->m_disk_io)        return FAT_INIT_MEDIA_ACCESS_ERROR;
 
     // Volume is FAT32
     fs->fat_type = FAT_TYPE_32;
@@ -495,8 +490,7 @@ int fatfs_format_fat32(struct fatfs *fs, uint32 volume_sectors, const char *name
     // Sector 0: Boot sector
     // NOTE: We don't need an MBR, it is a waste of a good sector!
     fs->lba_begin = 0;
-    if (!fatfs_create_boot_sector(fs, fs->lba_begin, volume_sectors, name, 1))
-        return 0;
+    if (!fatfs_create_boot_sector(fs, fs->lba_begin, volume_sectors, name, 1))        return 0;
 
     // First FAT LBA address
     fs->fat_begin_lba = fs->lba_begin + fs->reserved_sectors;

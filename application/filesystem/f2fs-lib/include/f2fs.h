@@ -410,11 +410,15 @@ static inline int update_sits_in_cursum(struct f2fs_journal *journal, int i)
 	return before;
 }
 
-static inline bool __has_cursum_space(f2fs_journal *journal, int size, int type)
-{
-	if (type == NAT_JOURNAL) return size <= MAX_NAT_JENTRIES(journal);
-	return size <= MAX_SIT_JENTRIES(journal);
-}
+bool __has_cursum_space(f2fs_journal* journal, int size, int type);
+//{
+//	bool has_space;
+//	if (type == NAT_JOURNAL)	has_space = size <= MAX_NAT_JENTRIES(journal);
+//	else						has_space = size <= MAX_SIT_JENTRIES(journal);
+//	LOG_DEBUG(L"[journal] nat journal size=%d, sit journal size=%d, request size =%d, type = %d, has_space=%d",
+//		MAX_NAT_JENTRIES(journal), MAX_SIT_JENTRIES(journal), size, type, has_space);
+//	return has_space;
+//}
 
 /* for inline stuff */
 #define DEF_INLINE_RESERVED_SIZE	1
@@ -426,7 +430,7 @@ static inline int __get_extra_isize(f2fs_inode* inode)
 }
 
 //static inline int get_extra_isize(inode* inode);
-static inline int get_inline_xattr_addrs(inode *inode);
+//static inline int get_inline_xattr_addrs(inode *inode);
 
 
 inline size_t MAX_INLINE_DATA(f2fs_inode_info* iinode);
@@ -528,15 +532,11 @@ struct f2fs_dentry_ptr {
  * as its node offset to distinguish from index node blocks.
  * But some bits are used to mark the node block.
  */
-#define XATTR_NODE_OFFSET	((((unsigned int)-1) << OFFSET_BIT_SHIFT) \
-				>> OFFSET_BIT_SHIFT)
+#define XATTR_NODE_OFFSET	((((unsigned int)-1) << OFFSET_BIT_SHIFT) >> OFFSET_BIT_SHIFT)
 enum {
 	ALLOC_NODE,			/* alloc_obj a new node page if needed */
-	LOOKUP_NODE,			/* look up a node without readahead */
-	LOOKUP_NODE_RA,			/*
-					 * look up a node with readahead called
-					 * by get_data_block.
-					 */
+	LOOKUP_NODE,		/* look up a node without readahead */
+	LOOKUP_NODE_RA,		/* look up a node with readahead called by get_data_block.*/
 };
 
 #define DEFAULT_RETRY_IO_COUNT	8	/* maximum retry read IO count */
@@ -728,7 +728,10 @@ inline f2fs_inode_info* F2FS_I(inode* iinode)
 
 inline size_t MAX_INLINE_DATA(f2fs_inode_info* iinode)
 {
-	return (sizeof(__le32) * (CUR_ADDRS_PER_INODE(iinode) - get_inline_xattr_addrs(iinode) - DEF_INLINE_RESERVED_SIZE));
+	int extra_isize = iinode->get_extra_isize();
+	wprintf_s(L"extra_isize=%d, cur_addrs_per_inode=%d, inline_xattr_addrs=%d\n",
+		extra_isize, CUR_ADDRS_PER_INODE(iinode), iinode->get_inline_xattr_addrs());
+	return (sizeof(__le32) * (CUR_ADDRS_PER_INODE(iinode) - iinode->get_inline_xattr_addrs() - DEF_INLINE_RESERVED_SIZE));
 }
 
 static inline void get_extent_info(struct extent_info *ext,	struct f2fs_extent *i_ext)
@@ -1860,16 +1863,21 @@ static inline struct kmem_cache *f2fs_kmem_cache_create(const char *name,
 }
 #endif
 
+template <typename T> T* kmem_cache_alloc(kmem_cache* cahce, gfp_t flag)
+{
+	T* ptr = new T;
+	if (flag & GFP_F2FS_ZERO) memset(ptr, 0, sizeof(T));
+	return ptr;
+}
+
 template <typename T>
 static inline T *f2fs_kmem_cache_alloc(kmem_cache *cachep, gfp_t flags)
 {
-	return new T;
+	return kmem_cache_alloc<T>(cachep, flags);
+	//return new T;
 }
 
-template <typename T> T* kmem_cache_alloc(kmem_cache* cahce, gfp_t flag)
-{
-	return new T;
-}
+
 
 template <typename T>
 void kmem_cache_free(kmem_cache* free_nid_slab, T* e)
@@ -1969,22 +1977,26 @@ static inline int f2fs_test_bit(unsigned int nr, BYTE *addr)
 	return mask & *addr;
 }
 
-static inline void f2fs_set_bit(unsigned int nr, char *addr)
+static inline int f2fs_set_bit(unsigned int nr, char *addr)
 {
 	int mask;
 
 	addr += (nr >> 3);
 	mask = 1 << (7 - (nr & 0x07));
+	int ret = mask & *addr;
 	*addr |= mask;
+	return ret;
 }
 
-static inline void f2fs_clear_bit(unsigned int nr, char *addr)
+static inline int f2fs_clear_bit(unsigned int nr, char *addr)
 {
 	int mask;
 
 	addr += (nr >> 3);
 	mask = 1 << (7 - (nr & 0x07));
 	*addr &= ~mask;
+	int ret = mask & *addr;
+	return ret;
 }
 
 static inline int f2fs_test_and_set_bit(unsigned int nr, char *addr)
@@ -2218,7 +2230,7 @@ static inline bool f2fs_need_compress_data(f2fs_inode_info*inode)
 
 static inline unsigned int addrs_per_inode(f2fs_inode_info*inode)
 {
-	unsigned int addrs = CUR_ADDRS_PER_INODE(F2FS_I(inode)) -	get_inline_xattr_addrs(inode);
+	unsigned int addrs = CUR_ADDRS_PER_INODE(F2FS_I(inode)) -	inode->get_inline_xattr_addrs();
 
 	if (!f2fs_compressed_file(inode))		return addrs;
 	return ALIGN_DOWN(addrs, F2FS_I(inode)->i_cluster_size);
@@ -2232,18 +2244,16 @@ static inline unsigned int addrs_per_block(f2fs_inode_info*inode)
 }
 
 
-static inline void *inline_xattr_addr(struct inode *inode, struct page *page)
+static inline void *inline_xattr_addr(inode *inode, page *page)
 {
 	struct f2fs_inode *ri = F2FS_INODE(page);
-
-	return (void *)&(ri->_u.i_addr[DEF_ADDRS_PER_INODE -
-					get_inline_xattr_addrs(inode)]);
+	return (void *)&(ri->_u.i_addr[DEF_ADDRS_PER_INODE - F2FS_I(inode)->get_inline_xattr_addrs()]);
 }
 
 static inline int inline_xattr_size(f2fs_inode_info*inode)
 {
 	if (f2fs_has_inline_xattr(inode))
-		return get_inline_xattr_addrs(inode) * sizeof(__le32);
+		return inode->get_inline_xattr_addrs() * sizeof(__le32);
 	return 0;
 }
 
@@ -2495,10 +2505,10 @@ inline int get_extra_isize(f2fs_inode* node)
 ////	->i_extra_isize / sizeof(__le32);
 //}
 
-static inline int get_inline_xattr_addrs(struct inode *inode)
-{
-	return F2FS_I(inode)->i_inline_xattr_size;
-}
+//static inline int get_inline_xattr_addrs(struct inode *inode)
+//{
+//	return F2FS_I(inode)->i_inline_xattr_size;
+//}
 
 //#define f2fs_get_inode_mode(i) \
 //	((is_inode_flag_set(i, FI_ACL_MODE)) ? \
@@ -3622,3 +3632,19 @@ inline void* f2fs_inode_info::inline_data_addr(page* ppage) const
 	int extra_size = get_extra_isize();
 	return (void*)&(ri->_u.i_addr[extra_size + DEF_INLINE_RESERVED_SIZE]);
 }
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// ==  result and function for FSCK ==
+//enum FSCK_RESULT  {
+//	FSCK_SUCCESS = 0,
+//	FSCK_ERROR_CORRECTED = 1 << 0,
+//	FSCK_SYSTEM_SHOULD_REBOOT = 1 << 1,
+//	FSCK_ERRORS_LEFT_UNCORRECTED = 1 << 2,
+//	FSCK_OPERATIONAL_ERROR = 1 << 3,
+//	FSCK_USAGE_OR_SYNTAX_ERROR = 1 << 4,
+//	FSCK_USER_CANCELLED = 1 << 5,
+//	FSCK_SHARED_LIB_ERROR = 1 << 7,
+//};
+
+IFileSystem::FSCK_RESULT run_fsck(CF2fsFileSystem * fs);

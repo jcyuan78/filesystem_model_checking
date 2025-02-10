@@ -22,7 +22,6 @@ public:
 	//virtual void Release();
 	void operator delete (void* ptr);
 	
-	
 public:
 	virtual void Cleanup(void) { }
 	virtual void CloseFile(void);
@@ -65,6 +64,8 @@ public:
 	template <class T> T* GetInode(void) { return dynamic_cast<T*>(m_inode); }
 	dentry* GetDentry(void) { return m_dentry; }
 	int DeleteThis(void);	// 删除此文件
+	UINT GetIno(void) const { return m_inode->i_ino; }
+
 protected:
 	bool _OpenChildEx(CF2fsFile*& file, const wchar_t* fn, size_t len);
 	//void _DeleteChild(CF2fsFile* child);
@@ -221,7 +222,7 @@ public:
 	virtual void Unmount(void);
 	virtual bool MakeFileSystem(IVirtualDisk* dev, size_t volume_size, const std::wstring& volume_name, const std::wstring & options);
 	// fsck，检查文件系统，返回检查结果
-	virtual FsCheckResult FileSystemCheck(IVirtualDisk* dev, bool repair) { JCASSERT(0); return CheckNoError; }
+	virtual FSCK_RESULT FileSystemCheck(IVirtualDisk* dev, bool repair, boost::property_tree::wptree& optioon);
 
 	virtual bool DokanGetDiskSpace(ULONGLONG& free_bytes, ULONGLONG& total_bytes, ULONGLONG& total_free_bytes);
 	virtual bool GetVolumnInfo(std::wstring& vol_name, DWORD& sn, DWORD& max_fn_len, DWORD& fs_flag, std::wstring& fs_name);
@@ -264,7 +265,7 @@ public:
 		InterlockedAdd64((LONG64*)&(m_health_info.m_block_host_write), blocks);
 	}
 	void UpdateDiskWrite(size_t blocks) { InterlockedAdd64((LONG64*)&(m_health_info.m_block_disk_write), blocks); }
-
+	friend class f2fs_inode_info;
 
 protected:
 	// 文件系统参数, mount 参数
@@ -357,30 +358,26 @@ protected:
 	int f2fs_finalize_device(void);
 	int f2fs_write_default_quota(int qtype, unsigned int blkaddr, __le32 raw_id);
 
-public:
-	inline __u32 f2fs_inode_chksum(page* pp) { return f2fs_inode_chksum(F2FS_NODE(pp)); }
-protected:
-	__u32 f2fs_inode_chksum(struct f2fs_node* node);
+	void SendMarkToDrive(const wchar_t* msg) {
+		m_config.devices[0].m_fd->IoCtrl(0, IOCTRL_MARK, (void*)msg);
+	}
 
+public:
+	inline __u32 f2fs_inode_chksum(page* pp) { return f2fs_inode_chksum(F2FS_NODE(pp), m_config.chksum_seed); }
+	static __u32 f2fs_inode_chksum(struct f2fs_node* node, UINT32 seed);
 	inline int write_inode(f2fs_node* inode, UINT64 blkaddr)
 	{
 		if (m_config.feature & cpu_to_le32(F2FS_FEATURE_INODE_CHKSUM))
-			inode->i._u._s.i_inode_checksum = cpu_to_le32(f2fs_inode_chksum(inode));
+			inode->i._u._s.i_inode_checksum = cpu_to_le32(f2fs_inode_chksum(inode, m_config.chksum_seed));
 		return dev_write_block((BYTE*)inode, blkaddr);
 	}
 
 
+
 // io related functions
 protected:
-	int dev_read(BYTE* buf, __u64 offset, size_t len);
-	int dev_read_block(void* buf, __u64 blk_addr);
-	int dev_reada_block(__u64 blk_addr);
-	int dev_write(BYTE* buf, __u64 offset, size_t len);
-	int dev_write_block(BYTE* buf, __u64 blk_addr);
-	int dev_write_dump(void* buf, __u64 offset, size_t len);
 	int dev_fill(void* buf, __u64 offset, size_t len);
 	int dev_fill_block(void* buf, __u64 blk_addr);
-	int dev_read_version(void* buf, __u64 offset, size_t len);
 
 
 
@@ -392,9 +389,19 @@ protected:
 	void dcache_relocate_init(void);
 	long dcache_find(UINT64 blk);
 	int dcache_io_read(IVirtualDisk * disk, long entry, UINT64 offset, UINT64 blk);
-	int dev_readahead(__u64 offset, size_t len);
 	void dcache_print_statistics(void);
 
+public:
+	int dev_write_dump(void* buf, __u64 offset, size_t len);
+	int dev_reada_block(__u64 blk_addr);
+	int dev_write(BYTE* buf, __u64 offset, size_t len);
+	int dev_read(BYTE* buf, __u64 offset, size_t len);
+	int dev_readahead(__u64 offset, size_t len);
+	int dev_read_block(void* buf, __u64 blk_addr);
+	int dev_read_version(void* buf, __u64 offset, size_t len);
+	int dev_write_block(BYTE* buf, __u64 blk_addr);
+
+protected:
 	/* relocate on (n+1)-th collision */
 	inline long dcache_relocate(long entry, int n)
 	{
@@ -560,6 +567,7 @@ public:
 // ==== 全局变量局部化
 public:
 	kmem_cache* fsync_entry_slab;
+	const f2fs_configuration* GetConfiguration(void) const { return &m_config; }
 
 protected:
 	CBufferManager	m_buffers;
@@ -578,5 +586,10 @@ class CF2fsFactory : public IFsFactory
 {
 public:
 	virtual bool CreateFileSystem(IFileSystem*& fs, const std::wstring& fs_name);
-	virtual bool CreateVirtualDisk(IVirtualDisk*& dev, const boost::property_tree::wptree& prop, bool create);
+//	virtual bool CreateVirtualDisk(IVirtualDisk*& dev, const boost::property_tree::wptree& prop, bool create);
+	virtual bool CreateVirtualDisk(IVirtualDisk*& dev, const std::wstring& drive_name,
+		const boost::property_tree::wptree& prop, bool create) {
+		return false;
+	}
+
 };

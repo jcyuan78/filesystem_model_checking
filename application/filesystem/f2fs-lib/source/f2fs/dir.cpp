@@ -67,7 +67,8 @@ void init_dir_entry_data(void)
 
 static void set_de_type(f2fs_dir_entry *de, umode_t mode)
 {
-	de->file_type = f2fs_type_by_mode[(mode & S_IFMT) >> S_SHIFT];
+	int index = (mode & S_IFMT) >> S_SHIFT;
+	de->file_type = f2fs_type_by_mode[index];
 }
 
 unsigned char f2fs_get_de_type(f2fs_dir_entry *de)
@@ -337,7 +338,8 @@ f2fs_dir_entry *f2fs_find_target_dentry(const f2fs_dentry_ptr *d, const f2fs_fil
 //					unsigned int level,
 //					const struct f2fs_filename *fname,
 //					struct page **res_page)
-f2fs_dir_entry* Cf2fsDirInode::find_in_level(unsigned int level,	const f2fs_filename* fname,	page** res_page)
+// 在指定的层次中查找文件名
+f2fs_dir_entry* Cf2fsDirInode::find_in_level(unsigned int level, const f2fs_filename* fname, page** res_page)
 {
 	int s = GET_DENTRY_SLOTS(fname->disk_name.len);
 	unsigned int nbucket, nblock;
@@ -376,7 +378,7 @@ f2fs_dir_entry* Cf2fsDirInode::find_in_level(unsigned int level,	const f2fs_file
 		//jcvos::Utf8ToUnicode(fn, fname->usr_fname->name);
 		//dentry_page->m_description = L"dentry contains " + fn;
 #endif
-		LOG_TRACE(L"page", L"got page, dentry, page=%llX, index=%d", dentry_page, dentry_page->index);
+		LOG_TRACK(L"page", L"got page, dentry, page=%llX, index=%d", dentry_page, dentry_page->index);
 
 		de = find_in_block(dentry_page, fname, &max_slots);
 		if (IS_ERR(de)) 
@@ -407,6 +409,7 @@ f2fs_dir_entry* Cf2fsDirInode::find_in_level(unsigned int level,	const f2fs_file
 }
 
 //struct f2fs_dir_entry *__f2fs_find_entry(inode *dir, const struct f2fs_filename *fname, page **res_page)
+// 在目录（this）中查找文件名（fname），page用于读取dentry的缓存
 f2fs_dir_entry * Cf2fsDirInode::__f2fs_find_entry(const f2fs_filename *fname, page **res_page)
 {
 	unsigned long npages = dir_blocks();

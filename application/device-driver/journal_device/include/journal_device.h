@@ -43,6 +43,8 @@ public:
 
 	virtual void SetSectorSize(UINT size) {	m_sector_size = size;	}
 	virtual size_t GetLogNumber(void) const { return m_journal_id; }
+	virtual size_t GetIoLogs(IO_ENTRY* entries, size_t io_nr) { return 0; }
+
 	virtual bool BackLog(size_t num);
 	virtual void ResetLog(void);
 

@@ -233,24 +233,22 @@ static inline uint64_t bswap_64(uint64_t val)
 #define FIX_MSG(fmt, ...)						\
 	do {								\
 		printf("[FIX] (%s:%4d) ", __func__, __LINE__);		\
-		printf(" --> "fmt"\n", ##__VA_ARGS__);			\
+		printf(" --> " fmt "\n", ##__VA_ARGS__);			\
 	} while (0)
 
 #define ASSERT_MSG(fmt, ...)						\
 	do {								\
 		printf("[ASSERT] (%s:%4d) ", __func__, __LINE__);	\
-		printf(" --> "fmt"\n", ##__VA_ARGS__);			\
+		printf(" --> " fmt "\n", ##__VA_ARGS__);			\
 		c.bug_on = 1;						\
 	} while (0)
 
-#define ASSERT(exp)							\
-	do {								\
+#define ASSERT(exp)		do {					\
 		if (!(exp)) {						\
-			printf("[ASSERT] (%s:%4d) %s\n",		\
-					__func__, __LINE__, #exp);	\
-			exit(-1);					\
-		}							\
-	} while (0)
+			printf("[ASSERT] (%s:%4d) %s\n", __func__, __LINE__, #exp);	\
+			THROW_ERROR(ERR_APP, L"[ASSERT] (%S:%4d) %S\n", __func__, __LINE__, #exp) ;	\
+			/*exit(-1);*/ \
+		}	} while (0)
 
 #define ERR_MSG(fmt, ...)						\
 	do {								\
@@ -491,7 +489,7 @@ struct f2fs_configuration {
 	UINT16 s_encoding;
 	UINT16 s_encoding_flags;
 	int heap;
-//	int32_t kd;				// file of process version
+	int32_t kd;				// file of process version
 	IVirtualDisk* m_kd;
 //	int32_t dump_fd;
 	IVirtualDisk* m_dump_fd;
@@ -670,17 +668,16 @@ template<> inline UINT16 get_cp_le(UINT16 val) { return le16_to_cpu(val); }
 
 enum SEGMENT_TYPE
 {
-	CURSEG_HOT_DATA = 0,	/* directory entry blocks */
-	CURSEG_WARM_DATA,	/* data blocks */
-	CURSEG_COLD_DATA,	/* multimedia or GCed data blocks */
-	CURSEG_HOT_NODE,	/* direct node blocks of directory files */
-	CURSEG_WARM_NODE,	/* direct node blocks of normal files */
-	CURSEG_COLD_NODE,	/* indirect node blocks */
-	NR_PERSISTENT_LOG,	/* number of persistent log */
-	CURSEG_COLD_DATA_PINNED = NR_PERSISTENT_LOG,
-	/* pinned file that needs consecutive block address */
-	CURSEG_ALL_DATA_ATGC,	/* SSR alloctor in hot/warm/cold data area */
-	NO_CHECK_TYPE,		/* number of persistent & inmem log */
+	CURSEG_HOT_DATA = 0,							/* directory entry blocks */
+	CURSEG_WARM_DATA,								/* data blocks */
+	CURSEG_COLD_DATA,								/* multimedia or GCed data blocks */
+	CURSEG_HOT_NODE,								/* direct node blocks of directory files */
+	CURSEG_WARM_NODE,								/* direct node blocks of normal files */
+	CURSEG_COLD_NODE,								/* indirect node blocks */
+	NR_PERSISTENT_LOG,								/* number of persistent log */
+	CURSEG_COLD_DATA_PINNED = NR_PERSISTENT_LOG,	/* pinned file that needs consecutive block address */
+	CURSEG_ALL_DATA_ATGC,							/* SSR alloctor in hot/warm/cold data area */
+	NO_CHECK_TYPE,									/* number of persistent & inmem log */
 };
 
 #define F2FS_MIN_SEGMENTS	9 /* SB + 2 (CP + SIT + NAT) + SSA + MAIN */
@@ -882,23 +879,17 @@ struct f2fs_checkpoint
 //#define CP_MIN_CHKSUM_OFFSET						\
 //	(offsetof(struct f2fs_checkpoint, sit_nat_version_bitmap))
 
-#define CP_BITMAP_OFFSET	\
-	(offsetof(struct f2fs_checkpoint, sit_nat_version_bitmap))
+#define CP_BITMAP_OFFSET		(offsetof(struct f2fs_checkpoint, sit_nat_version_bitmap))
 #define CP_MIN_CHKSUM_OFFSET	CP_BITMAP_OFFSET
 
-#define MIN_NAT_BITMAP_SIZE	64
-#define MAX_SIT_BITMAP_SIZE_IN_CKPT    \
-	(CP_CHKSUM_OFFSET - CP_BITMAP_OFFSET - MIN_NAT_BITMAP_SIZE)
-#define MAX_BITMAP_SIZE_IN_CKPT	\
-	(CP_CHKSUM_OFFSET - CP_BITMAP_OFFSET)
+#define MIN_NAT_BITMAP_SIZE				64
+#define MAX_SIT_BITMAP_SIZE_IN_CKPT		(CP_CHKSUM_OFFSET - CP_BITMAP_OFFSET - MIN_NAT_BITMAP_SIZE)
+#define MAX_BITMAP_SIZE_IN_CKPT			(CP_CHKSUM_OFFSET - CP_BITMAP_OFFSET)
 
-/*
- * For orphan inode management
- */
+/* For orphan inode management */
 #define F2FS_ORPHANS_PER_BLOCK	1020
 
-#define GET_ORPHAN_BLOCKS(n)	(((n) + F2FS_ORPHANS_PER_BLOCK - 1) / \
-					F2FS_ORPHANS_PER_BLOCK)
+#define GET_ORPHAN_BLOCKS(n)	(((n) + F2FS_ORPHANS_PER_BLOCK - 1) / F2FS_ORPHANS_PER_BLOCK)
 struct f2fs_orphan_block {
 	__le32 ino[F2FS_ORPHANS_PER_BLOCK];	/* inode numbers */
 	__le32 reserved;	/* reserved */
@@ -923,10 +914,10 @@ struct f2fs_orphan_block {
 
 /* 200 bytes for inline xattrs by default */
 #define DEFAULT_INLINE_XATTR_ADDRS	50
-#define DEF_ADDRS_PER_INODE	923	/* Address Pointers in an Inode */
+#define DEF_ADDRS_PER_INODE	923			/* Address Pointers in an Inode */
 //#define CUR_ADDRS_PER_INODE(inode)	(DEF_ADDRS_PER_INODE - __get_extra_isize(inode))
 // for _inode == f2fs_inode_info
-#define CUR_ADDRS_PER_INODE(_inode)	(DEF_ADDRS_PER_INODE - _inode->get_extra_isize())
+#define CUR_ADDRS_PER_INODE(_inode)		(DEF_ADDRS_PER_INODE - _inode->get_extra_isize())
 // for _inode == f2fs_inode
 #define CUR_ADDRS_PER_INODE_(_inode)	(DEF_ADDRS_PER_INODE - get_extra_isize(_inode))
 
@@ -1356,14 +1347,11 @@ struct f2fs_dentry_block {
 
 /* for inline dir */
 #define NR_INLINE_DENTRY(node)	(MAX_INLINE_DATA(node) * BITS_PER_BYTE / \
-				((SIZE_OF_DIR_ENTRY + F2FS_SLOT_LEN) * \
-				BITS_PER_BYTE + 1))
+				((SIZE_OF_DIR_ENTRY + F2FS_SLOT_LEN) * BITS_PER_BYTE + 1))
 
 //#define INLINE_DENTRY_BITMAP_SIZE(node)	((NR_INLINE_DENTRY(node) + BITS_PER_BYTE - 1) / BITS_PER_BYTE)
-
 #define INLINE_RESERVED_SIZE(node)	(MAX_INLINE_DATA(node) - \
-				((SIZE_OF_DIR_ENTRY + F2FS_SLOT_LEN) * \
-				NR_INLINE_DENTRY(node) + \
+				((SIZE_OF_DIR_ENTRY + F2FS_SLOT_LEN) * NR_INLINE_DENTRY(node) + \
 				INLINE_DENTRY_BITMAP_SIZE(node)))
 
 /* file types used in inode_info->flags */
@@ -1460,23 +1448,6 @@ static inline bool f2fs_has_extra_isize(struct f2fs_inode *inode)
 {
 	return (inode->i_inline & F2FS_EXTRA_ATTR);
 }
-
-
-
-//extern struct f2fs_configuration c;
-#if 0 // move to f2fs-filesystem.h
-static inline int get_inline_xattr_addrs(struct f2fs_inode *inode)
-{
-	if (c.feature & cpu_to_le32(F2FS_FEATURE_FLEXIBLE_INLINE_XATTR))
-		return le16_to_cpu(inode->_u._s.i_inline_xattr_size);
-	else if (inode->i_inline & F2FS_INLINE_XATTR ||
-			inode->i_inline & F2FS_INLINE_DENTRY)
-		return DEFAULT_INLINE_XATTR_ADDRS;
-	else
-		return 0;
-}
-#endif
-
 
 //#define get_extra_isize(node)	__get_extra_isize(&node->i)
 
@@ -1626,8 +1597,7 @@ static inline __le64 get_cp_crc(struct f2fs_checkpoint *cp)
 {
 	UINT64 cp_ver = get_cp(checkpoint_ver);
 	size_t crc_offset = get_cp(checksum_offset);
-	UINT32 crc = le32_to_cpu(*(__le32 *)((unsigned char *)cp +
-							crc_offset));
+	UINT32 crc = le32_to_cpu(*(__le32 *)((unsigned char *)cp +	crc_offset));
 
 	cp_ver |= ((UINT64)crc << 32);
 	return cpu_to_le64(cp_ver);
@@ -1636,10 +1606,10 @@ static inline __le64 get_cp_crc(struct f2fs_checkpoint *cp)
 static inline int exist_qf_ino(struct f2fs_super_block *sb)
 {
 	int i;
-
 	for (i = 0; i < F2FS_MAX_QUOTAS; i++)
-		if (sb->qf_ino[i])
-			return 1;
+	{
+		if (sb->qf_ino[i])	return 1;
+	}
 	return 0;
 }
 
@@ -1669,10 +1639,10 @@ struct feature {
 
 #define INIT_FEATURE_TABLE						\
 struct feature feature_table[] = {					\
-	{ "encrypt",			F2FS_FEATURE_ENCRYPT },		\
-	{ "extra_attr",			F2FS_FEATURE_EXTRA_ATTR },	\
-	{ "project_quota",		F2FS_FEATURE_PRJQUOTA },	\
-	{ "inode_checksum",		F2FS_FEATURE_INODE_CHKSUM },	\
+	{ "encrypt",				F2FS_FEATURE_ENCRYPT },		\
+	{ "extra_attr",				F2FS_FEATURE_EXTRA_ATTR },	\
+	{ "project_quota",			F2FS_FEATURE_PRJQUOTA },	\
+	{ "inode_checksum",			F2FS_FEATURE_INODE_CHKSUM },	\
 	{ "flexible_inline_xattr",	F2FS_FEATURE_FLEXIBLE_INLINE_XATTR },\
 	{ "quota",			F2FS_FEATURE_QUOTA_INO },	\
 	{ "inode_crtime",		F2FS_FEATURE_INODE_CRTIME },	\

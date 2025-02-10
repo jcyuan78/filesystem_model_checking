@@ -45,6 +45,9 @@
     <ClCompile Include="source\fat_fsck.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="source\disk_if.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="source\fat_access.h">
@@ -90,6 +93,9 @@
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="fat_io_lib.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="source\disk_if.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>

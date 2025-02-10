@@ -63,9 +63,7 @@ extern bool __list_add_valid(struct list_head *new_var,
 			      struct list_head *next);
 extern bool __list_del_entry_valid(struct list_head *entry);
 #else
-static inline bool __list_add_valid(struct list_head *new_var,
-				struct list_head *prev,
-				struct list_head *next)
+static inline bool __list_add_valid(list_head *new_var, list_head *prev, list_head *next)
 {
 	return true;
 }
@@ -75,12 +73,8 @@ static inline bool __list_del_entry_valid(struct list_head *entry)
 }
 #endif
 
-/*
- * Insert a new entry between two known consecutive entries.
- *
- * This is only for internal list manipulation where we know
- * the prev/next entries already!
- */
+/* Insert a new entry between two known consecutive entries.
+  This is only for internal list manipulation where we know the prev/next entries already! */
 static inline void __list_add(list_head *new_var, list_head *prev, list_head *next)
 {
 	if (!__list_add_valid(new_var, prev, next)) return;
@@ -134,11 +128,7 @@ static inline void __list_del(struct list_head * prev, struct list_head * next)
 /*
  * Delete a list entry and clear the 'prev' pointer.
  *
- * This is a special-purpose list clearing method used in the networking code
- * for lists allocated as per-cpu, where we don't want to incur the extra
- * WRITE_ONCE() overhead of a regular list_del_init(). The code that uses this
- * needs to check the node 'prev' pointer instead of calling list_empty().
- */
+ * This is a special-purpose list clearing method used in the networking code for lists allocated as per-cpu, where we don't want to incur the extra WRITE_ONCE() overhead of a regular list_del_init(). The code that uses this needs to check the node 'prev' pointer instead of calling list_empty(). */
 static inline void __list_del_clearprev(struct list_head *entry)
 {
 	__list_del(entry->prev, entry->next);
@@ -147,9 +137,7 @@ static inline void __list_del_clearprev(struct list_head *entry)
 
 static inline void __list_del_entry(struct list_head *entry)
 {
-	if (!__list_del_entry_valid(entry))
-		return;
-
+	if (!__list_del_entry_valid(entry))	return;
 	__list_del(entry->prev, entry->next);
 }
 

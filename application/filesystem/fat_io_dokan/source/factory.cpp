@@ -1,7 +1,7 @@
 #include "stdafx.h"
-extern "C" {
+//extern "C" {
 #include "../../fat_io_lib/fat_io_lib.h"
-}
+//}
 #include "fat_io_dokan.h"
 #include "../../../device-driver/journal_device/include/journal_device.h"
 LOCAL_LOGGER_ENABLE(L"fat.factory", LOGGER_LEVEL_DEBUGINFO);

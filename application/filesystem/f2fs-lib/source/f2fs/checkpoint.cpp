@@ -29,7 +29,7 @@
 #include "../mapping.h"
 #include <boost/cast.hpp>
 
-LOCAL_LOGGER_ENABLE(L"f2fs.checkpoint", LOGGER_LEVEL_NOTICE);
+LOCAL_LOGGER_ENABLE(L"f2fs.checkpoint", LOGGER_LEVEL_DEBUGINFO);
 
 
 
@@ -1060,54 +1060,40 @@ void f2fs_remove_dirty_inode(f2fs_inode_info*inode)
 
 int f2fs_sync_dirty_inodes(f2fs_sb_info* sbi, enum inode_type type)
 {
-	//	list_head *head;
-	//	inode *iinode;
-	//	f2fs_inode_info *fi;
 	bool is_dir = (type == DIR_INODE);
 	unsigned long ino = 0;
 
 	//trace_f2fs_sync_dirty_inodes_enter(sbi->sb, is_dir, sbi->get_pages( is_dir ?	F2FS_DIRTY_DENTS : F2FS_DIRTY_DATA));
-//retry:
 	while (1)
 	{
 		if (unlikely(sbi->f2fs_cp_error()))
 		{
-			//		trace_f2fs_sync_dirty_inodes_exit(sbi->sb, is_dir,	sbi->get_pages( is_dir ?	F2FS_DIRTY_DENTS : F2FS_DIRTY_DATA));
+//trace_f2fs_sync_dirty_inodes_exit(sbi->sb, is_dir,	sbi->get_pages( is_dir ?	F2FS_DIRTY_DENTS : F2FS_DIRTY_DATA));
 			return -EIO;
 		}
-
 		spin_lock(&sbi->inode_lock[type]);
-
-		//	head = &sbi->inode_list[type];
-		//	if (list_empty(head)) 
 		if (sbi->list_empty(type))
 		{
 			spin_unlock(&sbi->inode_lock[type]);
-			//		trace_f2fs_sync_dirty_inodes_exit(sbi->sb, is_dir,	sbi->get_pages( is_dir ? F2FS_DIRTY_DENTS : F2FS_DIRTY_DATA));
+//trace_f2fs_sync_dirty_inodes_exit(sbi->sb, is_dir,	sbi->get_pages( is_dir ? F2FS_DIRTY_DENTS : F2FS_DIRTY_DATA));
 			return 0;
 		}
-		//fi = list_first_entry(head, f2fs_inode_info, dirty_list);
 		f2fs_inode_info* fi = sbi->get_list_first_entry(type);
 		inode* iinode = igrab(fi);
 		spin_unlock(&sbi->inode_lock[type]);
 		if (iinode)
 		{
+			LOG_DEBUG(L"[inode] sync inodes, ino=%d", iinode->i_ino);
 			unsigned long cur_ino = fi->i_ino;
-			//		F2FS_I(iinode)->cp_task = current;
-			//		fi->i_mapping->filemap_fdatawrite();
 			fi->filemap_fdatawrite();
-			//		fi->cp_task = NULL;
-
 			iput(iinode);
 			/* We need to give cpu to another writers. */
 			if (ino == cur_ino)	/*	cond_resched()*/;
 			else			ino = cur_ino;
 		}
 		else
-		{
-			/* We should submit bio, since it exists several wribacking dentry pages in the freeing inode. */
+		{	/* We should submit bio, since it exists several wribacking dentry pages in the freeing inode. */
 			f2fs_submit_merged_write(sbi, DATA);
-			//		cond_resched();
 		}
 	}	// retry
 //	goto retry;
@@ -1577,6 +1563,8 @@ int f2fs_sb_info::do_checkpoint(cp_control* cpc)
 
 int f2fs_sb_info::f2fs_write_checkpoint(cp_control *cpc)
 {
+	LOG_STACK_TRACE();
+	LOG_DEBUG(L"write checkpoint, due to reason %03X", cpc->reason);
 	f2fs_checkpoint *ckpt = F2FS_CKPT();
 	unsigned long long ckpt_ver;
 	int err = 0;
@@ -1641,7 +1629,7 @@ int f2fs_sb_info::f2fs_write_checkpoint(cp_control *cpc)
 	f2fs_save_inmem_curseg(this);
 
 	err = do_checkpoint(cpc);
-	if (err)		f2fs_release_discard_addrs(this);
+	if (err)	f2fs_release_discard_addrs(this);
 	else		f2fs_clear_prefree_segments(this, cpc);
 
 	f2fs_restore_inmem_curseg(this);

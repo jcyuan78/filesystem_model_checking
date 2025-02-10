@@ -386,9 +386,7 @@ int dcache_read(int fd, void *buf, off64_t offset, size_t count)
 }
 #endif
 
-/*
- * IO interfaces
- */
+/* IO interfaces */
 int CF2fsFileSystem::dev_read_version(void *buf, __u64 offset, size_t len)
 {
 #if 0 //<TO BE IMPLEMENT>
@@ -396,7 +394,9 @@ int CF2fsFileSystem::dev_read_version(void *buf, __u64 offset, size_t len)
 	if (lseek64(m_config.kd, (off64_t)offset, SEEK_SET) < 0)		return -1;
 	if (read(m_config.kd, buf, len) < 0)		return -1;
 #endif
-	JCASSERT(0);
+//	JCASSERT(0);
+	// dummy version
+	strcpy_s((char*)buf, len, "DEBUG_DISK\n");
 	return 0;
 }
 

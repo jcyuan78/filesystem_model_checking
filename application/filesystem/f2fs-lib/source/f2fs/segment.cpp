@@ -168,8 +168,7 @@ void f2fs_register_inmem_page(inode *iinode, page *ppage)
 	else
 		f2fs_set_page_private(ppage, ATOMIC_WRITTEN_PAGE);
 
-//	new_page = f2fs_kmem_cache_alloc<inmem_pages>(inmem_entry_slab, GFP_NOFS);
-	new_page = f2fs_kmem_cache_alloc<inmem_pages>(NULL, GFP_NOFS);
+	new_page = f2fs_kmem_cache_alloc<inmem_pages>(/*inmem_entry_slab*/nullptr, GFP_NOFS);
 
 	/* add atomic page indices to the list */
 	new_page->page = ppage;
@@ -2097,9 +2096,7 @@ out:
 void f2fs_save_inmem_curseg(struct f2fs_sb_info *sbi)
 {
 	__f2fs_save_inmem_curseg(sbi, CURSEG_COLD_DATA_PINNED);
-
-	if (sbi->am.atgc_enabled)
-		__f2fs_save_inmem_curseg(sbi, CURSEG_ALL_DATA_ATGC);
+	if (sbi->am.atgc_enabled)	__f2fs_save_inmem_curseg(sbi, CURSEG_ALL_DATA_ATGC);
 }
 
 static void __f2fs_restore_inmem_curseg(struct f2fs_sb_info *sbi, int type)
@@ -3101,15 +3098,13 @@ int f2fs_sb_info::read_normal_summaries(int type)
 	/* get segment number and block addr */
 	if (IS_DATASEG(type)) {
 		segno = le32_to_cpu(ckpt->cur_data_segno[type]);
-		blk_off = le16_to_cpu(ckpt->cur_data_blkoff[type -
-							CURSEG_HOT_DATA]);
+		blk_off = le16_to_cpu(ckpt->cur_data_blkoff[type - CURSEG_HOT_DATA]);
 		if (__exist_node_summaries())		blk_addr = sum_blk_addr(NR_CURSEG_PERSIST_TYPE, type);
 		else								blk_addr = sum_blk_addr(NR_CURSEG_DATA_TYPE, type);
-	} else {
-		segno = le32_to_cpu(ckpt->cur_node_segno[type -
-							CURSEG_HOT_NODE]);
-		blk_off = le16_to_cpu(ckpt->cur_node_blkoff[type -
-							CURSEG_HOT_NODE]);
+	} 
+	else {
+		segno = le32_to_cpu(ckpt->cur_node_segno[type -	CURSEG_HOT_NODE]);
+		blk_off = le16_to_cpu(ckpt->cur_node_blkoff[type - CURSEG_HOT_NODE]);
 		if (__exist_node_summaries())		blk_addr = sum_blk_addr( NR_CURSEG_NODE_TYPE,	type - CURSEG_HOT_NODE);
 		else								blk_addr = GET_SUM_BLOCK(this, segno);
 	}
@@ -3669,7 +3664,8 @@ int f2fs_sm_info::build_curseg(f2fs_sb_info* sbi)
 	int i;
 
 	//array = f2fs_kzalloc(sbi, array_size(NR_CURSEG_TYPE, sizeof(*array)), GFP_KERNEL);
-	curseg_info* array_buf = new curseg_info[NR_CURSEG_TYPE]; // f2fs_kzalloc<curseg_info>(NULL, NR_CURSEG_TYPE);
+	//curseg_info* array_buf = new curseg_info[NR_CURSEG_TYPE]; // f2fs_kzalloc<curseg_info>(NULL, NR_CURSEG_TYPE);
+	curseg_info* array_buf = f2fs_kzalloc<curseg_info>(sbi, NR_CURSEG_TYPE);
 	if (!array_buf)	return -ENOMEM;
 	curseg_array = array_buf;
 
@@ -3849,9 +3845,9 @@ void f2fs_sb_info::init_free_segmap(void)
 		LOG_DEBUG_(1, L"process free in segment %d, valid blk=%d", start, sentry->valid_blocks);
 		if (!sentry->valid_blocks)		__set_free(start);
 		else							SIT_I()->written_valid_blocks += sentry->valid_blocks;
-		LOG_DEBUG_(1, L"free segments=%d, free sections=%d", sm_info->free_info->free_segments, sm_info->free_info->free_sections);
 	}
-
+	LOG_DEBUG_(1, L"free segments=%d, free sections=%d", sm_info->free_info->free_segments, 
+			sm_info->free_info->free_sections);
 	/* set use the current segments */
 	for (type = CURSEG_HOT_DATA; type <= CURSEG_COLD_NODE; type++)
 	{
@@ -3982,17 +3978,19 @@ int f2fs_sb_info::sanity_check_curseg(void)
 		curseg_info *curseg = CURSEG_I(i);
 		seg_entry *se = get_seg_entry(curseg->segno);
 		unsigned int blkofs = curseg->next_blkoff;
-
 		sanity_check_seg_type(this, curseg->seg_type);
-
-		if (f2fs_test_bit(blkofs, (char*)(se->cur_valid_map) ))		goto out;
-
+		if (f2fs_test_bit(blkofs, (char*)(se->cur_valid_map)))
+		{
+			f2fs_err(sbi,
+				L"Current segment's next free block offset is inconsistent with bitmap, logtype:%u, segno:%u, type:%u, next_blkoff:%u, blkofs:%u",
+				i, curseg->segno, curseg->alloc_type, curseg->next_blkoff, blkofs);
+			return -EFSCORRUPTED;
+		}
 		if (curseg->alloc_type == SSR)			continue;
-
 		for (blkofs += 1; blkofs < blocks_per_seg; blkofs++) 
 		{
 			if (!f2fs_test_bit(blkofs, (char*)(se->cur_valid_map)))			continue;
-out:
+//out:
 			f2fs_err(sbi,
 				 L"Current segment's next free block offset is inconsistent with bitmap, logtype:%u, segno:%u, type:%u, next_blkoff:%u, blkofs:%u",
 				 i, curseg->segno, curseg->alloc_type, curseg->next_blkoff, blkofs);

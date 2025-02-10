@@ -1,6 +1,5 @@
 
-#define LOGGER_LEVEL LOGGER_LEVEL_DEBUGINFO
-#include <stdext.h>
+#include "stdafx.h"
 
 LOCAL_LOGGER_ENABLE(L"fat.fsck", LOGGER_LEVEL_DEBUGINFO);
 
@@ -19,6 +18,8 @@ extern "C" {
 #include "fat_filelib.h"
 #include "fat_cache.h"
 }
+
+#include "disk_if.h"
 
 #define CHECKED_MARK	(0xFFF0)
 
@@ -105,10 +106,10 @@ int fsck_check_files(fatfs * fs, BYTE * fat_buf, uint32 start_cluster, bool isdi
 	return failed ? 0 : 1;
 }
 
-int fl_fsck(int repair)
+int fl_fsck(struct fatfs* fs, int repair)
 {
 	// check lost block
-	fatfs * fs = fl_get_fs();
+	//fatfs * fs = fl_get_fs();
 	if (!fs)
 	{
 		LOG_ERROR(L"[err] failed on getting fs");
@@ -117,7 +118,9 @@ int fl_fsck(int repair)
 	// load fat table into memory
 //	uint32 cluster_num = 
 	jcvos::auto_array<BYTE> fat_buf(SECTOR_SIZE *fs->fat_sectors);
-	fs->disk_io.read_media(fs->fat_begin_lba, fat_buf, fs->fat_sectors);
+//	fs->disk_io.read_media(fs->fat_begin_lba, fat_buf, fs->fat_sectors);
+	fatfs_sector_read(fs, fs->fat_begin_lba, fat_buf, fs->fat_sectors);
+
 	// for each file
 	int ir = fsck_check_files(fs, fat_buf, fs->rootdir_first_cluster, true);
 

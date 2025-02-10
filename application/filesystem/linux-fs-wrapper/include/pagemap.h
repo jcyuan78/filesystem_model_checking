@@ -467,8 +467,7 @@ struct page *grab_cache_page_write_begin(struct address_space *mapping,
 /*
  * Returns locked page at given index in given cache, creating it if needed.
  */
-static inline struct page *grab_cache_page(struct address_space *mapping,
-								pgoff_t index)
+static inline struct page *grab_cache_page(struct address_space *mapping, pgoff_t index)
 {
 	return find_or_create_page(mapping, index, mapping_gfp_mask(mapping));
 }

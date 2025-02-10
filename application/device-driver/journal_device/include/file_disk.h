@@ -74,6 +74,7 @@ public:
 	// journal deviceµÄinterface
 public:
 	virtual size_t GetLogNumber(void) const { return m_journal_id; }
+	virtual size_t GetIoLogs(IO_ENTRY* entries, size_t io_nr) {	return 0; }
 
 	virtual bool GetHealthInfo(HEALTH_INFO& info) {
 		info.empty_block = 0;
@@ -146,6 +147,7 @@ public:
 	virtual bool SaveSnapshot(const std::wstring& fn) { return false; }
 	virtual bool BackLog(size_t num) { return false; }
 	virtual void ResetLog(void) {}
+	virtual size_t GetIoLogs(IO_ENTRY* entries, size_t io_nr) { return 0; }
 
 
 	// journal deviceµÄinterface

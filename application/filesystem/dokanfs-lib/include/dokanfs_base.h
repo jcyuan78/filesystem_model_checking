@@ -44,5 +44,10 @@ public:
 	static int LoadDisk(IVirtualDisk*& disk, const std::wstring& working_dir, const boost::property_tree::wptree& config);
 	static int LoadFilesystem(IFileSystem*& fs, IVirtualDisk* disk, const std::wstring& working_dir, const boost::property_tree::wptree& config);
 	static int LoadFilesystemByConfig(IFileSystem*& fs, IVirtualDisk*& disk, const std::wstring& working_dir, const boost::property_tree::wptree & config);
+
+	// 这两个函数不符合 jcinterface的调用规范，仅供 .net托管方案使用。
+	static IFileSystem* CreateFs(const std::wstring& str_lib, const std::wstring& config_fn);
+	static IFileSystem* CreateFs(const std::wstring& str_lib, const boost::property_tree::wptree & config);
+	static IVirtualDisk* CreateStorage(const std::wstring& str_lib, const std::wstring & name, const std::wstring& config_fn);
 };
 

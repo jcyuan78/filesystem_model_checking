@@ -1810,8 +1810,7 @@ static struct inode *f2fs_alloc_inode(struct super_block *sb)
 {
 	f2fs_inode_info *fi;
 
-//	fi = kmem_cache_alloc(f2fs_inode_cachep, GFP_F2FS_ZERO);
-	fi = new f2fs_inode_info;
+	fi = kmem_cache_alloc<f2fs_inode_info>(f2fs_inode_cachep, GFP_F2FS_ZERO);
 	if (!fi)		return NULL;
 
 	init_once((void *) fi);
@@ -3770,8 +3769,7 @@ int f2fs_sanity_check_ckpt(struct f2fs_sb_info *sbi)
 	fsmeta += le32_to_cpu(ckpt->rsvd_segment_count);
 	fsmeta += le32_to_cpu(raw_super->segment_count_ssa);
 
-	if (unlikely(fsmeta >= total))
-		return 1;
+	if (unlikely(fsmeta >= total))	return 1;
 
 	ovp_segments = le32_to_cpu(ckpt->overprov_segment_count);
 	reserved_segments = le32_to_cpu(ckpt->rsvd_segment_count);
@@ -3801,8 +3799,7 @@ int f2fs_sanity_check_ckpt(struct f2fs_sb_info *sbi)
 	valid_node_count = le32_to_cpu(ckpt->valid_node_count);
 	avail_node_count = sbi->total_node_count - F2FS_RESERVED_NODE_NUM;
 	if (valid_node_count > avail_node_count) {
-		f2fs_err(sbi, L"Wrong valid_node_count: %u, avail_node_count: %u",
-			 valid_node_count, avail_node_count);
+		f2fs_err(sbi, L"Wrong valid_node_count: %u, avail_node_count: %u", valid_node_count, avail_node_count);
 		return 1;
 	}
 
@@ -3810,37 +3807,29 @@ int f2fs_sanity_check_ckpt(struct f2fs_sb_info *sbi)
 	blocks_per_seg = sbi->blocks_per_seg;
 
 	for (i = 0; i < NR_CURSEG_NODE_TYPE; i++) {
-		if (le32_to_cpu(ckpt->cur_node_segno[i]) >= main_segs ||
-			le16_to_cpu(ckpt->cur_node_blkoff[i]) >= blocks_per_seg)
+		if (le32_to_cpu(ckpt->cur_node_segno[i]) >= main_segs || le16_to_cpu(ckpt->cur_node_blkoff[i]) >= blocks_per_seg)
 			return 1;
 		for (j = i + 1; j < NR_CURSEG_NODE_TYPE; j++) {
-			if (le32_to_cpu(ckpt->cur_node_segno[i]) ==
-				le32_to_cpu(ckpt->cur_node_segno[j])) {
-				f2fs_err(sbi, L"Node segment (%u, %u) has the same segno: %u",
-					 i, j, le32_to_cpu(ckpt->cur_node_segno[i]));
+			if (le32_to_cpu(ckpt->cur_node_segno[i]) == le32_to_cpu(ckpt->cur_node_segno[j])) {
+				f2fs_err(sbi, L"Node segment (%u, %u) has the same segno: %u", i, j, le32_to_cpu(ckpt->cur_node_segno[i]));
 				return 1;
 			}
 		}
 	}
 	for (i = 0; i < NR_CURSEG_DATA_TYPE; i++) {
-		if (le32_to_cpu(ckpt->cur_data_segno[i]) >= main_segs ||
-			le16_to_cpu(ckpt->cur_data_blkoff[i]) >= blocks_per_seg)
+		if (le32_to_cpu(ckpt->cur_data_segno[i]) >= main_segs || le16_to_cpu(ckpt->cur_data_blkoff[i]) >= blocks_per_seg)
 			return 1;
 		for (j = i + 1; j < NR_CURSEG_DATA_TYPE; j++) {
-			if (le32_to_cpu(ckpt->cur_data_segno[i]) ==
-				le32_to_cpu(ckpt->cur_data_segno[j])) {
-				f2fs_err(sbi, L"Data segment (%u, %u) has the same segno: %u",
-					 i, j, le32_to_cpu(ckpt->cur_data_segno[i]));
+			if (le32_to_cpu(ckpt->cur_data_segno[i]) ==	le32_to_cpu(ckpt->cur_data_segno[j])) {
+				f2fs_err(sbi, L"Data segment (%u, %u) has the same segno: %u", i, j, le32_to_cpu(ckpt->cur_data_segno[i]));
 				return 1;
 			}
 		}
 	}
 	for (i = 0; i < NR_CURSEG_NODE_TYPE; i++) {
 		for (j = 0; j < NR_CURSEG_DATA_TYPE; j++) {
-			if (le32_to_cpu(ckpt->cur_node_segno[i]) ==
-				le32_to_cpu(ckpt->cur_data_segno[j])) {
-				f2fs_err(sbi, L"Node segment (%u) and Data segment (%u) has the same segno: %u",
-					 i, j, le32_to_cpu(ckpt->cur_node_segno[i]));
+			if (le32_to_cpu(ckpt->cur_node_segno[i]) == le32_to_cpu(ckpt->cur_data_segno[j])) {
+				f2fs_err(sbi, L"Node segment (%u) and Data segment (%u) has the same segno: %u", i, j, le32_to_cpu(ckpt->cur_node_segno[i]));
 				return 1;
 			}
 		}
@@ -3880,9 +3869,6 @@ int f2fs_sanity_check_ckpt(struct f2fs_sb_info *sbi)
 	}
 	return 0;
 }
-#if 0
-#endif
-
 
 //static void init_sb_info(struct f2fs_sb_info *sbi)
 void f2fs_sb_info::init_sb_info()
@@ -4319,6 +4305,14 @@ int f2fs_sb_info::f2fs_fill_super(const boost::property_tree::wptree& option, in
 			if (!br) THROW_ERROR(ERR_APP, L"failed on starting io thread");
 
 			err = read_raw_super_block(raw_super, &valid_super_block, &recovery);
+#ifdef _DEBUG
+			wprintf_s(L"block of checkpoint: %d\n", le32_to_cpu(raw_super->cp_blkaddr));
+			wprintf_s(L"block of SIT: %d\n", le32_to_cpu(raw_super->sit_blkaddr));
+			wprintf_s(L"block of NAT: %d\n", le32_to_cpu(raw_super->nat_blkaddr));
+			wprintf_s(L"block of SSA: %d\n", le32_to_cpu(raw_super->ssa_blkaddr));
+			wprintf_s(L"block of MAIN: %d\n", le32_to_cpu(raw_super->main_blkaddr));
+
+#endif
 			//	if (err) goto free_sbi;
 			if (err) THROW_ERROR(ERR_APP, L"failed on reading raw super block");
 
@@ -4693,7 +4687,8 @@ int f2fs_sb_info::f2fs_fill_super(const boost::property_tree::wptree& option, in
 			f2fs_update_time( CP_TIME);
 			f2fs_update_time( REQ_TIME);
 			clear_sbi_flag(this, SBI_CP_DISABLED_QUICK);
-			return 0;
+//			return 0;
+			break;
 		}
 		catch (...)
 		{
@@ -4723,7 +4718,7 @@ int f2fs_sb_info::f2fs_fill_super(const boost::property_tree::wptree& option, in
 	//}
 
 
-free_meta:
+//free_meta:
 #ifdef CONFIG_QUOTA
 	f2fs_truncate_quota_inode_pages(this);
 	if (f2fs_sb_has_quota_ino(this) && !f2fs_readonly(this))
@@ -4735,7 +4730,7 @@ free_meta:
 	/* evict some inodes being cached by GC */
 	evict_inodes(this);
 	f2fs_unregister_sysfs(this);
-free_root_inode:
+//free_root_inode:
 	dput(s_root);
 	s_root = NULL;
 #if 0//TODO
@@ -4745,14 +4740,14 @@ free_node_inode:
 	iput(node_inode);
 	node_inode = NULL;
 #endif //<TODO>
-free_stats:
+//free_stats:
 	f2fs_destroy_stats(this);
-free_nm:
+//free_nm:
 	f2fs_destroy_node_manager();
-free_sm:
+//free_sm:
 	f2fs_destroy_segment_manager();
 	f2fs_destroy_post_read_wq(this);
-stop_ckpt_thread:
+//stop_ckpt_thread:
 //	f2fs_stop_ckpt_thread(sbi);
 	cprc_info.Stop();
 #if 0 //<TODO>
@@ -4768,11 +4763,11 @@ free_meta_inode:
 //	f2fs_destroy_page_array_cache(sbi);
 //free_xattr_cache:
 //	f2fs_destroy_xattr_caches(sbi);
-free_io_dummy:
+//free_io_dummy:
 #if 0 //<TODO>
 	mempool_destroy(write_io_dummy);
 #endif
-free_percpu:
+//free_percpu:
 	destroy_percpu_info();
 //free_bio_info:
 //	for (i = 0; i < NR_PAGE_TYPE; i++)	kvfree(sbi->write_io[i]);

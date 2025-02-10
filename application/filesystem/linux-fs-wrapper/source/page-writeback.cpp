@@ -2024,7 +2024,7 @@ void tag_pages_for_writeback(address_space *mapping, pgoff_t start, pgoff_t end)
 	//	if (it->second->is_marked(PAGECACHE_TAG_DIRTY)) it->second->set_mark(PAGECACHE_TAG_TOWRITE);
 	//}
 	xas_unlock_irq(&xas);
-	LOG_DEBUG(L"tagged %d pages for writeback", tagged);
+	LOG_DEBUG(L"tagged writeback, from %d to %d, page_nr=%d", start, end, tagged);
 }
 //EXPORT_SYMBOL(tag_pages_for_writeback);
 

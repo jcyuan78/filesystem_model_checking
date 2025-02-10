@@ -1741,9 +1741,7 @@ static int f2fs_xattr_fiemap(struct inode *inode,
 		}
 
 		phys = blks_to_bytes(inode, ni.blk_addr);
-		offset = offsetof(struct f2fs_inode, i_addr) +
-					sizeof(__le32) * (DEF_ADDRS_PER_INODE -
-					get_inline_xattr_addrs(inode));
+		offset = offsetof(struct f2fs_inode, i_addr) + sizeof(__le32) * (DEF_ADDRS_PER_INODE - F2FS_I(inode)->get_inline_xattr_addrs());
 
 		phys += offset;
 		len = inline_xattr_size(inode);
@@ -2891,34 +2889,20 @@ retry_write:
 //				auto_lock<page_auto_lock> page_locker(*ppage);
 			ppage->lock();
 			LOG_DEBUG_(1, L"[track_page_lock] page=%p, flag=0x%X, locked", ppage, ppage->flags);
-			if (unlikely(ppage->mapping != this))		
-			{
-				ppage->unlock();
-				continue;		
-			}
+			if (unlikely(ppage->mapping != this))	{ppage->unlock();	continue;}
 			if (!PageDirty(ppage))
 			{
 				LOG_DEBUG_(1,L"[page_write] page=%p, index=%d, flag=%X, skip = page not dirty", ppage, ppage->index, ppage->flags);
-
 				ppage->unlock();
 				continue; /* someone wrote it for us */
 			}
 			if (PageWriteback(ppage))
 			{
 				LOG_DEBUG_(1,L"[page_write] page=%p, index=%d, flag=%X, page is writing, sync=%d", ppage, ppage->index, ppage->flags, wbc->sync_mode);
-
 				if (wbc->sync_mode != WB_SYNC_NONE) f2fs_wait_on_page_writeback(ppage, DATA, true, true);
-				else
-				{
-					ppage->unlock();
-					continue;
-				}
+				else								{ppage->unlock();	continue;}
 			}
-			if (!clear_page_dirty_for_io(ppage))
-			{
-				ppage->unlock();
-				continue;
-			}
+			if (!clear_page_dirty_for_io(ppage))	{ppage->unlock();	continue;}
 
 #ifdef CONFIG_F2FS_FS_COMPRESSION
 			if (f2fs_compressed_file(inode))

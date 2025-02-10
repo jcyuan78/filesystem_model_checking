@@ -295,7 +295,7 @@ public:
 	unsigned short          i_bytes;
 	u8			i_blkbits;
 	u8			i_write_hint;
-	blkcnt_t		i_blocks;
+	blkcnt_t		i_blocks;		// sector µ¥Î»
 
 #ifdef __NEED_I_SIZE_ORDERED
 	seqcount_t		i_size_seqcount;

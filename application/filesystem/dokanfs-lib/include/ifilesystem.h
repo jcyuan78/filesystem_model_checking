@@ -36,7 +36,22 @@ public:
 		BY_HANDLE_FILE_INFORMATION *) = 0;
 };
 
+struct IO_ENTRY
+{
+	//enum _CMD {
+	//	READ_SECTOR, WRITE_SECTOR,
+	//} cmd;
+	UINT block_index;	// 第一个block在链表中的位置
+	UINT lba;
+	UINT secs;
+	UINT blk_nr;
+	std::wstring op;
+};
 
+enum IoCtrlCmd {
+	IOCTRL_NOP = 0,			// dummy
+	IOCTRL_MARK = 1,		// 向Disk发送一个mark表示目前的操作, 参数是std::string *
+};
 
 class IVirtualDisk : public IJCInterface
 {
@@ -52,6 +67,8 @@ public:
 	};
 public:
 	virtual bool InitializeDevice(const boost::property_tree::wptree& config) = 0;
+	virtual bool LoadFromFile(const std::wstring& fn) = 0;
+	virtual bool SaveToFile(const std::wstring& fn) = 0;
 	virtual size_t GetCapacity(void) = 0;		// in sector
 	virtual UINT GetSectorSize(void) const = 0;
 	virtual bool ReadSectors(void * buf, size_t lba, size_t secs) = 0;
@@ -72,6 +89,7 @@ public:
 	virtual bool GetHealthInfo(HEALTH_INFO & info) = 0;
 
 	virtual size_t GetLogNumber(void) const = 0;
+	virtual size_t GetIoLogs(IO_ENTRY* entries, size_t io_nr) = 0;
 	virtual bool BackLog(size_t num) = 0;
 	virtual void ResetLog(void) = 0;
 	virtual int  IoCtrl(int mode, UINT cmd, void* arg)=0;
@@ -125,6 +143,9 @@ public:
 	//virtual void QueryInitBlockState(int blk, yaffs_block_state &state, UINT32 &sn) = 0;
 };
 
+/// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// == file system and file info
+
 class IFileInfo : public IJCInterface
 {
 public:
@@ -169,13 +190,21 @@ public:
 class IFileSystem : public IJCInterface
 {
 public:
-	enum FsCheckResult
+	enum FSCK_RESULT
 	{
-		CheckNoError = 0,
-		CheckFixed = 1,
-		CheckError	= 100,		// 错误的分界线
-		CheckFailed = 102,
-		CheckUnfixed = 103,
+		//CheckNoError = 0,
+		//CheckFixed = 1,
+		//CheckError	= 100,		// 错误的分界线
+		//CheckFailed = 102,
+		//CheckUnfixed = 103,
+		FSCK_SUCCESS = 0,
+		FSCK_ERROR_CORRECTED = 1 << 0,
+		FSCK_SYSTEM_SHOULD_REBOOT = 1 << 1,
+		FSCK_ERRORS_LEFT_UNCORRECTED = 1 << 2,
+		FSCK_OPERATIONAL_ERROR = 1 << 3,
+		FSCK_USAGE_OR_SYNTAX_ERROR = 1 << 4,
+		FSCK_USER_CANCELLED = 1 << 5,
+		FSCK_SHARED_LIB_ERROR = 1 << 7,
 	};
 	enum FsCreateDisposition
 	{
@@ -190,7 +219,7 @@ public:
 	virtual void Unmount(void) = 0;
 	virtual bool MakeFileSystem(IVirtualDisk * dev, size_t volume_size, const std::wstring & volume_name, const std::wstring & options = L"") = 0;
 	// fsck，检查文件系统，返回检查结果
-	virtual FsCheckResult FileSystemCheck(IVirtualDisk * dev, bool repair) = 0;
+	virtual FSCK_RESULT FileSystemCheck(IVirtualDisk * dev, bool repair, boost::property_tree::wptree & optioon) = 0;
 
 	virtual bool DokanGetDiskSpace(ULONGLONG &free_bytes, ULONGLONG &total_bytes, ULONGLONG &total_free_bytes)=0;
 	virtual bool GetVolumnInfo(std::wstring & vol_name, DWORD & sn, DWORD & max_fn_len, DWORD & fs_flag,
@@ -231,6 +260,14 @@ class IFsFactory : public IJCInterface
 {
 public:
 	virtual bool CreateFileSystem(IFileSystem * & fs, const std::wstring & fs_name) = 0;
-	virtual bool CreateVirtualDisk(IVirtualDisk * & dev, const boost::property_tree::wptree & prop, bool create) = 0;
+	virtual bool CreateVirtualDisk(IVirtualDisk * & dev, const std::wstring & drive_name, 
+		const boost::property_tree::wptree & prop, bool create) = 0;
 };
 
+/// <summary>
+/// Utility and help functions
+/// </summary>
+/// <typeparam name="T"></typeparam>
+/// <param name="val"></param>
+/// <returns></returns>
+template <typename T> bool is_valid(T val) { return val != (T)-1; }

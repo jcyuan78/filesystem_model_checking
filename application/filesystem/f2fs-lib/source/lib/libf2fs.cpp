@@ -480,7 +480,7 @@ int f2fs_crc_valid(UINT32 blk_crc, void *buf, int len)
 	return 0;
 }
 
-__u32 CF2fsFileSystem::f2fs_inode_chksum(struct f2fs_node *node)
+__u32 CF2fsFileSystem::f2fs_inode_chksum(struct f2fs_node *node, UINT32 seed)
 {
 	struct f2fs_inode *ri = &node->i;
 	__le32 ino = node->footer.ino;
@@ -490,7 +490,8 @@ __u32 CF2fsFileSystem::f2fs_inode_chksum(struct f2fs_node *node)
 	unsigned int offset = offsetof(struct f2fs_inode, _u._s.i_inode_checksum);
 	unsigned int cs_size = sizeof(dummy_cs);
 
-	chksum = f2fs_cal_crc32(m_config.chksum_seed, (__u8 *)&ino, sizeof(ino));
+	chksum = f2fs_cal_crc32(seed, (__u8 *)&ino, sizeof(ino));
+//	chksum = f2fs_cal_crc32(chksum_seed, (__u8 *)&ino, sizeof(ino));
 	chksum_seed = f2fs_cal_crc32(chksum, (__u8 *)&gen, sizeof(gen));
 
 	chksum = f2fs_cal_crc32(chksum_seed, (__u8 *)ri, offset);
@@ -592,47 +593,52 @@ out_free:
 /*
  * device information
  */
-void CF2fsFileSystem::f2fs_init_configuration(f2fs_configuration & c)
+void CF2fsFileSystem::f2fs_init_configuration(f2fs_configuration & config)
 {
 	int i;
 
-	memset(&c, 0, sizeof(struct f2fs_configuration));
-	c.ndevs = 1;
-	c.sectors_per_blk = DEFAULT_SECTORS_PER_BLOCK;
-	c.blks_per_seg = DEFAULT_BLOCKS_PER_SEGMENT;
-	c.wanted_total_sectors = -1;
-	c.wanted_sector_size = -1;
+	memset(&config, 0, sizeof(struct f2fs_configuration));
+	config.ndevs = 1;
+	config.sectors_per_blk = DEFAULT_SECTORS_PER_BLOCK;
+	config.blks_per_seg = DEFAULT_BLOCKS_PER_SEGMENT;
+	config.wanted_total_sectors = -1;
+	config.wanted_sector_size = -1;
 #ifndef WITH_ANDROID
-	c.preserve_limits = 1;
-	c.no_kernel_check = 1;
+	config.preserve_limits = 1;
+	config.no_kernel_check = 1;
 #else
-	c.no_kernel_check = 0;
+	config.no_kernel_check = 0;
 #endif
 
 	for (i = 0; i < MAX_DEVICES; i++) 
 	{
-		c.devices[i].m_fd = NULL;
-		c.devices[i].sector_size = DEFAULT_SECTOR_SIZE;
-		c.devices[i].end_blkaddr = -1;
-		c.devices[i].zoned_model = F2FS_ZONED_NONE;
+		config.devices[i].m_fd = NULL;
+		config.devices[i].sector_size = DEFAULT_SECTOR_SIZE;
+		config.devices[i].end_blkaddr = -1;
+		config.devices[i].zoned_model = F2FS_ZONED_NONE;
 	}
 
 	/* calculated by overprovision ratio */
-	c.segs_per_sec = 1;
-	c.secs_per_zone = 1;
-	c.segs_per_zone = 1;
-//	c.vol_label = NULL;
-	c.trim = 1;
-//	c.kd = -1;
-	c.m_kd = NULL;
-	c.fixed_time = -1;
-	c.s_encoding = 0;
-	c.s_encoding_flags = 0;
+	config.segs_per_sec = 1;
+	config.secs_per_zone = 1;
+	config.segs_per_zone = 1;
+//	config.vol_label = NULL;
+	config.trim = 1;
+//	config.kd = -1;
+	config.m_kd = NULL;
+	config.fixed_time = -1;
+	config.s_encoding = 0;
+	config.s_encoding_flags = 0;
+
+	// 这个应该要和extra attr结合使用
+//	config.feature |= F2FS_FEATURE_INODE_CHKSUM;
+	config.feature = 0;
+	config.feature |= F2FS_FEATURE_SB_CHKSUM;
 
 	/* default root owner */
 #if 0 //<TODO>
-	c.root_uid = getuid();
-	c.root_gid = getgid();
+	config.root_uid = getuid();
+	config.root_gid = getgid();
 #endif
 }
 
@@ -1135,12 +1141,10 @@ int CF2fsFileSystem::f2fs_get_device_info(f2fs_configuration & c)
 		return -1;
 	}
 
-	/*
-	 * Check device types and determine the final volume operation mode:
+	/* Check device types and determine the final volume operation mode:
 	 *   - If all devices are regular block devices, default operation.
 	 *   - If at least one HM device is found, operate in HM mode (BLKZONED feature will be enabled by mkfs).
-	 *   - If an HA device is found, let mkfs decide based on the -m option setting by the user.
-	 */
+	 *   - If an HA device is found, let mkfs decide based on the -m option setting by the user.	 */
 	c.zoned_model = F2FS_ZONED_NONE;
 	for (i = 0; i < c.ndevs; i++) 
 	{

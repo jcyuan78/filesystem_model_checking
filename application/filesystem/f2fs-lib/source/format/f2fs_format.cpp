@@ -734,16 +734,11 @@ int CF2fsFileSystem::f2fs_write_check_point_pack(f2fs_configuration & c)
 
 	set_cp(cur_node_blkoff[0], 1 + c.quota_inum + c.lpf_inum);
 	set_cp(cur_data_blkoff[0], 1 + c.quota_dnum + c.lpf_dnum);
-	set_cp(valid_block_count, 2 + c.quota_inum + c.quota_dnum +
-			c.lpf_inum + c.lpf_dnum);
+	set_cp(valid_block_count, 2 + c.quota_inum + c.quota_dnum + c.lpf_inum + c.lpf_dnum);
 	set_cp(rsvd_segment_count, c.reserved_segments);
 
-	/*
-	 * For zoned devices, if zone capacity less than zone size, get
-	 * overprovision segment count based on usable segments in the device.
-	 */
-	set_cp(overprov_segment_count, (f2fs_get_usable_segments(sb) - 
-			get_cp(rsvd_segment_count)) * c.overprovision / 100);
+	/* For zoned devices, if zone capacity less than zone size, get overprovision segment count based on usable segments in the device.	 */
+	set_cp(overprov_segment_count, (f2fs_get_usable_segments(sb) - get_cp(rsvd_segment_count)) * c.overprovision / 100);
 	set_cp(overprov_segment_count, get_cp(overprov_segment_count) +	get_cp(rsvd_segment_count));
 
 	if (f2fs_get_usable_segments(sb) <= get_cp(overprov_segment_count)) 
@@ -752,8 +747,7 @@ int CF2fsFileSystem::f2fs_write_check_point_pack(f2fs_configuration & c)
 		goto free_cp_payload;
 	}
 	MSG(0, "Info: Overprovision ratio = %.3lf%%\n", c.overprovision);
-	MSG(0, "Info: Overprovision segments = %u (GC reserved = %u)\n", get_cp(overprov_segment_count),
-		c.reserved_segments);
+	MSG(0, "Info: Overprovision segments = %u (GC reserved = %u)\n", get_cp(overprov_segment_count), c.reserved_segments);
 
 	/* main segments - reserved segments - (node + data segments) */
 	if (c.feature & cpu_to_le32(F2FS_FEATURE_RO)) 
@@ -772,9 +766,7 @@ int CF2fsFileSystem::f2fs_write_check_point_pack(f2fs_configuration & c)
 	flags = CP_UMOUNT_FLAG | CP_COMPACT_SUM_FLAG;
 	if (get_cp(cp_pack_total_block_count) <= (1 << get_sb(log_blocks_per_seg)) - nat_bits_blocks)
 		flags |= CP_NAT_BITS_FLAG;
-
 	if (c.trimmed) flags |= CP_TRIMMED_FLAG;
-
 	if (c.large_nat_bitmap)	flags |= CP_LARGE_NAT_BITMAP_FLAG;
 
 	set_cp(ckpt_flags, flags);
@@ -893,26 +885,20 @@ int CF2fsFileSystem::f2fs_write_check_point_pack(f2fs_configuration & c)
 		journal->sit_j.entries[1].segno = cp->cur_node_segno[1];
 		journal->sit_j.entries[1].se.vblocks =	cpu_to_le16((CURSEG_WARM_NODE << 10));
 		journal->sit_j.entries[2].segno = cp->cur_node_segno[2];
-		journal->sit_j.entries[2].se.vblocks =
-					cpu_to_le16((CURSEG_COLD_NODE << 10));
+		journal->sit_j.entries[2].se.vblocks = cpu_to_le16((CURSEG_COLD_NODE << 10));
 
 		/* data sit for root */
 		journal->sit_j.entries[3].segno = cp->cur_data_segno[0];
-		journal->sit_j.entries[3].se.vblocks =
-					cpu_to_le16((CURSEG_HOT_DATA << 10) |
-							(1 + c.quota_dnum + c.lpf_dnum));
+		journal->sit_j.entries[3].se.vblocks = cpu_to_le16((CURSEG_HOT_DATA << 10) | (1 + c.quota_dnum + c.lpf_dnum));
 		f2fs_set_bit(0, (char *)journal->sit_j.entries[3].se.valid_map);
 		for (i = 1; i <= c.quota_dnum; i++)
 			f2fs_set_bit(i, (char *)journal->sit_j.entries[3].se.valid_map);
-		if (c.lpf_dnum)
-			f2fs_set_bit(i, (char *)journal->sit_j.entries[3].se.valid_map);
+		if (c.lpf_dnum)		f2fs_set_bit(i, (char *)journal->sit_j.entries[3].se.valid_map);
 
 		journal->sit_j.entries[4].segno = cp->cur_data_segno[1];
-		journal->sit_j.entries[4].se.vblocks =
-					cpu_to_le16((CURSEG_WARM_DATA << 10));
+		journal->sit_j.entries[4].se.vblocks = cpu_to_le16((CURSEG_WARM_DATA << 10));
 		journal->sit_j.entries[5].segno = cp->cur_data_segno[2];
-		journal->sit_j.entries[5].se.vblocks =
-					cpu_to_le16((CURSEG_COLD_DATA << 10));
+		journal->sit_j.entries[5].se.vblocks = cpu_to_le16((CURSEG_COLD_DATA << 10));
 	}
 
 	memcpy(sum_compact_p, &journal->n_sits, SUM_JOURNAL_SIZE);
@@ -978,6 +964,7 @@ int CF2fsFileSystem::f2fs_write_check_point_pack(f2fs_configuration & c)
 
 	cp_seg_blk++;
 	DBG(1, "\tWriting Segment summary for HOT_NODE, at offset 0x%08" PRIx64 "\n", cp_seg_blk);
+	MSG(0, "Info: Summary block of HOT NODE: %d\n", cp_seg_blk);
 	if (dev_write_block((BYTE*)sum, cp_seg_blk)) 
 	{
 		MSG(1, "\tError: While writing the sum_blk to disk!!!\n");
@@ -1010,6 +997,7 @@ int CF2fsFileSystem::f2fs_write_check_point_pack(f2fs_configuration & c)
 	/* cp page2 */
 	cp_seg_blk++;
 	DBG(1, "\tWriting cp page2, at offset 0x%08" PRIx64 "\n", cp_seg_blk);
+	MSG(0, "Info: 2nd checksum block: %d\n", cp_seg_blk);
 	if (dev_write_block((BYTE*)cp, cp_seg_blk)) 
 	{
 		MSG(1, "\tError: While writing the cp to disk!!!\n");
@@ -1026,11 +1014,11 @@ int CF2fsFileSystem::f2fs_write_check_point_pack(f2fs_configuration & c)
 		test_and_clear_bit_le(0, empty_nat_bits);
 
 		/* write the last blocks in cp pack */
-		cp_seg_blk = get_sb(segment0_blkaddr) + (1 <<
-				get_sb(log_blocks_per_seg)) - nat_bits_blocks;
+		cp_seg_blk = get_sb(segment0_blkaddr) + (1 << get_sb(log_blocks_per_seg)) - nat_bits_blocks;
 
 		DBG(1, "\tWriting NAT bits pages, at offset 0x%08" PRIx64 "\n",	cp_seg_blk);
 
+		MSG(0, "Info: NAT block: %d\n", cp_seg_blk);
 		for (i = 0; i < nat_bits_blocks; i++) 
 		{
 			if (dev_write_block(nat_bits + i * F2FS_BLKSIZE, cp_seg_blk + i)) 
@@ -1041,14 +1029,11 @@ int CF2fsFileSystem::f2fs_write_check_point_pack(f2fs_configuration & c)
 		}
 	}
 
-	/* cp page 1 of check point pack 2
-	 * Initialize other checkpoint pack with version zero
-	 */
+	/* cp page 1 of check point pack 2 Initialize other checkpoint pack with version zero */
 	cp->checkpoint_ver = 0;
 
 	crc = f2fs_checkpoint_chksum(cp);
-	*((__le32 *)((unsigned char *)cp + get_cp(checksum_offset))) =
-							cpu_to_le32(crc);
+	*((__le32 *)((unsigned char *)cp + get_cp(checksum_offset))) = cpu_to_le32(crc);
 	cp_seg_blk = get_sb(segment0_blkaddr) + c.blks_per_seg;
 	DBG(1, "\tWriting cp page 1 of checkpoint pack 2, at offset 0x%08" PRIx64 "\n", cp_seg_blk);
 	if (dev_write_block((BYTE*)cp, cp_seg_blk)) 
@@ -1060,15 +1045,13 @@ int CF2fsFileSystem::f2fs_write_check_point_pack(f2fs_configuration & c)
 	for (i = 0; i < get_sb(cp_payload); i++) {
 		cp_seg_blk++;
 		if (dev_fill_block(cp_payload, cp_seg_blk)) {
-			MSG(1, "\tError: While zeroing out the sit bitmap area "
-					"on disk!!!\n");
+			MSG(1, "\tError: While zeroing out the sit bitmap area on disk!!!\n");
 			goto free_cp_payload;
 		}
 	}
 
 	/* cp page 2 of check point pack 2 */
-	cp_seg_blk += (le32_to_cpu(cp->cp_pack_total_block_count) -
-					get_sb(cp_payload) - 1);
+	cp_seg_blk += (le32_to_cpu(cp->cp_pack_total_block_count) - get_sb(cp_payload) - 1);
 	DBG(1, "\tWriting cp page 2 of checkpoint pack 2, at offset 0x%08" PRIx64 "\n", cp_seg_blk);
 	if (dev_write_block((BYTE*)cp, cp_seg_blk)) 
 	{

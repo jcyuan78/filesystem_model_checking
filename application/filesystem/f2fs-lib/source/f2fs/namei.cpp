@@ -114,8 +114,7 @@ f2fs_inode_info* f2fs_sb_info::f2fs_new_inode(Cf2fsDirInode* dir, umode_t mode, 
 
 	if (f2fs_sb_has_flexible_inline_xattr(this)) {
 		f2fs_bug_on(this, !f2fs_has_extra_attr(iinode));
-		if (f2fs_has_inline_xattr(iinode))
-			xattr_size = F2FS_OPTION(this).inline_xattr_size;
+		if (f2fs_has_inline_xattr(iinode))	xattr_size = F2FS_OPTION(this).inline_xattr_size;
 		/* Otherwise, will be 0 */
 	}
 	else if (f2fs_has_inline_xattr(iinode) ||	iinode->f2fs_has_inline_dentry()) 
@@ -818,11 +817,10 @@ int Cf2fsDirInode::__recover_dot_dentries(nid_t pino)
 }
 
 //static struct dentry* f2fs_lookup(struct inode* dir, struct dentry* dentry,	unsigned int flags)
-// 在当前的inode中查找子节点。src_entry作为名称的输入，返回的字节的也在src_entry中。函数返回值仅是错误代码；
+// 在当前的inode中查找子节点。src_entry作为名称的输入，返回的子节点也在src_entry中。函数返回值仅是错误代码；
 //
 dentry *Cf2fsDirInode::lookup(dentry *src_entry, unsigned int flags)
 {
-//	f2fs_inode_info *new_node = NULL;
 	f2fs_dir_entry *de;
 	page *page;
 	dentry *new_entry;
@@ -845,7 +843,6 @@ dentry *Cf2fsDirInode::lookup(dentry *src_entry, unsigned int flags)
 	if (err == -ENOENT)		return ERR_PTR<dentry>( err);	//goto out_splice;
 	if (err)	{		return ERR_PTR<dentry>(-ENAMETOOLONG);	}
 	de = __f2fs_find_entry(&fname, &page);
-//	f2fs_free_filename(&fname);	//析构函数
 
 	if (!de) 
 	{	// 没有找到

@@ -3,6 +3,7 @@
 
 #include "fat_defs.h"
 #include "fat_opts.h"
+#include "fat_list.h"
 
 //-----------------------------------------------------------------------------
 // Defines
@@ -26,16 +27,61 @@ typedef int (*fn_diskio_write)(uint32 sector, uint8 *buffer, uint32 sector_count
 //<YUAN>
 typedef int (*fn_sync)(void);
 
+struct cluster_lookup
+{
+    uint32 ClusterIdx;
+    uint32 CurrentCluster;
+};
+
+typedef struct sFL_FILE
+{
+    uint32                  parentcluster;
+    uint32                  startcluster;
+    uint32                  bytenum;
+    uint32                  filelength;
+    int                     filelength_changed;
+    char                    path[FATFS_MAX_LONG_FILENAME];
+    char                    filename[FATFS_MAX_LONG_FILENAME];
+    uint8                   shortfilename[11];
+
+#ifdef FAT_CLUSTER_CACHE_ENTRIES
+    uint32                  cluster_cache_idx[FAT_CLUSTER_CACHE_ENTRIES];
+    uint32                  cluster_cache_data[FAT_CLUSTER_CACHE_ENTRIES];
+#endif
+
+    // Cluster Lookup
+    struct cluster_lookup   last_fat_lookup;
+
+    // Read/Write sector buffer
+    uint8                   file_data_sector[FAT_SECTOR_SIZE];
+    uint32                  file_data_address;
+    int                     file_data_dirty;
+
+    // File fopen flags
+    uint8                   flags;
+#define FILE_READ           (1 << 0)
+#define FILE_WRITE          (1 << 1)
+#define FILE_APPEND         (1 << 2)
+#define FILE_BINARY         (1 << 3)
+#define FILE_ERASE          (1 << 4)
+#define FILE_CREATE         (1 << 5)
+
+    struct fat_node         list_node;
+} FL_FILE;
+
 //-----------------------------------------------------------------------------
 // Structures
 //-----------------------------------------------------------------------------
-struct disk_if
-{
-    // User supplied function pointers for disk IO
-    fn_diskio_read          read_media;
-    fn_diskio_write         write_media;
-    fn_sync                 sync_media;
-};
+//struct disk_if
+//{
+//    // User supplied function pointers for disk IO
+//    //fn_diskio_read          read_media;
+//    //fn_diskio_write         write_media;
+//    //fn_sync                 sync_media;
+//    int read_media(uint32 sector, uint8* buffer, uint32 sector_count);
+//
+//};
+struct disk_if;
 
 // Forward declaration
 struct fat_buffer;
@@ -76,7 +122,8 @@ struct fatfs
     tFatType                fat_type;
 
     // Disk/Media API
-    struct disk_if          disk_io;
+//    struct disk_if          disk_io;
+    struct disk_if* m_disk_io;
 
     // [Optional] Thread Safety
     void                    (*fl_lock)(void);
@@ -88,6 +135,13 @@ struct fatfs
     // FAT Buffer
     struct fat_buffer        *fat_buffer_head;
     struct fat_buffer        fat_buffers[FAT_BUFFERS];
+
+// 原来的全局变量局部化
+    FL_FILE         m_files[FATFS_MAX_OPEN_FILES];
+    int             m_filelib_init;
+    int             m_filelib_valid;
+    struct fat_list m_open_file_list;
+    struct fat_list m_free_file_list;
 };
 
 struct fs_dir_list_status

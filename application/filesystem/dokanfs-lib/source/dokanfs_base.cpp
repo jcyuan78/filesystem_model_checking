@@ -1,6 +1,7 @@
 ﻿///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #include "stdafx.h"
 #include "..\include\dokanfs_base.h"
+#include <boost\property_tree\xml_parser.hpp>
 
 LOCAL_LOGGER_ENABLE(L"dokanfs", LOGGER_LEVEL_NOTICE);
 #define DIR_SEPARATOR	('\\')
@@ -182,7 +183,7 @@ int CDokanFsBase::LoadDisk(IVirtualDisk*& disk, const std::wstring& working_dir,
 	if (gf == NULL)	THROW_WIN32_ERROR(L"file %s is not a file system plugin.", disk_lib.c_str());
 	bool br = (gf)(disk_factory);
 	if (!br || !disk_factory) THROW_ERROR(ERR_USER, L"failed on getting plugin register in %s", disk_lib.c_str());
-	br = disk_factory->CreateVirtualDisk(disk, config, true);
+	br = disk_factory->CreateVirtualDisk(disk, L"", config, true);
 	if (!br || !disk)	THROW_ERROR(ERR_APP, L"failed on creating device");
 //	m_capacity = disk->GetCapacity();
 	return 0;
@@ -242,4 +243,101 @@ int CDokanFsBase::LoadFilesystemByConfig(IFileSystem*& fs, IVirtualDisk*& disk, 
 		return err;
 	}
 	return err;
+}
+
+
+IFileSystem* CDokanFsBase::CreateFs(const std::wstring& str_lib, const std::wstring& config_fn)
+{
+	//	throw gcnew System::NotImplementedException();
+	LOG_STACK_TRACE();
+	std::string str_config_fn;
+	jcvos::UnicodeToUtf8(str_config_fn, config_fn);
+	boost::property_tree::wptree config;
+	boost::property_tree::xml_parser::read_xml(str_config_fn, config);
+
+	return CreateFs(str_lib, config);
+
+//	const boost::property_tree::wptree& fs_config = config.get_child(L"config.filesystem");
+//
+//
+//	//	const std::wstring str_lib = config.get<std::wstring>(L"library");
+////	const std::wstring str_lib = L"f2fs-lib.dll";
+//	//	const std::wstring fs_name = config.get<std::wstring>(L"file_system", L"");
+//
+//	if (str_lib.empty())	THROW_ERROR(ERR_PARAMETER, L"missing DLL.");
+//	LOG_DEBUG(L"loading dll: %s...", str_lib.c_str());
+//	HMODULE plugin = LoadLibrary(str_lib.c_str());
+//	if (plugin == NULL) THROW_WIN32_ERROR(L" failure on loading driver %s ", str_lib.c_str());
+//
+//	LOG_DEBUG(L"getting entry...");
+//	PLUGIN_GET_FACTORY get_factory = (PLUGIN_GET_FACTORY)(GetProcAddress(plugin, "GetFactory"));
+//	if (get_factory == NULL)	THROW_WIN32_ERROR(L"file %s is not a file system plugin.", str_lib.c_str());
+//
+//	jcvos::auto_interface<IFsFactory> factory;
+//	bool br = (get_factory)(factory);
+//	if (!br || !factory.valid()) THROW_ERROR(ERR_USER, L"failed on getting plugin register in %s", str_lib.c_str());
+//
+//	IFileSystem* fs = nullptr;
+//	br = factory->CreateFileSystem(fs, L"");
+//	if (!br || !fs) THROW_ERROR(ERR_APP, L"failed on creating file system");
+//	br = fs->ConfigFs(fs_config);
+//	return fs;
+}
+
+IFileSystem* CDokanFsBase::CreateFs(const std::wstring& str_lib, const boost::property_tree::wptree& config)
+{
+	//	throw gcnew System::NotImplementedException();
+	LOG_STACK_TRACE();
+	const boost::property_tree::wptree& fs_config = config.get_child(L"config.filesystem");
+
+	if (str_lib.empty())	THROW_ERROR(ERR_PARAMETER, L"missing DLL.");
+	LOG_DEBUG(L"loading dll: %s...", str_lib.c_str());
+	HMODULE plugin = LoadLibrary(str_lib.c_str());
+	if (plugin == NULL) THROW_WIN32_ERROR(L" failure on loading driver %s ", str_lib.c_str());
+
+	LOG_DEBUG(L"getting entry...");
+	PLUGIN_GET_FACTORY get_factory = (PLUGIN_GET_FACTORY)(GetProcAddress(plugin, "GetFactory"));
+	if (get_factory == NULL)	THROW_WIN32_ERROR(L"file %s is not a file system plugin.", str_lib.c_str());
+
+	jcvos::auto_interface<IFsFactory> factory;
+	bool br = (get_factory)(factory);
+	if (!br || !factory.valid()) THROW_ERROR(ERR_USER, L"failed on getting plugin register in %s", str_lib.c_str());
+
+	IFileSystem* fs = nullptr;
+	br = factory->CreateFileSystem(fs, L"");
+	if (!br || !fs) THROW_ERROR(ERR_APP, L"failed on creating file system");
+	br = fs->ConfigFs(fs_config);
+	return fs;
+}
+
+IVirtualDisk* CDokanFsBase::CreateStorage(const std::wstring& str_lib, const std::wstring & name, const std::wstring& config_fn)
+{
+	LOG_STACK_TRACE();
+	jcvos::auto_interface<IFsFactory> disk_factory;
+	boost::property_tree::wptree disk_config;
+
+	HMODULE plugin_disk = LoadLibrary(str_lib.c_str());
+	if (plugin_disk == NULL) THROW_WIN32_ERROR(L" failure on loading lib %s ", str_lib.c_str());
+	PLUGIN_GET_FACTORY gf = (PLUGIN_GET_FACTORY)(GetProcAddress(plugin_disk, "GetFactory"));
+	if (gf == NULL)	THROW_WIN32_ERROR(L"file %s is not a file system plugin.", str_lib.c_str());
+	bool br = (gf)(disk_factory);
+	if (!br || !disk_factory) THROW_ERROR(ERR_USER, L"failed on getting plugin register in %s", str_lib.c_str());
+
+	IVirtualDisk* disk = nullptr;
+	if (!config_fn.empty())
+	{
+		std::string str_config_fn;
+		jcvos::UnicodeToUtf8(str_config_fn, config_fn);
+		boost::property_tree::wptree config;
+		boost::property_tree::xml_parser::read_xml(str_config_fn, config);
+		disk_config = config.get_child(L"config.device");
+//		const std::wstring& _lib = disk_config.get<std::wstring>(L"library", L"");
+	}
+
+	br = disk_factory->CreateVirtualDisk(disk, name, disk_config, true);
+	if (!br || !disk)	THROW_ERROR(ERR_APP, L"failed on creating device");
+//	std::wstring disk_lib = path + L"\\" + _lib;
+
+	//	m_capacity = disk->GetCapacity();
+	return disk;
 }

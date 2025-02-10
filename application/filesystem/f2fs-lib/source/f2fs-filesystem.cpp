@@ -118,6 +118,7 @@ bool CF2fsFileSystem::Mount(IVirtualDisk* dev)
 {
 	LOG_STACK_TRACE();
 	//m_sb_info 已经初始化过
+
 	JCASSERT(m_sb_info == nullptr && m_file_manager == nullptr);
 
 	m_file_manager = new CFileInfoManager(1024);
@@ -129,6 +130,7 @@ bool CF2fsFileSystem::Mount(IVirtualDisk* dev)
 	
 	m_sb_info = new f2fs_sb_info(this, fs_type, m_mount_opt);
 	ConnectToDevice(dev);
+	SendMarkToDrive(L"Mount");
 
 	int err = m_sb_info->f2fs_fill_super(m_mount_options, 0);
 	if (err)
@@ -144,6 +146,12 @@ bool CF2fsFileSystem::Mount(IVirtualDisk* dev)
 void CF2fsFileSystem::Unmount(void)
 {
 	LOG_STACK_TRACE();
+	//__u64 offset = 0;
+	//IVirtualDisk* disk = __get_device(&offset);
+	//disk->IoCtrl(0, IOCTRL_MARK, L"Unmount");
+	SendMarkToDrive(L"Unmount");
+
+	m_sb_info->DumpSegInfo();
 	if (m_sb_info)
 	{
 		m_sb_info->kill_f2fs_super();
@@ -156,6 +164,7 @@ void CF2fsFileSystem::Unmount(void)
 
 bool CF2fsFileSystem::MakeFileSystem(IVirtualDisk* dev, size_t volume_size, const std::wstring& volume_name, const std::wstring & options)
 {
+
 #ifdef _DEBUG
 	int err = run_unit_test();
 	if (err != 0) THROW_ERROR(ERR_APP, L"failed in unit test, code=%d", err);
@@ -171,6 +180,7 @@ bool CF2fsFileSystem::MakeFileSystem(IVirtualDisk* dev, size_t volume_size, cons
 
 	ConnectToDevice(dev);
 	f2fs_get_device_info(m_config);
+	SendMarkToDrive(L"MakeFs");
 
 	int ir = f2fs_format_device(m_config);
 	if (ir < 0)
@@ -180,9 +190,28 @@ bool CF2fsFileSystem::MakeFileSystem(IVirtualDisk* dev, size_t volume_size, cons
 	}
 	Disconnect();
 
+	delete fs_type;
 	//delete m_sb_info;
 	//m_sb_info = nullptr;
 	return br;
+}
+
+IFileSystem::FSCK_RESULT CF2fsFileSystem::FileSystemCheck(IVirtualDisk* dev, bool repair, boost::property_tree::wptree& option)
+{
+	LOG_STACK_TRACE();
+	f2fs_init_configuration(m_config);
+	// configuration
+	m_config.fix_on = option.get<int>(L"fix_on", 0);
+	m_config.bug_on = option.get<int>(L"bug_on", 0);
+	m_config.dbg_lv = option.get<int>(L"debug_level", 1);
+	m_config.preen_mode = option.get<int>(L"preen_mode", 0);
+	m_config.func = FSCK;
+//	f2fs_parse_operation()
+	ConnectToDevice(dev);
+	f2fs_get_device_info(m_config);
+	FSCK_RESULT ir = run_fsck(this);
+	Disconnect();
+	return ir;
 }
 
 bool CF2fsFileSystem::DokanGetDiskSpace(ULONGLONG& free_bytes, ULONGLONG& total_bytes, ULONGLONG& total_free_bytes)
@@ -292,8 +321,6 @@ NTSTATUS CF2fsFileSystem::DokanCreateFile(IFileInfo*& file, const std::wstring& 
 		LOG_WARNING(L"[warning] parent dir of %s does not exist", path.c_str());
 		return STATUS_OBJECT_PATH_NOT_FOUND;
 	}
-//	THROW_ERROR(ERR_APP, L"parent dir of %s does not exist", path.c_str());
-
 
 	if (str_fn.empty())
 	{	// 打开根目录
@@ -310,18 +337,13 @@ NTSTATUS CF2fsFileSystem::DokanCreateFile(IFileInfo*& file, const std::wstring& 
 		}
 
 	}
-
 	br = parent_dir->OpenChild(_file, str_fn.c_str(), file_mode);
-	//if (attr & FILE_FLAG_DELETE_ON_CLOSE) _file->Set
-//	if (isdir && !_file->IsDirectory()) return STATUS_NOT_A_DIRECTORY;
 	switch (disp)
 	{
 	case CREATE_NEW:
 		if (br && _file)	{
 			LOG_ERROR(L"[err] file %s existed with create new", path.c_str()); 
 			return STATUS_OBJECT_NAME_COLLISION; }
-//		STATUS_OBJECT_NAME_EXISTS
-		// else: create new file
 		break;
 
 	case OPEN_ALWAYS:
@@ -374,6 +396,11 @@ NTSTATUS CF2fsFileSystem::DokanCreateFile(IFileInfo*& file, const std::wstring& 
 	if (attr & FILE_ATTRIBUTE_SYSTEM) file_mode |= FMODE_SYSTEM;
 
 	br = parent_dir->CreateChild(_file, str_fn.c_str(), isdir, file_mode);
+	// for debug
+	CF2fsFile* ff = _file.d_cast<CF2fsFile*>();
+	JCASSERT(ff);
+	LOG_DEBUG(L"[fs] created file:%s, ino=%d", path.c_str(), ff->GetIno());
+
 	if (!br || !_file)
 	{
 		LOG_ERROR(L"[err] failed on creating new file %s", path.c_str());
@@ -566,8 +593,7 @@ void CF2fsFileSystem::f2fs_parse_operation(const std::wstring& vol_name, const s
 		stream.str(str_config);
 		boost::property_tree::read_json(stream, pt);
 	}
-	m_config.feature |= F2FS_FEATURE_INODE_CHKSUM;
-	m_config.feature |= F2FS_FEATURE_SB_CHKSUM;
+
 	m_vol_name = vol_name;
 	//<YUAN>由于num_cache_entry==0的话，不会分配cache，尝试一下
 	m_config.cache_config.num_cache_entry = 1;
@@ -756,10 +782,13 @@ bool CF2fsFactory::CreateFileSystem(IFileSystem*& fs, const std::wstring& fs_nam
 	return true;
 }
 
-bool CF2fsFactory::CreateVirtualDisk(IVirtualDisk*& dev, const boost::property_tree::wptree& prop, bool create)
-{
-	return false;
-}
+//bool CF2fsFactory::CreateVirtualDisk(IVirtualDisk*& dev, const boost::property_tree::wptree& prop, bool create)
+//bool CreateVirtualDisk(IVirtualDisk*& dev, const std::wstring& drive_name,
+//	const boost::property_tree::wptree& prop, bool create) = 0;
+//
+//{
+//	return false;
+//}
 
 bool f2fs_sb_info::f2fs_is_checkpoint_ready(void)
 {

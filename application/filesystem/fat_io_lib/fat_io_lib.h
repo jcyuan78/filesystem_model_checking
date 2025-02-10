@@ -1,4 +1,5 @@
 #pragma once
+extern "C" {
 #include "source/fat_filelib.h"
 #include "source/fat_format.h"
 #include "source/fat_defs.h"
@@ -7,5 +8,7 @@
 #include "source/fat_write.h"
 #include "source/fat_string.h"
 #include "source/fat_misc.h"
+}
+#include "source/disk_if.h"
 
 #pragma comment (lib, "fat_io_lib.lib")
