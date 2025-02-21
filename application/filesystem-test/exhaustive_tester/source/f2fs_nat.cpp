@@ -1,4 +1,4 @@
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+﻿///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #include "pch.h"
 #include "../include/f2fs_simulator.h"
 //#include <boost/unordered_set.hpp>
@@ -35,19 +35,21 @@ void CNodeAddressTable::CopyFrom(const CNodeAddressTable* src)
 
 bool CNodeAddressTable::Load(CKPT_BLOCK& checkpoint)
 {
-	UINT lba = NAT_START_BLK;
+//	UINT lba = NAT_START_BLK;
+	UINT nn = 0;
 	for (_NID nid = 0; nid < NODE_NR; )
 	{
 		CPageInfo* page = m_pages->allocate(true);
-		m_storage->BlockRead(lba, page);
+		LBLK_T blk = get_nat_block(nn, checkpoint);
+		m_storage->BlockRead(blk, page);
 		BLOCK_DATA* data = m_pages->get_data(page);
 		memcpy_s(nat + nid, sizeof(PHY_BLK) * NAT_ENTRY_PER_BLK, &data->nat, sizeof(PHY_BLK) * NAT_ENTRY_PER_BLK);
 		nid += NAT_ENTRY_PER_BLK;
-		lba++;
+		nn++;
 	}
 	// 从checkpoint的journal中恢复
-	if (checkpoint.nat_journal_nr > JOURNAL_NR) THROW_FS_ERROR(ERR_INVALID_CHECKPOINT, L"NAT journal size is too large: %d", checkpoint.nat_journal_nr);
-	for (UINT ii = 0; ii < checkpoint.nat_journal_nr; ++ii)
+	if (checkpoint.header.nat_journal_nr > JOURNAL_NR) THROW_FS_ERROR(ERR_INVALID_CHECKPOINT, L"NAT journal size is too large: %d", checkpoint.header.nat_journal_nr);
+	for (UINT ii = 0; ii < checkpoint.header.nat_journal_nr; ++ii)
 	{
 		_NID nid = checkpoint.nat_journals[ii].nid;
 		nat[nid] = checkpoint.nat_journals[ii].phy_blk;
@@ -164,11 +166,11 @@ void CNodeAddressTable::set_phy_blk(_NID nid, PHY_BLK phy_blk)
 	set_dirty(nid);
 }
 
-void CNodeAddressTable::f2fs_out_nat_journal(NAT_JOURNAL_ENTRY* journal, UINT &journal_nr)
+void CNodeAddressTable::f2fs_out_nat_journal(/*NAT_JOURNAL_ENTRY* journal, UINT &journal_nr, */CPageInfo ** nat_pages, CKPT_BLOCK& checkpoint)
 {
+	NAT_JOURNAL_ENTRY* journal = checkpoint.nat_journals;
+	UINT& journal_nr = checkpoint.header.nat_journal_nr;
 	// 将journal中的nat写入磁盘
-	CPageInfo* pages[NAT_BLK_NR];
-	memset(pages, 0, sizeof(pages));
 	for (UINT ii = 0; ii < journal_nr; ++ii)
 	{
 		// 计算nid所在的block
@@ -177,49 +179,73 @@ void CNodeAddressTable::f2fs_out_nat_journal(NAT_JOURNAL_ENTRY* journal, UINT &j
 		UINT offset = nid % NAT_ENTRY_PER_BLK;
 		// cache nat page
 		NAT_BLOCK* nat_blk = nullptr;
-		if (pages[nat_blk_id] == nullptr)
+//		LBLK_T blk;
+		if (nat_pages[nat_blk_id] == nullptr)
 		{	// 读取page
-			pages[nat_blk_id] = m_pages->allocate(true);
-			m_storage->BlockRead(nat_blk_id + NAT_START_BLK, pages[nat_blk_id]);
+			nat_pages[nat_blk_id] = m_pages->allocate(true);
+			LBLK_T blk = get_nat_block(nat_blk_id, checkpoint);
+			m_storage->BlockRead(blk, nat_pages[nat_blk_id]);
 		}
 		// 更新 nat page
-		nat_blk = &m_pages->get_data(pages[nat_blk_id])->nat;
+		nat_blk = &m_pages->get_data(nat_pages[nat_blk_id])->nat;
 		nat_blk->nat[offset] = journal[ii].phy_blk;
+		LOG_DEBUG(L"[nat] flush nat journal to page, nid=%d, phy_blk=%d, page index=%d", nid, journal[ii].phy_blk, nat_blk_id);
 	}
-	// 将更新的page写入nat block
-	for (UINT blk = 0; blk < NAT_BLK_NR; blk++)
-	{
-		if (!pages[blk]) continue;
-		//		LOG_TRACK(L"write_nat", L"write nat[%d] to lba %d", blk * NAT_ENTRY_PER_BLK, blk + NAT_START_BLK);
-		m_storage->BlockWrite(blk + NAT_START_BLK, pages[blk]);
-		m_pages->free(pages[blk]);
-		pages[blk] = nullptr;
-	}
+
 	journal_nr = 0;
+}
+
+LBLK_T CNodeAddressTable::get_nat_next_block(UINT nn, CKPT_BLOCK& checkpoint)
+{
+	DWORD mask = (1 << nn);
+	checkpoint.header.nat_ver_bitmap ^= mask;
+
+	LBLK_T blk = nn + NAT_START_BLK;
+	if (checkpoint.header.nat_ver_bitmap & mask)  blk += NAT_BLK_NR;
+	return blk;
+}
+
+LBLK_T CNodeAddressTable::get_nat_block(UINT nn, const CKPT_BLOCK &checkpoint)
+{
+	DWORD mask = (1 << nn);
+	LBLK_T blk = nn + NAT_START_BLK;
+	if (checkpoint.header.nat_ver_bitmap & mask)  blk += NAT_BLK_NR;
+	return blk;
 }
 
 void CNodeAddressTable::f2fs_flush_nat_entries(CKPT_BLOCK& checkpoint)
 {
-	f2fs_out_nat_journal(checkpoint.nat_journals, checkpoint.nat_journal_nr);
-//	checkpoint.nat_journal_nr = 0;
+	CPageInfo* nat_pages[NAT_BLK_NR];
+	memset(nat_pages, 0, sizeof(nat_pages));
+	f2fs_out_nat_journal(nat_pages, checkpoint);
 	// 将nat写入journal中。
 	for (_NID nid = 0; nid < NODE_NR; nid++) 
 	{
 		if (is_dirty(nid))
 		{	// nid添加到journal中，检查nid是否已经在journal中
-			if (checkpoint.nat_journal_nr >= JOURNAL_NR) {
-				f2fs_out_nat_journal(checkpoint.nat_journals, checkpoint.nat_journal_nr);
+			if (checkpoint.header.nat_journal_nr >= JOURNAL_NR) {
+				f2fs_out_nat_journal(nat_pages, checkpoint);
 				m_fs->m_health_info.nat_journal_overflow++;
-//				checkpoint.nat_journal_nr = 0;
 				LOG_ERROR(L"too many nat journal");
-//				THROW_FS_ERROR(ERR_JOURNAL_OVERFLOW, L"too many nat journal");
 			}
-			int index = checkpoint.nat_journal_nr;
+			int index = checkpoint.header.nat_journal_nr;
 			checkpoint.nat_journals[index].nid = nid;
 			checkpoint.nat_journals[index].phy_blk = nat[nid];
+			LOG_DEBUG(L"[nat] flush nat to journal, nid=%d, phy_blk=%d, journal index=%d", nid, nat[nid], index);
 			clear_dirty(nid);
-			checkpoint.nat_journal_nr++;
+			checkpoint.header.nat_journal_nr++;
 		}
+	}
+	// 将更新的page写入nat block
+	for (UINT nn = 0; nn < NAT_BLK_NR; nn++)
+	{
+		if (!nat_pages[nn]) continue;
+		//		LOG_TRACK(L"write_nat", L"write nat[%d] to lba %d", blk * NAT_ENTRY_PER_BLK, blk + NAT_START_BLK);
+		LBLK_T blk = get_nat_next_block(nn, checkpoint);
+		LOG_DEBUG(L"[nat] write nat page, index=%d, lba=%d", nn, blk);
+		m_storage->BlockWrite(blk, nat_pages[nn]);
+		m_pages->free(nat_pages[nn]);
+		nat_pages[nn] = nullptr;
 	}
 }
 

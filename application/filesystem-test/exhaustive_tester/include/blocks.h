@@ -1,4 +1,4 @@
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+﻿///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // node.h ：定义各种node 类型的数据结构
 #pragma once
 
@@ -76,7 +76,7 @@ struct BLOCK_DATA
 {
 	enum BLOCK_TYPE { 
 		BLOCK_FREE=-1, BLOCK_INODE, BLOCK_INDEX, BLOCK_DENTRY, BLOCK_SIT, BLOCK_NAT, 
-		BLOCK_FILE_DATA, BLOCK_CKPT_CURSEG, BLOCK_CKPT_NAT_JOURNAL, BLOCK_CKPT_SIT_JOURNAL } m_type;
+		BLOCK_FILE_DATA, BLOCK_CKPT_HEADER, BLOCK_CKPT_NAT_JOURNAL, BLOCK_CKPT_SIT_JOURNAL } m_type;
 	union
 	{
 		NODE_INFO		node;
@@ -85,7 +85,7 @@ struct BLOCK_DATA
 		NAT_BLOCK		nat;
 		SUMMARY_BLOCK	ssa;
 		FILE_DATA		file;
-		CKPT_CURSEG		ckpt_curseg;
+		CKPT_HEAD		ckpt_header;
 		CKPT_NAT_JOURNAL	ckpt_nat_nournal;
 		CKPT_SIT_JOURNAL	ckpt_sit_nournal;
 	};

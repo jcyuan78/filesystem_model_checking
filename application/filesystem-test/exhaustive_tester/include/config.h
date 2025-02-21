@@ -1,4 +1,4 @@
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+﻿///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma once
 
 // 文件系统规模
@@ -9,13 +9,13 @@
 #define CKPT_BLK_NR				(6)		// 1个cur_seg，1个NIT journal 4个SIT journal
 #define SIT_JOURNAL_BLK			(4)
 
-#define SIT_START_BLK			(CKPT_START_BLK + CKPT_BLK_NR)	// 1
+#define SIT_START_BLK			(CKPT_START_BLK + CKPT_BLK_NR*2)	// 12
 #define SIT_BLK_NR				(10)		// 总共10个SIT block(120个main segment)
-#define NAT_START_BLK			(SIT_START_BLK + SIT_BLK_NR)	// 11
+#define NAT_START_BLK			(SIT_START_BLK + 2* SIT_BLK_NR)		// 12+20 =32
 #define NAT_BLK_NR				(8)								// NAT block的数量
-#define SSA_START_BLK			(NAT_START_BLK + NAT_BLK_NR)	// 19
-#define SSA_BLK_NUM				(MAIN_SEG_NR)					// 118
-#define END_META_BLK			(SSA_START_BLK + SSA_BLK_NUM)	// 19+118= 237 < 320
+#define SSA_START_BLK			(NAT_START_BLK + 2* NAT_BLK_NR)		// 32+16=48
+#define SSA_BLK_NUM				(MAIN_SEG_NR)						// 118
+#define END_META_BLK			(SSA_START_BLK + SSA_BLK_NUM)		// 48+118= 266 < 320
 
 #define BLOCK_PER_SEG			(32)					// 一个segment有多少块
 #define BITMAP_SIZE				(BLOCK_PER_SEG /32)		// 512 blocks / 32 bit

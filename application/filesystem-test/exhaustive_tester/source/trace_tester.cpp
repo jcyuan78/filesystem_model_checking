@@ -1,4 +1,4 @@
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+﻿///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #include "pch.h"
 #include "../include/extester.h"
 #include <boost/property_tree/json_parser.hpp>
@@ -90,6 +90,8 @@ int CExTraceTester::PrepareTest(const boost::property_tree::wptree& config, IFsS
 
 ERROR_CODE CExTraceTester::RunTest(void)
 {
+	CJCLogger::Instance()->ParseAppender(L">STDERR", L"");
+
 	printf_s("Running TRACE test\n");
 	InitializeCriticalSection(&m_trace_crit);
 
@@ -137,10 +139,12 @@ ERROR_CODE CExTraceTester::RunTest(void)
 			case OP_CODE::OP_FILE_CREATE:
 				printf_s("[CreateFile] %s\n", op.file_path.c_str());
 				ir = TestCreateFile(next_state, op.file_path);
+				next_state->m_real_fs->DumpLog(stdout, "");
 				break;
 			case OP_CODE::OP_DIR_CREATE:
 				printf_s("[CreateDir] %s\n", op.file_path.c_str());
 				ir = TestCreateDir(next_state, op.file_path);
+				next_state->m_real_fs->DumpLog(stdout, "");
 				break;
 			case OP_CODE::OP_FILE_DELETE:
 				printf_s("[DeleteFile] %s\n", op.file_path.c_str());
@@ -171,12 +175,12 @@ ERROR_CODE CExTraceTester::RunTest(void)
 
 			case OP_CODE::OP_DEMOUNT_MOUNT:
 				printf_s("[Mount] \n");
-				ir = TestMount(next_state);
+				ir = TestMount(next_state, true);
 				break;
 			case OP_CODE::OP_POWER_OFF_RECOVER:
 				printf_s("[Power] \n");
 				is_power_off = true;
-				ir = TestPowerOutage(next_state, op.rollback);
+				ir = TestPowerOutage(next_state, op.rollback, true);
 				break;
 
 			case OP_CODE::OP_FILE_VERIFY:
@@ -271,7 +275,7 @@ bool CExTester::OutputTrace(CFsState* state)
 				dir ? "dir " : "file", ref_file.get_fid(), path.c_str(), str_index, str_encode, ref_len);
 
 			std::vector<GC_TRACE> gc;
-			fs->GetGcTrace(gc);
+			//fs->GetGcTrace(gc);
 			if (!gc.empty())
 			{
 				TEST_LOG("gc:\n");

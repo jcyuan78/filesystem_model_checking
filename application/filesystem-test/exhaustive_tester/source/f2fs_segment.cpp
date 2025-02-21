@@ -1,4 +1,4 @@
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+﻿///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #include "pch.h"
 #include "../include/f2fs_segment.h"
 #include "../include/f2fs_simulator.h"
@@ -59,11 +59,14 @@ void CF2fsSegmentManager::Reset(void)
 	memset(&m_data_cache, 0xFF, sizeof(m_data_cache));
 }
 
-void CF2fsSegmentManager::f2fs_out_sit_journal(SIT_JOURNAL_ENTRY* journal, UINT &journal_nr)
+void CF2fsSegmentManager::f2fs_out_sit_journal(CPageInfo ** sit_pages, CKPT_BLOCK& checkpoint)
 {
 	// 将journal中的sit写入磁盘
-	CPageInfo* pages[SIT_BLK_NR];
-	memset(pages, 0, sizeof(pages));
+//	CPageInfo* pages[SIT_BLK_NR];
+//	memset(pages, 0, sizeof(pages));
+	SIT_JOURNAL_ENTRY* journal = checkpoint.sit_journals;
+	UINT& journal_nr = checkpoint.header.sit_journal_nr;
+
 	for (UINT ii = 0; ii < journal_nr; ++ii)
 	{
 		//计算segment在sit中的位置
@@ -72,48 +75,71 @@ void CF2fsSegmentManager::f2fs_out_sit_journal(SIT_JOURNAL_ENTRY* journal, UINT 
 		UINT offset = seg_no % SIT_ENTRY_PER_BLK;
 		// cache sit page
 		SIT_BLOCK* sit_blk = nullptr;
-		if (pages[sit_blk_id] == nullptr)
+		if (sit_pages[sit_blk_id] == nullptr)
 		{
-			pages[sit_blk_id] = m_pages->allocate(true);
-			m_storage->BlockRead(sit_blk_id + SIT_START_BLK, pages[sit_blk_id]);
+			sit_pages[sit_blk_id] = m_pages->allocate(true);
+			LBLK_T blk = get_sit_block(sit_blk_id, checkpoint);
+			m_storage->BlockRead(blk, sit_pages[sit_blk_id]);
 		}
 		//更新sit page
-		sit_blk = &m_pages->get_data(pages[sit_blk_id])->sit;
+		sit_blk = &m_pages->get_data(sit_pages[sit_blk_id])->sit;
 		memcpy_s(&sit_blk->sit_entries[offset], sizeof(SEG_INFO), &journal[ii].seg_info, sizeof(SEG_INFO));
-	}
-
-	// 将更新的page写入sit block
-	for (UINT blk = 0; blk < SIT_BLK_NR; ++blk)
-	{
-		if (pages[blk] == nullptr) continue;
-		m_storage->BlockWrite(blk + SIT_START_BLK, pages[blk]);
-		m_pages->free(pages[blk]);
-		pages[blk] = nullptr;
 	}
 	journal_nr = 0;
 }
 
 void CF2fsSegmentManager::f2fs_flush_sit_entries(CKPT_BLOCK& checkpoint)
 {
-	f2fs_out_sit_journal(checkpoint.sit_journals, checkpoint.sit_journal_nr);
+	CPageInfo* sit_pages[SIT_BLK_NR];
+	memset(sit_pages, 0, sizeof(sit_pages));
+
+	f2fs_out_sit_journal(sit_pages, checkpoint);
 	// 将sit更新写入journal中
 	for (SEG_T seg = 0; seg < MAIN_SEG_NR; seg++)
 	{
 		if (is_dirty(seg))
 		{	// seg添加到journal中
-			if (checkpoint.sit_journal_nr >= JOURNAL_NR)
+			if (checkpoint.header.sit_journal_nr >= JOURNAL_NR)
 			{
-				f2fs_out_sit_journal(checkpoint.sit_journals, checkpoint.sit_journal_nr);
+				f2fs_out_sit_journal(sit_pages, checkpoint);
 				m_fs->m_health_info.sit_journal_overflow++;
 				LOG_ERROR(L"[err] too many sit journal.");
 			}
-			int index = checkpoint.sit_journal_nr;
+			int index = checkpoint.header.sit_journal_nr;
 			checkpoint.sit_journals[index].seg_no = seg;
 			fill_seg_info(&checkpoint.sit_journals[index].seg_info, seg);
 			clear_dirty(seg);
-			checkpoint.sit_journal_nr++;
+			checkpoint.header.sit_journal_nr++;
 		}
 	}
+
+	// 将更新的page写入sit block
+	for (UINT ii = 0; ii < SIT_BLK_NR; ++ii)
+	{
+		if (sit_pages[ii] == nullptr) continue;
+		LBLK_T blk = get_sit_next_block(ii, checkpoint);
+		m_storage->BlockWrite(blk, sit_pages[ii]);
+		m_pages->free(sit_pages[ii]);
+		sit_pages[ii] = nullptr;
+	}
+}
+
+LBLK_T CF2fsSegmentManager::get_sit_next_block(UINT sit_blk, CKPT_BLOCK & checkpoint)
+{	// 反转checkpoint中，sit_ver_bitmap，并且获取相应的写入block
+	DWORD mask = (1 << sit_blk);
+	checkpoint.header.sit_ver_bitmap ^= mask;
+
+	LBLK_T blk = sit_blk + SIT_START_BLK;
+	if (checkpoint.header.sit_ver_bitmap & mask) blk += SIT_BLK_NR;
+	return blk;
+}
+
+LBLK_T CF2fsSegmentManager::get_sit_block(UINT sit_blk, const CKPT_BLOCK & checkpoint)
+{
+	DWORD mask = (1 << sit_blk);
+	LBLK_T blk = sit_blk + SIT_START_BLK;
+	if (checkpoint.header.sit_ver_bitmap & mask) blk += SIT_BLK_NR;
+	return blk;
 }
 
 void CF2fsSegmentManager::SyncSIT(void)
@@ -177,12 +203,14 @@ void CF2fsSegmentManager::read_seg_info(SEG_INFO* seg_info, SEG_T seg)
 bool CF2fsSegmentManager::Load(CKPT_BLOCK& checkpoint)
 {
 	// 读取SIT
-	UINT lba = SIT_START_BLK;
+	//UINT lba = SIT_START_BLK;
+	UINT ss = 0;
 	SEG_T seg_id = 0;
 	CPageInfo* page = m_pages->allocate(true);
-	for (; seg_id < MAIN_SEG_NR; ++lba)
+	for (; seg_id < MAIN_SEG_NR; ++ss)
 	{
-		m_storage->BlockRead(lba, page);
+		LBLK_T blk = get_sit_block(ss, checkpoint);
+		m_storage->BlockRead(blk, page);
 		BLOCK_DATA* data = m_pages->get_data(page);
 		SEG_INFO* seg_info = data->sit.sit_entries;
 
@@ -195,19 +223,19 @@ bool CF2fsSegmentManager::Load(CKPT_BLOCK& checkpoint)
 	}
 	// 读取cur_seg
 	size_t curseg_size = sizeof(CURSEG_INFO) * BT_TEMP_NR;
-	memcpy_s(m_cur_segs, curseg_size, checkpoint.cur_segs, curseg_size);
+	memcpy_s(m_cur_segs, curseg_size, checkpoint.header.cur_segs, curseg_size);
 
 	// 从journal中恢复最新改动
-	if (checkpoint.sit_journal_nr > JOURNAL_NR) {
-		THROW_FS_ERROR(ERR_INVALID_CHECKPOINT, L"SIT journal size is too large: %d", checkpoint.sit_journal_nr);
+	if (checkpoint.header.sit_journal_nr > JOURNAL_NR) {
+		THROW_FS_ERROR(ERR_INVALID_CHECKPOINT, L"SIT journal size is too large: %d", checkpoint.header.sit_journal_nr);
 	}
-	for (UINT ii = 0; ii < checkpoint.sit_journal_nr; ++ii)
+	for (UINT ii = 0; ii < checkpoint.header.sit_journal_nr; ++ii)
 	{
 		SEG_T seg_id = checkpoint.sit_journals[ii].seg_no;
 		read_seg_info(&checkpoint.sit_journals[ii].seg_info, seg_id);
 	}
 	
-	lba = SSA_START_BLK;
+	LBLK_T lba = SSA_START_BLK;
 	// 考虑到一个summary block包含一个segmet的信息。
 	for (SEG_T seg_id = 0; seg_id < MAIN_SEG_NR; ++seg_id, ++lba)
 	{

@@ -47,6 +47,34 @@ void CStorage::Reset(void)
 	m_cache_size = 0;
 }
 
+void CStorage::DumpStorage(FILE* out)
+{
+	fprintf_s(out, "[Storage Trace]\n");
+	LBLK_T ptr = m_cache_tail;
+	LBLK_T first = -1, end = -1, count = 0;
+	int index = 0;
+	while (1)
+	{
+		if (ptr == 0)	ptr = SSD_CACHE_SIZE - 1;
+		else			ptr--;
+		LBLK_T lba = m_cache[ptr].lba;
+		if (lba + 1 == end) {
+			//merge
+			end--; count++;
+		}
+		else {
+			// output
+			if (is_valid(end)) fprintf_s(out, "\t Write: index=%d, start_lba=%d, count=%d\n", index, end, count);
+			// start new
+			end = lba;
+			count = 1;
+		}
+		index++;
+		if (ptr == m_cache_head) break;
+	}
+	if (is_valid(end)) fprintf_s(out, "\t Write: index=%d, start_lba=%d, count=%d\n", index, end, count);
+}
+
 void CStorage::cache_deque(LBLK_T cache_index)
 {
 	StorageEntry* cache = m_cache + cache_index;
@@ -92,6 +120,7 @@ void CStorage::cache_enque(LBLK_T lba, LBLK_T cache_index)
 void CStorage::BlockWrite(LBLK_T lba, CPageInfo* page)
 {
 	JCASSERT(page);
+//	printf_s("[write] lba=%d\n", lba);
 	BLOCK_DATA* block = m_pages->get_data(page);	JCASSERT(block);
 	// 检查cache是否满，
 	if (((m_cache_tail + 1) % SSD_CACHE_SIZE) == m_cache_head)
@@ -129,6 +158,7 @@ void CStorage::BlockRead(LBLK_T lba, CPageInfo *page)
 		src = & m_data[lba].data;
 	}
 	memcpy_s(dst, sizeof(BLOCK_DATA), src, sizeof(BLOCK_DATA));
+//	printf_s("[read] lba=%d, index=%d\n", lba, m_data[lba].cache_prev);
 }
 
 void CStorage::Sync(void)
@@ -201,10 +231,12 @@ void CStorage::Rollback(LBLK_T nr)
 		m_cache[m_cache_tail].cache_prev = INVALID_BLK;
 		m_cache[m_cache_tail].lba = INVALID_BLK;
 
-		LOG_DEBUG_(1,L"deque: index=%d, lba=%d, new_index=%d", m_cache_tail, lba, prev);
+		LOG_DEBUG_(0,L"deque: index=%d, lba=%d, new_index=%d", m_cache_tail, lba, prev);
+		//printf_s("[rollback] index=%d, lba=%d, new_index=%d\n", m_cache_tail, lba, prev);
 
 		++ii;
-		if ((lba==0 || lba>= SIT_START_BLK) && (ii >= nr)) break;
+//		if ((lba==0 || lba>= SIT_START_BLK) && (ii >= nr)) break;
+		if (ii >= nr) break;
 	}
 }
 
@@ -225,11 +257,7 @@ const wchar_t* CFsException::ErrCodeToString(ERROR_CODE code)
 	case ERR_OK:				return L"OK";
 	case ERR_NO_OPERATION:		return L"No operation";	// 测试过程中，正常情况下，当前操作无法被执行。
 	case ERR_NO_SPACE:			return L"No enough space";		// GC时发现空间不够，无法回收更多segment
-//	case ERR_NO_SPACE:			return L"No ehough node";
-//	case ERR_NO_SPACE:		return L"Dentry reaches max level";		// 文件夹的dentry已经满了: 
 	case ERR_MAX_OPEN_FILE:		return L"Reached max open file";		// 打开的文件超过数量
-//	case ERR_NO_SPACE:		return L"No resource";	// 由于资源不够放弃操作
-
 
 	case ERR_GENERAL:			return L"General Error";
 	case OK_ALREADY_EXIST:		return L"File already exist";			// 文件或者目录已经存在，但是结果返回true: 
@@ -245,11 +273,11 @@ const wchar_t* CFsException::ErrCodeToString(ERROR_CODE code)
 	case ERR_WRONG_FILE_DATA:	return L"Wrong file data";
 	case ERR_SYNC:				return L"Error happended in sync fs";	
 
-		//			case ERR_UNKNOWN, :
 	case ERR_PENDING:			return L"Test is running";				// 测试还在进行中: 
 	case ERR_PARENT_NOT_EXIST:	return L"Parent directory not exist";	// 打开文件或者创建文件时，父目录不存在
 	case ERR_WRONG_PATH:		return L"Wrong path format";			// 文件名格式不对，要求从\\开始
 	case ERR_VERIFY_FILE:		return L"File compare fail";			// 文件比较时，长度不对
+	case ERR_CKPT_FAIL:			return L"Ckeckpoint failed";			// Ckeckpoint 错误。两个同时有效且版本相等，或者两个都无效
 
 	case ERR_WRONG_BLOCK_TYPE:	return L"Wrong block type";				// block的类型不符
 	case ERR_WRONG_FILE_TYPE:	return L"Wrong file/dir type";

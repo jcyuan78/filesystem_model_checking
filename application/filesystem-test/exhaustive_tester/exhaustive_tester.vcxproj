@@ -172,6 +172,7 @@
     <ClCompile Include="source\extester_app.cpp" />
     <ClCompile Include="source\extester_multithread.cpp" />
     <ClCompile Include="source\extester_obsolete.cpp" />
+    <ClCompile Include="source\f2fs_dump.cpp" />
     <ClCompile Include="source\f2fs_nat.cpp" />
     <ClCompile Include="source\f2fs_segment.cpp" />
     <ClCompile Include="source\f2fs_simulator.cpp" />

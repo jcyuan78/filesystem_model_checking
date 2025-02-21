@@ -1,4 +1,4 @@
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+﻿///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #include "pch.h"
 #include "../include/extester.h"
 #include <Psapi.h>
@@ -47,6 +47,7 @@ int CExTester::PrepareTest(const boost::property_tree::wptree& config, IFsSimula
 	m_thread_num = config.get<UINT>(L"thread_num", 8);
 	m_branch = config.get<int>(L"branch", -1);
 	m_check_power_loss = config.get<bool>(L"check_power_loss", false);
+	m_stop_on_error = config.get<bool>(L"stop_on_error", false);
 
 	// 文件系统支持的最大文件大小。
 	FSIZE max_file_secs = m_fs_factory->MaxFileSize() * BLOCK_SIZE;
@@ -397,7 +398,10 @@ ERROR_CODE CExTester::RunTest(void)
 		// (3) 移除当前状态      
 		// 清除父节点
 		m_states.put(cur_state);		// put()中将m_cur_state置 nullptr
-//		if (ir != ERR_OK) break;
+		if (m_stop_on_error && (ir != ERR_OK))
+		{
+			break;
+		}
 	}
 #endif
 	if (ir != ERR_OK)
@@ -859,12 +863,15 @@ ERROR_CODE CExTester::VerifyState(CReferenceFs & ref_fs, IFsSimulator * real_fs)
 		real_fs->GetFileDirNum(0, real_file_nr, real_dir_nr);		// TODO: os需要保存file number以供检查
 
 		if (real_dir_nr != ref_dir_nr) {
-			THROW_FS_ERROR(ERR_WRONG_FILE_NUM, L"directory number does not match, ref:%d, fs:%d",
-				ref_dir_nr, real_dir_nr);
+//			THROW_FS_ERROR(ERR_WRONG_FILE_NUM, L"directory number does not match, ref:%d, fs:%d", ref_dir_nr, real_dir_nr);
+			LOG_ERROR(L"[err] [code=%d] directory number does not match, ref:%d, fs:%d", ERR_WRONG_FILE_NUM, ref_dir_nr, real_dir_nr);
+			return ERR_WRONG_FILE_NUM;
+
 		}
 		if (real_file_nr != ref_file_nr) {
-			THROW_FS_ERROR(ERR_WRONG_FILE_NUM, L"file number does not match, ref:%d, fs:%d", 
-				ref_file_nr, real_file_nr);
+//			THROW_FS_ERROR(ERR_WRONG_FILE_NUM, L"file number does not match, ref:%d, fs:%d", ref_file_nr, real_file_nr);
+			LOG_ERROR(L"[err] [code=%d] file number does not match, ref:%d, fs:%d", ERR_WRONG_FILE_NUM, ref_file_nr, real_file_nr);
+			return ERR_WRONG_FILE_NUM;
 		}
 		FSIZE total_file_blks = 0;
 
@@ -899,7 +906,10 @@ ERROR_CODE CExTester::VerifyState(CReferenceFs & ref_fs, IFsSimulator * real_fs)
 
 			if (ir != ERR_OK || is_invalid(fid) )
 			{
-				THROW_FS_ERROR(ir == ERR_OK ? ERR_OPEN_FILE : ir, L"failed on open file=%S", path.c_str());
+//				THROW_FS_ERROR(ir == ERR_OK ? ERR_OPEN_FILE : ir, L"failed on open file=%S", path.c_str());
+				if (ir == ERR_OK) { ir = ERR_OPEN_FILE; }
+				LOG_ERROR(L"[err] [code=%d], failed on open file=%S", ir, path.c_str());
+				return ir;
 			}
 			checked_file++;
 			if (dir) {
@@ -916,7 +926,9 @@ ERROR_CODE CExTester::VerifyState(CReferenceFs & ref_fs, IFsSimulator * real_fs)
 				ir = ERR_WRONG_FILE_SIZE;
 				TEST_ERROR("file length does not match ref=%d, file=%d", ref_len, file_secs);
 				if (is_valid(fid) ) real_fs->FileClose(fid);
-				THROW_FS_ERROR(ERR_VERIFY_FILE, L"file length does not match ref=%d, file=%d", ref_len, file_secs);
+//				THROW_FS_ERROR(ERR_VERIFY_FILE, L"file length does not match ref=%d, file=%d", ref_len, file_secs);
+				LOG_ERROR(L"[err] [code=%d] file length does not match ref=%d, file=%d", ERR_VERIFY_FILE, ref_len, file_secs);
+				return ERR_VERIFY_FILE;
 			}
 			FILE_DATA data[MAX_FILE_BLKS];
 			size_t page_nr = real_fs->FileRead(data, fid, 0, file_secs);
@@ -933,7 +945,9 @@ ERROR_CODE CExTester::VerifyState(CReferenceFs & ref_fs, IFsSimulator * real_fs)
 			}
 			if (compare > 0) {
 				if (is_valid(fid)) real_fs->FileClose(fid);
-				THROW_FS_ERROR(ERR_VERIFY_FILE, L"read file mismatch, %d secs", compare);
+//				THROW_FS_ERROR(ERR_VERIFY_FILE, L"read file mismatch, %d secs", compare);
+				LOG_ERROR(L"[err] [code=%d] read file mismatch, %d secs", ERR_VERIFY_FILE, compare);
+				return ERR_VERIFY_FILE;
 			}
 			real_fs->FileClose(fid);
 		}
@@ -1054,7 +1068,7 @@ ERROR_CODE CExTester::TestDeleteDir(CFsState* cur_state, const std::string& path
 	return ir;
 }
 
-ERROR_CODE CExTester::TestMount(CFsState* cur_state)
+ERROR_CODE CExTester::TestMount(CFsState* cur_state, bool debug)
 {
 	JCASSERT(cur_state);
 	IFsSimulator* real_fs = cur_state->m_real_fs;
@@ -1064,9 +1078,17 @@ ERROR_CODE CExTester::TestMount(CFsState* cur_state)
 
 	ERROR_CODE ir = ERR_OK;
 	try {
+		if (debug) {
+			printf_s("Dump before Unmount:\n");
+			real_fs->DumpLog(stdout, "");
+		}
 		real_fs->Unmount();
 		real_fs->Reset(0);
 		real_fs->Mount();
+		if (debug) {
+			printf_s("Dump after Mount:\n");
+			real_fs->DumpLog(stdout, "");
+		}
 		TEST_LOG("[OPERATE ](%d) DEMOUNT MOUNT\n", cur_state->m_op.op_sn);
 		ir = Verify(cur_state);
 	}
@@ -1082,7 +1104,7 @@ ERROR_CODE CExTester::TestMount(CFsState* cur_state)
 	return ir;
 }
 
-ERROR_CODE CExTester::TestPowerOutage(CFsState* cur_state, UINT rollback)
+ERROR_CODE CExTester::TestPowerOutage(CFsState* cur_state, UINT rollback, bool debug)
 {
 	JCASSERT(cur_state);
 	IFsSimulator* real_fs = cur_state->m_real_fs;
@@ -1097,9 +1119,20 @@ ERROR_CODE CExTester::TestPowerOutage(CFsState* cur_state, UINT rollback)
 
 	// 选择一个io, mount，做下一步测试
 	cur_state->m_stable = false;
+	if (debug) {
+		printf_s("Dump before power outage");
+		real_fs->DumpLog(stdout, "");
+		real_fs->LogOption(stdout, 0xFFFF);
+		real_fs->DumpLog(stdout, "storage");
+		LOG_DEBUG(L"Rollback: %d", rollback);
+	}
 	real_fs->Reset(rollback);
 	real_fs->fsck(true);
 	real_fs->Mount();
+	if (debug) {
+		printf_s("Dump after power outage:\n");
+		real_fs->DumpLog(stdout, "");
+	}
 	TEST_LOG("[OPERATE ](%d) POWER_OUTAGE\n", cur_state->m_op.op_sn);
 
 	ERROR_CODE ir = VerifyForPower(cur_state);

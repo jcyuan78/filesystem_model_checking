@@ -1,4 +1,4 @@
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+﻿///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #include "pch.h"
 #include "../include/f2fs_simulator.h"
 #include <boost/unordered_set.hpp>
@@ -33,6 +33,10 @@ ERROR_CODE CF2fsSimulator::fsck(bool fix)
 //	m_nat.Load();
 //	m_segments.Load();
 	Mount();
+	if (m_log_fsck)	{
+		LOG_DEBUG(L"[fsck dump after mount]")
+		DumpLog(m_log_out, "");
+	}
 
 	F2FS_FSCK fsck;
 	fsck_init(&fsck);
@@ -50,11 +54,11 @@ ERROR_CODE CF2fsSimulator::fsck(bool fix)
 	// fix
 	if (fsck.fixed) {
 		// clear journal in checkpoint
-		m_segments.SyncSIT();
-		m_nat.Sync();
-		m_segments.SyncSSA();
-		m_segments.reset_dirty_map();
-		m_storage.Sync();
+//		m_segments.SyncSIT();
+//		m_nat.Sync();
+//		m_segments.SyncSSA();
+//		m_segments.reset_dirty_map();
+//		m_storage.Sync();
 	}
 	m_segments.Reset();
 	m_nat.Reset();
@@ -247,6 +251,7 @@ int CF2fsSimulator::fsck_chk_data_blk(F2FS_FSCK* fsck, _NID nid, WORD offset, PH
 	m_pages.free(page);
 	return 0;
 }
+
 
 int CF2fsSimulator::fsck_chk_node_blk(F2FS_FSCK* fsck, _NID nid, F2FS_FILE_TYPE file_type, BLOCK_DATA::BLOCK_TYPE block_type, UINT &blk_cnt)
 {

@@ -1,4 +1,4 @@
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+﻿///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma once
 
 #include "fs_simulator.h"
@@ -203,8 +203,8 @@ protected:
 	ERROR_CODE TestCloseFile(CFsState* cur_state, _NID fid, const std::string & path);
 	ERROR_CODE TestDeleteFile(CFsState* cur_state, const std::string& path);
 	ERROR_CODE TestDeleteDir(CFsState* cur_state, const std::string& path);
-	ERROR_CODE TestMount(CFsState * cur_state);
-	ERROR_CODE TestPowerOutage(CFsState* cur_state, UINT rollback);
+	ERROR_CODE TestMount(CFsState * cur_state, bool debug=false);
+	ERROR_CODE TestPowerOutage(CFsState* cur_state, UINT rollback, bool debug= false);
 
 	int TestMove(CFsState* state, CReferenceFs& ref, const std::wstring& path_src, const std::wstring& path_dst);
 
@@ -264,6 +264,7 @@ protected:
 	size_t m_volume_size;					// 文件系统大小
 	int m_branch;							// 统计测试时，抽选的分支数量
 	bool m_check_power_loss;				
+	bool m_stop_on_error= false;
 
 	std::vector<OP_CODE> m_file_op_set;		// 对于文件，允许的操作
 	std::vector<OP_CODE> m_dir_op_set;		// 对于目录，允许的操作
@@ -370,6 +371,7 @@ protected:
 	virtual int PreTest(void) { return 0; };
 	virtual ERROR_CODE RunTest(void);
 	virtual void FinishTest(void) {};
+	virtual bool PrintProgress(INT64 ts) { return false; };
 
 protected:
 	//std::string m_trace_fn;

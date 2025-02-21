@@ -1,4 +1,4 @@
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+﻿///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma once
 
 #include "fs_simulator.h"
@@ -58,12 +58,18 @@ public:
 	PHY_BLK get_phy_blk(_NID nid);
 	void set_phy_blk(_NID nid, PHY_BLK phy_blk);
 	void f2fs_flush_nat_entries(CKPT_BLOCK & checkpoint);
-	void f2fs_out_nat_journal(NAT_JOURNAL_ENTRY* journal, UINT & journal_nr);
+	void f2fs_out_nat_journal(/*NAT_JOURNAL_ENTRY* journal, UINT & journal_nr, */CPageInfo ** nat_pages, CKPT_BLOCK & checkpoint);
+	LBLK_T get_nat_next_block(UINT nn, CKPT_BLOCK& checkpoint);
+	LBLK_T get_nat_block(UINT nn, const CKPT_BLOCK& checkpoint);
 
 	void set_dirty(_NID nid);
 	void clear_dirty(_NID nid);
 	DWORD is_dirty(_NID nid);
 	UINT get_dirty_node_nr(void);
+
+public:
+	// for debug
+	void DumpNat(FILE* out);
 
 public:
 	PAGE_INDEX node_cache[NODE_NR];
@@ -75,6 +81,8 @@ protected:
 	CPageAllocator* m_pages;
 	CStorage* m_storage;
 	CF2fsSimulator* m_fs;
+
+
 };
 
 // 用于缓存已经打开的文件，inode的page
@@ -152,20 +160,24 @@ public:
 	virtual ERROR_CODE fsck(bool fix);
 
 	// 以下接口用于测试。
-	virtual void DumpSegments(const std::wstring& fn, bool sanity_check);
-	virtual void DumpSegmentBlocks(const std::wstring& fn);
-	virtual void DumpFileMap(FILE* out, _NID fid) { DumpFileMap_merge(out, fid); }
+	//virtual void DumpSegments(const std::wstring& fn, bool sanity_check);
+	//virtual void DumpSegmentBlocks(const std::wstring& fn);
+	//virtual void DumpFileMap(FILE* out, _NID fid) { DumpFileMap_merge(out, fid); }
 
-	virtual void DumpAllFileMap(const std::wstring& fn);
-	virtual void DumpBlockWAF(const std::wstring& fn);
-	virtual size_t DumpFileIndex(_NID index[], size_t buf_size, _NID fid);
-	void DumpFileMap_no_merge(FILE* out, _NID fid);
+	//virtual void DumpAllFileMap(const std::wstring& fn);
+	//virtual void DumpBlockWAF(const std::wstring& fn);
+	//virtual size_t DumpFileIndex(_NID index[], size_t buf_size, _NID fid);
+	//void DumpFileMap_no_merge(FILE* out, _NID fid);
 
-	virtual void GetGcTrace(std::vector<GC_TRACE>& gc) { 
-#ifdef GC_TRACE
-		gc = m_segments.gc_trace; 
-#endif
-	};
+//	virtual void GetGcTrace(std::vector<GC_TRACE>& gc) { 
+//#ifdef GC_TRACE
+//		gc = m_segments.gc_trace; 
+//#endif
+//	};
+	// 通过flag，打开或者关闭对应的log内容，这些内容只保存在file system内部。
+	virtual void LogOption(FILE * out, DWORD flag);
+	// 通过dump相应的log到指定输出
+	virtual void DumpLog(FILE* out, const char* log_name);
 
 
 
@@ -175,6 +187,11 @@ public:
 #else
 	void fs_trace(const char* op, _NID fid, DWORD start_blk, DWORD blk_nr) {}
 #endif
+
+protected:
+	void DumpCheckpoint(FILE * out, const CKPT_BLOCK& checkpoint);
+	void DumpNatPage(FILE* out);
+	//void DumpNat(FILE* out);
 
 
 // functions for fsck
@@ -227,9 +244,9 @@ protected:
 	ERROR_CODE f2fs_sync_node_page(void);
 
 	void f2fs_write_checkpoint();
-	// 从磁盘读取checkpoint
-	bool load_checkpoint();
-	void save_checkpoint();
+	// 从磁盘读取checkpoint, 返回checkpoint的序号
+	int load_checkpoint();
+	void save_checkpoint(int ckpt_id);
 
 	inline WORD FileNameHash(const char* fn)
 	{
@@ -265,7 +282,7 @@ protected:
 	PHY_BLK UpdateInode(CPageInfo * ipage, const char* caller = "");
 
 	// 在输出file map时，并连续的物理block
-	void DumpFileMap_merge(FILE* out, _NID fid);
+	//void DumpFileMap_merge(FILE* out, _NID fid);
 
 	bool InitInode(BLOCK_DATA* block, CPageInfo* page, F2FS_FILE_TYPE type);
 
@@ -315,6 +332,7 @@ protected:
 	int m_multihead_cnt = 0;
 	UINT m_node_blks = 0;	//使用的inode或index node的数量
 	int m_op_segs = 0;
+	int m_cur_ckpt;			//只是当前使用的checkpoint的位置
 	// data for log
 	// 对于删除文件的写入量统计。
 
@@ -329,6 +347,11 @@ protected:
 	FILE* m_gc_trace = nullptr;
 	FILE* m_inode_trace = nullptr;
 #endif
+
+	// log options
+	bool m_log_fsck = false;
+	bool m_log_storage = false;
+	FILE* m_log_out = nullptr;
 
 	UINT m_ref;	//引用计数
 };

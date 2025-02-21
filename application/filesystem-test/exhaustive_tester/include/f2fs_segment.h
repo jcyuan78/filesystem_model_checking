@@ -1,4 +1,4 @@
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+﻿///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma once
 #include "fs_simulator.h"
 #include "config.h"
@@ -63,10 +63,13 @@ struct SIT_JOURNAL_ENTRY {
 	SEG_INFO seg_info;
 };
 
-struct CKPT_CURSEG
+struct CKPT_HEAD
 {
 	CURSEG_INFO cur_segs[BT_TEMP_NR];
 	UINT nat_journal_nr, sit_journal_nr;
+	DWORD sit_ver_bitmap;
+	DWORD nat_ver_bitmap;
+	DWORD ver_open, ver_close;
 };
 struct CKPT_NAT_JOURNAL
 {
@@ -80,8 +83,11 @@ struct CKPT_SIT_JOURNAL
 
 struct CKPT_BLOCK
 {
-	CURSEG_INFO cur_segs[BT_TEMP_NR];
-	UINT nat_journal_nr, sit_journal_nr;
+	//CURSEG_INFO cur_segs[BT_TEMP_NR];
+	//UINT nat_journal_nr, sit_journal_nr;
+	//DWORD sit_ver_bitmap;
+	//DWORD nat_ver_bitmap;
+	CKPT_HEAD header;
 	NAT_JOURNAL_ENTRY nat_journals[JOURNAL_NR];
 	SIT_JOURNAL_ENTRY sit_journals[JOURNAL_NR];
 };
@@ -94,14 +100,12 @@ struct CKPT_BLOCK
 class SegmentInfo
 {
 public:
-	DWORD valid_bmp[BITMAP_SIZE];
-	UINT valid_blk_nr;	// 当segment free的时候，作为free链表的指针使用。valid_blk_nr == -1 表示block为free，可以再分配
-//	DWORD cur_blk;		// 可以分配的下一个block, 0:表示这个segment未被使用，BLOCK_PER_SEG：表示已经填满，其他：当前segment
-	// 当block free时， cur_blk表示free指针
-	BLK_TEMP seg_temp;	// 指示segment的温度，用于GC和
+	DWORD		valid_bmp[BITMAP_SIZE];
+	UINT		valid_blk_nr;	// 当segment free的时候，作为free链表的指针使用。valid_blk_nr == -1 表示block为free，可以再分配
+	BLK_TEMP	seg_temp;	// 指示segment的温度，用于GC和
 	_NID		nids[BLOCK_PER_SEG];
-	WORD	offset[BLOCK_PER_SEG];
-	SEG_T	free_next;	// 构成free链表的双向指针
+	WORD		offset[BLOCK_PER_SEG];
+	SEG_T		free_next;	// 构成free链表的双向指针
 };
 
 inline DWORD OffsetToBlock(LBLK_T& start_blk, LBLK_T& end_blk, FSIZE start_lba, FSIZE secs)
@@ -269,11 +273,14 @@ public:
 	void SyncSIT(void);
 	void SyncSSA(void);
 	void f2fs_flush_sit_entries(CKPT_BLOCK& checkpoint);
-	void f2fs_out_sit_journal(SIT_JOURNAL_ENTRY* journal, UINT &journal_nr);
+	void f2fs_out_sit_journal(/*SIT_JOURNAL_ENTRY* journal, UINT &journal_nr, */CPageInfo ** sit_pages, CKPT_BLOCK & checkpoint);
+	LBLK_T get_sit_next_block(UINT sit_blk, CKPT_BLOCK & checkpoint);
+	LBLK_T get_sit_block(UINT sit_blk, const CKPT_BLOCK & checkpoint);
 	void fill_seg_info(SEG_INFO* seg_info, SEG_T seg);
 	void read_seg_info(SEG_INFO* seg_info, SEG_T seg);
 	// 从storage中读取 
 	bool Load(CKPT_BLOCK & checkpoint);
+	void DumpSegments(FILE * out);
 
 protected:
 	// 查找一个空的segment: force：可以使用保留区域

@@ -1,4 +1,4 @@
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+﻿///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #include "pch.h"
 #include "../include/f2fs_simulator.h"
 #include <boost/unordered_set.hpp>
@@ -17,7 +17,7 @@ LOG_CLASS_SIZE(NAT_BLOCK);
 LOG_CLASS_SIZE(SIT_BLOCK);
 LOG_CLASS_SIZE(SUMMARY);
 LOG_CLASS_SIZE(SUMMARY_BLOCK);
-LOG_CLASS_SIZE(CKPT_CURSEG);
+LOG_CLASS_SIZE(CKPT_HEAD);
 LOG_CLASS_SIZE(CKPT_NAT_JOURNAL);
 LOG_CLASS_SIZE(CKPT_SIT_JOURNAL);
 
@@ -53,7 +53,7 @@ void CF2fsSimulator::Clone(IFsSimulator*& dst)
 	CF2fsSimulator* fs = new CF2fsSimulator;
 	fs->InternalCopyFrom(this);
 	dst = static_cast<IFsSimulator*>(fs);
-	LOG_DEBUG(L"overprovision segments = %d\n", m_op_segs);
+//	LOG_DEBUG(L"overprovision segments = %d\n", m_op_segs);
 
 }
 
@@ -62,8 +62,7 @@ void CF2fsSimulator::CopyFrom(const IFsSimulator* src)
 	const CF2fsSimulator* _src = dynamic_cast<const CF2fsSimulator*>(src);
 	if (_src == nullptr) THROW_FS_ERROR(ERR_GENERAL, L"cannot copy from non CF2fsSimulator, src=%p", src);
 	InternalCopyFrom(_src);
-	LOG_DEBUG(L"overprovision segments = %d\n", m_op_segs);
-
+//	LOG_DEBUG(L"overprovision segments = %d\n", m_op_segs);
 }
 
 void CF2fsSimulator::InternalCopyFrom(const CF2fsSimulator* _src)
@@ -81,6 +80,7 @@ void CF2fsSimulator::InternalCopyFrom(const CF2fsSimulator* _src)
 	m_open_nr = _src->m_open_nr;
 	memcpy_s(&m_checkpoint, sizeof(m_checkpoint), &_src->m_checkpoint, sizeof(m_checkpoint));
 	m_op_segs = _src->m_op_segs;
+	m_cur_ckpt = _src->m_cur_ckpt;
 //	memcpy_s(&m_fs_info, sizeof(FS_INFO), &_src->m_fs_info, sizeof(FS_INFO));
 }
 
@@ -117,26 +117,35 @@ bool CF2fsSimulator::Initialzie(const boost::property_tree::wptree& config, cons
 	m_health_info.m_free_blk = m_health_info.m_logical_blk_nr;
 
 	// 初始化root
-	CPageInfo* page = m_pages.allocate(true);
-	BLOCK_DATA* root_node = m_pages.get_data(page);
-	if (!InitInode(root_node, page, F2FS_FILE_DIR))	{
+	CPageInfo* root_page = m_pages.allocate(true);
+	BLOCK_DATA* root_node = m_pages.get_data(root_page);
+	if (!InitInode(root_node, root_page, F2FS_FILE_DIR))	{
 		THROW_FS_ERROR(ERR_GENERAL, L"node full during make fs");
 	}
 	root_node->node.m_ino = ROOT_FID;
 	root_node->node.m_nid = ROOT_FID;
-	page->nid = ROOT_FID;
+	root_page->nid = ROOT_FID;
 	// root 作为永远打开的文件
 	root_node->node.inode.ref_count = 1;			// root inode 始终cache
-	m_nat.node_cache[ROOT_FID] = m_pages.page_id(page);
-	PHY_BLK root_phy = UpdateInode(page, "CREATE");	// 写入磁盘
+	m_nat.node_cache[ROOT_FID] = m_pages.page_id(root_page);
+	PHY_BLK root_phy = UpdateInode(root_page, "CREATE");	// 写入磁盘
 	if (is_invalid(root_phy)) {
 		THROW_FS_ERROR(ERR_GENERAL, L"no enough segment during make fs");
 	}
 	m_nat.set_phy_blk(ROOT_FID, root_phy);
 
-//	m_health_info.m_dir_num = 1;
-//	m_health_info.m_file_num = 0;
+	// 初始化磁盘上的ckeckpoint,确保两个都无效。在接下来的write checkpoint()中，将有效的checkpoint写入。
+	CPageInfo page;
+	BLOCK_DATA* data = m_pages.get_data(&page);
+	memset(data, 0, sizeof(BLOCK_DATA));
+	data->m_type = BLOCK_DATA::BLOCK_CKPT_HEADER;
+	m_storage.BlockWrite(CKPT_START_BLK, &page);
+	m_storage.BlockWrite(CKPT_START_BLK + CKPT_BLK_NR, &page);
+	
 	memset(&m_checkpoint, 0, sizeof(m_checkpoint));
+	m_checkpoint.header.ver_open = 1;
+	m_checkpoint.header.ver_close = 1;
+	m_cur_ckpt = 1;
 
 	// 初始化结束
 	m_segments.SyncSSA();
@@ -910,6 +919,7 @@ ERROR_CODE CF2fsSimulator::f2fs_sync_node_page(void)
 
 ERROR_CODE CF2fsSimulator::sync_fs(void)
 {
+	LOG_STACK_TRACE();
 	int retry = 10;
 	UINT dirty_nr;
 	while (retry > 0) {
@@ -919,32 +929,9 @@ ERROR_CODE CF2fsSimulator::sync_fs(void)
 		// 保存index, 可能是因为gc打开的index page
 		ERROR_CODE ir = f2fs_sync_node_page();
 		if (ir != ERR_OK) THROW_FS_ERROR(ERR_SYNC, L"[err] segment is not enough when sync_node()");
-//		int dirty = 0;	// 最后flush写入的page数量。
-//		dirty = 0;
-//		for (int ii = 0; ii < NODE_NR; ++ii)
-//		{
-//			PAGE_INDEX page_id = m_nat.node_cache[ii];
-//			if (is_invalid(page_id)) continue;
-//
-//			CPageInfo* page = m_pages.page(page_id);
-//			if (!page->dirty) continue;
-//			LOG_DEBUG_(1,L"flush node=%d", ii);
-////			{	// <DONE> page的nid和offset应该在page申请时设置
-//			PHY_BLK phy = m_segments.WriteBlockToSeg(page, true);
-//			if (is_invalid(phy)) {
-//				LOG_ERROR(L"[err] segment is not enough when sync_fs()");
-//				return ERR_NO_SPACE;
-//			}
-//			m_nat.set_phy_blk(ii, phy);
-//			page->dirty = false;
-//			dirty++;
-//		}
-//		LOG_DEBUG_(1,L"retry =%d, flushed=%d", retry, dirty);
-//		if (dirty == 0) break;
 		retry--;
 	}
 	if (retry <= 0) {
-		//THROW_ERROR(ERR_APP, L"loop flushing dirty page");
 		THROW_FS_ERROR(ERR_SYNC, L"loop flushing, dirty page nr=%d", dirty_nr);
 	}
 	// 考虑到写入page时，触发GC。GC会使得已经flush的node再次变脏。
@@ -957,6 +944,7 @@ ERROR_CODE CF2fsSimulator::sync_fs(void)
 
 void CF2fsSimulator::f2fs_write_checkpoint()
 {
+	LOG_STACK_TRACE();
 	// flush_nat : 把nat的变化写入journal
 	m_nat.f2fs_flush_nat_entries(m_checkpoint);
 	// flush_sit
@@ -965,71 +953,107 @@ void CF2fsSimulator::f2fs_write_checkpoint()
 	// 1. 复制每个curseg
 	size_t curseg_size = sizeof(CURSEG_INFO) * BT_TEMP_NR;
 
-	memcpy_s(m_checkpoint.cur_segs, curseg_size, m_segments.m_cur_segs, curseg_size);
+	memcpy_s(m_checkpoint.header.cur_segs, curseg_size, m_segments.m_cur_segs, curseg_size);
 	// 2. curseg的summary (summary block不复制，依靠fsck重建）
 	// 3. write to storage
-	save_checkpoint();
+	// 反转checkpoing id
+	m_cur_ckpt ^= 1;
+	save_checkpoint(m_cur_ckpt);
 }
 
-bool CF2fsSimulator::load_checkpoint()
+int CF2fsSimulator::load_checkpoint()
 {
+	// check checkpoint version
+	LBLK_T base_blk = CKPT_START_BLK;
+	int cur_ckpt = -1;
+//	CKPT_HEAD ckpt_header[2]ckpt_header_1;
+	UINT ckpt_ver[2];
+	CPageInfo page[2];
+	for (int ii = 0; ii < 2; ++ii)
+	{
+		ckpt_ver[ii] = 0;
+		m_storage.BlockRead(base_blk + ii*CKPT_BLK_NR, page+ii);
+		BLOCK_DATA* data = m_pages.get_data(page+ii);
+		if (data->m_type != BLOCK_DATA::BLOCK_CKPT_HEADER) {
+			LOG_ERROR(L"Checkpoint %d, type mismatch, type=%d, request=%d", ii, data->m_type, BLOCK_DATA::BLOCK_CKPT_HEADER);
+			continue;
+		}
+		if (data->ckpt_header.ver_open != data->ckpt_header.ver_close) {
+			LOG_ERROR(L"Checkpoint %d, version mismatch, open=%d, close=%d", ii, data->ckpt_header.ver_open, data->ckpt_header.ver_close);
+			continue;
+		}
+		ckpt_ver[ii] = data->ckpt_header.ver_close;
+	}
+	if (ckpt_ver[0] && ckpt_ver[1])
+	{
+		if (ckpt_ver[0] == ckpt_ver[1]) {
+			THROW_FS_ERROR(ERR_CKPT_FAIL, L"either checkpoint is validate and have the same version, ver=%d", ckpt_ver[0]);
+		}
+		else if (ckpt_ver[1] > ckpt_ver[0]) { cur_ckpt = 1; }
+		else { cur_ckpt = 0; }
+	}
+	else if (ckpt_ver[0])	{ cur_ckpt = 0; }
+	else if (ckpt_ver[1]) { cur_ckpt = 1; }
+	else {
+		THROW_FS_ERROR(ERR_CKPT_FAIL, L"neigher checkpoing is validate");
+		return -1;
+	}
+	LOG_DEBUG(L"get valid checkpoint, id=%d, version=%d", cur_ckpt, ckpt_ver[cur_ckpt]);
+	// read checkpoint 0
+	base_blk = CKPT_START_BLK + cur_ckpt * CKPT_BLK_NR;
+	BLOCK_DATA* data = m_pages.get_data(page+cur_ckpt);
+
 	static const size_t SIT_JOURNAL_PER_BLK = JOURNAL_NR / SIT_JOURNAL_BLK;
 	static const size_t SIT_JOURNAL_SIZE = sizeof(SIT_JOURNAL_ENTRY) * SIT_JOURNAL_PER_BLK;
 //	CPageInfo* page = m_pages.allocate(true);
-	CPageInfo page;
 	// cur segment
-	BLOCK_DATA* data = m_pages.get_data(&page);
-
-	m_storage.BlockRead(CKPT_START_BLK, &page);	
-	memcpy_s(&m_checkpoint.cur_segs, sizeof(CKPT_CURSEG), &(data->ckpt_curseg), sizeof(CKPT_CURSEG));
+//	m_storage.BlockRead(CKPT_START_BLK, &page);	
+	memcpy_s(&m_checkpoint.header, sizeof(CKPT_HEAD), &(data->ckpt_header), sizeof(CKPT_HEAD));
 	// nit journal
-	m_storage.BlockRead(CKPT_START_BLK + 1, &page);
+	// 此处仅利用page[]中的任意一个作为读缓存。方便起见，用page[cur_ckpt]，不用重复获取data。
+	m_storage.BlockRead(base_blk + 1, &page[cur_ckpt]);
 	memcpy_s(m_checkpoint.nat_journals, sizeof(CKPT_NAT_JOURNAL), &(data->ckpt_nat_nournal), sizeof(CKPT_NAT_JOURNAL));
 
 	for (int ii = 0; ii < SIT_JOURNAL_BLK; ++ii)
 	{		// sit journal 1
-		m_storage.BlockRead(CKPT_START_BLK + 2+ii, &page);
+		m_storage.BlockRead(base_blk + 2+ii, &page[cur_ckpt]);
 		memcpy_s(m_checkpoint.sit_journals + ii * SIT_JOURNAL_PER_BLK, SIT_JOURNAL_SIZE,
 			&(data->ckpt_sit_nournal), SIT_JOURNAL_SIZE);
 	}
-	// sit journal 2
-//	m_storage.BlockRead(CKPT_START_BLK + 3, &page);
-//	memcpy_s(m_checkpoint.sit_journals+SIT_JOURNAL_PER_BLK, SIT_JOURNAL_SIZE, &(data->ckpt_sit_nournal), SIT_JOURNAL_SIZE);
-
-//	CKPT_BLOCK* ckpt = &m_pages.get_data(page)->ckpt;
-//	m_storage.BlockRead(CKPT_START_BLK, page);
-//	memcpy_s(&m_checkpoint, sizeof(CKPT_BLOCK), ckpt, sizeof(CKPT_BLOCK));
-//	m_pages.free(page);
-	return true;
+	return cur_ckpt;
 }
 
-void CF2fsSimulator::save_checkpoint()
+void CF2fsSimulator::save_checkpoint(int ckpt_id)
 {
+	JCASSERT(ckpt_id ==0 || ckpt_id==1);
+	LBLK_T base_blk = CKPT_START_BLK + ckpt_id * CKPT_BLK_NR;
+
 	static const size_t SIT_JOURNAL_PER_BLK = JOURNAL_NR / SIT_JOURNAL_BLK;
 	static const size_t SIT_JOURNAL_SIZE = sizeof(SIT_JOURNAL_ENTRY) * SIT_JOURNAL_PER_BLK;
 	LOG_DEBUG(L"SIT_JOURNAL_PER_BLK=%d, SIT_JOURNAL_SIZE=%d", SIT_JOURNAL_PER_BLK, SIT_JOURNAL_SIZE)
 	CPageInfo page;
 	BLOCK_DATA* data = m_pages.get_data(&page);
-	memcpy_s(&(data->ckpt_curseg), sizeof(CKPT_CURSEG), &m_checkpoint.cur_segs, sizeof(CKPT_CURSEG));
-	data->m_type = BLOCK_DATA::BLOCK_CKPT_CURSEG;
-	m_storage.BlockWrite(CKPT_START_BLK, &page);
+	m_checkpoint.header.ver_open ++;
+	memcpy_s(&(data->ckpt_header), sizeof(CKPT_HEAD), &m_checkpoint.header, sizeof(CKPT_HEAD));
+	data->m_type = BLOCK_DATA::BLOCK_CKPT_HEADER;
+	m_storage.BlockWrite(base_blk, &page);
 
 	memcpy_s(&(data->ckpt_nat_nournal), sizeof(CKPT_NAT_JOURNAL), m_checkpoint.nat_journals, sizeof(CKPT_NAT_JOURNAL));
 	data->m_type = BLOCK_DATA::BLOCK_CKPT_NAT_JOURNAL;
-	m_storage.BlockWrite(CKPT_START_BLK+1, &page);
+	m_storage.BlockWrite(base_blk+1, &page);
 
 	for (int ii = 0; ii < SIT_JOURNAL_BLK; ++ii)
 	{
 		memcpy_s(&(data->ckpt_sit_nournal), SIT_JOURNAL_SIZE,
 			m_checkpoint.sit_journals + ii * SIT_JOURNAL_PER_BLK, SIT_JOURNAL_SIZE);
 		data->m_type = BLOCK_DATA::BLOCK_CKPT_SIT_JOURNAL;
-		m_storage.BlockWrite(CKPT_START_BLK + 2 + ii, &page);
+		m_storage.BlockWrite(base_blk + 2 + ii, &page);
 	}
 
-
-	//memcpy_s(&(data->ckpt_sit_nournal), SIT_JOURNAL_SIZE, m_checkpoint.sit_journals+ SIT_JOURNAL_PER_BLK, SIT_JOURNAL_SIZE);
-	//data->m_type = BLOCK_DATA::BLOCK_CKPT_SIT_JOURNAL;
-	//m_storage.BlockWrite(CKPT_START_BLK+3, &page);
+	m_checkpoint.header.ver_close++;
+	memcpy_s(&(data->ckpt_header), sizeof(CKPT_HEAD), &m_checkpoint.header, sizeof(CKPT_HEAD));
+	data->m_type = BLOCK_DATA::BLOCK_CKPT_HEADER;
+	m_storage.BlockWrite(base_blk, &page);
 }
 
 
@@ -1728,107 +1752,109 @@ void CF2fsSimulator::GetConfig(boost::property_tree::wptree& config, const std::
 	}
 }
 
-void CF2fsSimulator::DumpAllFileMap(const std::wstring& fn)
-{
-}
-
-
-void CF2fsSimulator::DumpBlockWAF(const std::wstring& fn)
-{
-	FILE* log = nullptr;
-	_wfopen_s(&log, fn.c_str(), L"w+");
-	if (log == nullptr) THROW_ERROR(ERR_APP, L"failed on opening file %s", fn.c_str());
-
-	UINT64 host_write[BT_TEMP_NR + 1];
-	UINT64 media_write[BT_TEMP_NR + 1];
-	UINT64 blk_count[BT_TEMP_NR + 1];
-
-	memset(host_write, 0, sizeof(UINT64) * (BT_TEMP_NR + 1));
-	memset(media_write, 0, sizeof(UINT64) * (BT_TEMP_NR + 1));
-	memset(blk_count, 0, sizeof(UINT64) * (BT_TEMP_NR + 1));
-
-
-	for (SEG_T ss = 0; ss < m_segments.get_seg_nr(); ++ss)
-	{
-		const SegmentInfo& seg = m_segments.get_segment(ss);
-		for (BLK_T bb = 0; bb < BLOCK_PER_SEG; ++bb)
-		{
-			//PAGE_INDEX _pp = seg.blk_map[bb];
-			//CPageInfo* page = m_pages.page(_pp);
-			//if (page == nullptr) { continue; }
-
-			//BLK_TEMP temp = page->ttemp;
-			//JCASSERT(temp < BT_TEMP_NR);
-			//host_write[temp] += page->host_write;
-			//media_write[temp] += page->media_write;
-			//blk_count[temp]++;
-		}
-	}
-	fprintf_s(log, "block_temp,host_write,media_write,WAF,blk_num,avg_host_write\n");
-	for (int ii = 0; ii < BT_TEMP_NR; ++ii)
-	{
-		fprintf_s(log, "%s,%lld,%lld,%.2f,%lld,%.2f\n", BLK_TEMP_NAME[ii], host_write[ii], media_write[ii],
-			(float)(media_write[ii]) / (float)(host_write[ii]),
-			blk_count[ii], (float)(host_write[ii]) / blk_count[ii]);
-	}
-
-	// 分别输出data和node的数据
-	UINT64 data_cnt = blk_count[BT_COLD_DATA] + blk_count[BT_WARM_DATA] + blk_count[BT_HOT__DATA];
-	UINT64 data_host_wr = host_write[BT_COLD_DATA] + host_write[BT_WARM_DATA] + host_write[BT_HOT__DATA];
-	UINT64 data_media_wr = media_write[BT_COLD_DATA] + media_write[BT_WARM_DATA] + media_write[BT_HOT__DATA];
-
-	fprintf_s(log, "%s,%lld,%lld,%.2f,%lld,%.2f\n", "DATA", data_host_wr, data_media_wr,
-		(float)(data_media_wr) / (float)(data_host_wr),
-		data_cnt, (float)(data_host_wr) / data_cnt);
-
-	UINT64 node_cnt = blk_count[BT_COLD_NODE] + blk_count[BT_WARM_NODE] + blk_count[BT_HOT__NODE];
-	UINT64 node_host_wr = host_write[BT_COLD_NODE] + host_write[BT_WARM_NODE] + host_write[BT_HOT__NODE];
-	UINT64 node_media_wr = media_write[BT_COLD_NODE] + media_write[BT_WARM_NODE] + media_write[BT_HOT__NODE];
-
-	fprintf_s(log, "%s,%lld,%lld,%.2f,%lld,%.2f\n", "NODE", node_host_wr, node_media_wr,
-		(float)(node_media_wr) / (float)(node_host_wr),
-		node_cnt, (float)(node_host_wr) / node_cnt);
-
-	fprintf_s(log, "%s,%lld,%lld,%.2f,\n", "TOTAL", m_health_info.m_total_host_write, m_health_info.m_total_media_write,
-		(float)(m_health_info.m_total_media_write) / (float)(m_health_info.m_total_host_write));
-
-	for (int ii = 0; ii < BT_TEMP_NR; ++ii)
-	{
-		fprintf_s(log, "TRUNC_%s,%d,%.2f\n", BLK_TEMP_NAME[ii], -1, -1.0);
-	}
-	fclose(log);
-}
-
-size_t CF2fsSimulator::DumpFileIndex(_NID index[], size_t buf_size, _NID fid)
-{
-	CPageInfo* ipage = nullptr; // m_pages.allocate_index(true);
-	NODE_INFO &inode = ReadNode(fid, ipage);
-	memcpy_s(index, sizeof(_NID) * buf_size, inode.inode.index, sizeof(_NID) * INDEX_TABLE_SIZE);
-	return inode.index.valid_data;
-}
-
-void CF2fsSimulator::DumpSegments(const std::wstring& fn, bool sanity_check)
-{
-}
-
-void CF2fsSimulator::DumpSegmentBlocks(const std::wstring& fn)
-{
-//	m_segments.DumpSegmentBlocks(fn);
-}
-
+//void CF2fsSimulator::DumpAllFileMap(const std::wstring& fn)
+//{
+//}
+//
+//
+//void CF2fsSimulator::DumpBlockWAF(const std::wstring& fn)
+//{
+//	FILE* log = nullptr;
+//	_wfopen_s(&log, fn.c_str(), L"w+");
+//	if (log == nullptr) THROW_ERROR(ERR_APP, L"failed on opening file %s", fn.c_str());
+//
+//	UINT64 host_write[BT_TEMP_NR + 1];
+//	UINT64 media_write[BT_TEMP_NR + 1];
+//	UINT64 blk_count[BT_TEMP_NR + 1];
+//
+//	memset(host_write, 0, sizeof(UINT64) * (BT_TEMP_NR + 1));
+//	memset(media_write, 0, sizeof(UINT64) * (BT_TEMP_NR + 1));
+//	memset(blk_count, 0, sizeof(UINT64) * (BT_TEMP_NR + 1));
+//
+//
+//	for (SEG_T ss = 0; ss < m_segments.get_seg_nr(); ++ss)
+//	{
+//		const SegmentInfo& seg = m_segments.get_segment(ss);
+//		for (BLK_T bb = 0; bb < BLOCK_PER_SEG; ++bb)
+//		{
+//			//PAGE_INDEX _pp = seg.blk_map[bb];
+//			//CPageInfo* page = m_pages.page(_pp);
+//			//if (page == nullptr) { continue; }
+//
+//			//BLK_TEMP temp = page->ttemp;
+//			//JCASSERT(temp < BT_TEMP_NR);
+//			//host_write[temp] += page->host_write;
+//			//media_write[temp] += page->media_write;
+//			//blk_count[temp]++;
+//		}
+//	}
+//	fprintf_s(log, "block_temp,host_write,media_write,WAF,blk_num,avg_host_write\n");
+//	for (int ii = 0; ii < BT_TEMP_NR; ++ii)
+//	{
+//		fprintf_s(log, "%s,%lld,%lld,%.2f,%lld,%.2f\n", BLK_TEMP_NAME[ii], host_write[ii], media_write[ii],
+//			(float)(media_write[ii]) / (float)(host_write[ii]),
+//			blk_count[ii], (float)(host_write[ii]) / blk_count[ii]);
+//	}
+//
+//	// 分别输出data和node的数据
+//	UINT64 data_cnt = blk_count[BT_COLD_DATA] + blk_count[BT_WARM_DATA] + blk_count[BT_HOT__DATA];
+//	UINT64 data_host_wr = host_write[BT_COLD_DATA] + host_write[BT_WARM_DATA] + host_write[BT_HOT__DATA];
+//	UINT64 data_media_wr = media_write[BT_COLD_DATA] + media_write[BT_WARM_DATA] + media_write[BT_HOT__DATA];
+//
+//	fprintf_s(log, "%s,%lld,%lld,%.2f,%lld,%.2f\n", "DATA", data_host_wr, data_media_wr,
+//		(float)(data_media_wr) / (float)(data_host_wr),
+//		data_cnt, (float)(data_host_wr) / data_cnt);
+//
+//	UINT64 node_cnt = blk_count[BT_COLD_NODE] + blk_count[BT_WARM_NODE] + blk_count[BT_HOT__NODE];
+//	UINT64 node_host_wr = host_write[BT_COLD_NODE] + host_write[BT_WARM_NODE] + host_write[BT_HOT__NODE];
+//	UINT64 node_media_wr = media_write[BT_COLD_NODE] + media_write[BT_WARM_NODE] + media_write[BT_HOT__NODE];
+//
+//	fprintf_s(log, "%s,%lld,%lld,%.2f,%lld,%.2f\n", "NODE", node_host_wr, node_media_wr,
+//		(float)(node_media_wr) / (float)(node_host_wr),
+//		node_cnt, (float)(node_host_wr) / node_cnt);
+//
+//	fprintf_s(log, "%s,%lld,%lld,%.2f,\n", "TOTAL", m_health_info.m_total_host_write, m_health_info.m_total_media_write,
+//		(float)(m_health_info.m_total_media_write) / (float)(m_health_info.m_total_host_write));
+//
+//	for (int ii = 0; ii < BT_TEMP_NR; ++ii)
+//	{
+//		fprintf_s(log, "TRUNC_%s,%d,%.2f\n", BLK_TEMP_NAME[ii], -1, -1.0);
+//	}
+//	fclose(log);
+//}
+//
+//size_t CF2fsSimulator::DumpFileIndex(_NID index[], size_t buf_size, _NID fid)
+//{
+//	CPageInfo* ipage = nullptr; // m_pages.allocate_index(true);
+//	NODE_INFO &inode = ReadNode(fid, ipage);
+//	memcpy_s(index, sizeof(_NID) * buf_size, inode.inode.index, sizeof(_NID) * INDEX_TABLE_SIZE);
+//	return inode.index.valid_data;
+//}
+//
+//void CF2fsSimulator::DumpSegments(const std::wstring& fn, bool sanity_check)
+//{
+//}
+//
+//void CF2fsSimulator::DumpSegmentBlocks(const std::wstring& fn)
+//{
+////	m_segments.DumpSegmentBlocks(fn);
+//}
+//
 #define FLUSH_FILE_MAP(phy)	{\
 	if (is_invalid(start_phy)) {\
 		SEG_T seg; BLK_T blk; BlockToSeg(seg,blk,start_phy);	\
 		fprintf_s(out, "%S,%d,%d,%d,%X,%d,%d,%d,%d\n", inode.inode.m_fn.c_str(), fid, start_offset, (bb - start_offset), start_phy,seg,blk,host_write,media_write);}\
 		host_write=0, media_write=0; start_phy = phy; pre_phy = phy; }
 
-void CF2fsSimulator::DumpFileMap_merge(FILE* out, _NID fid)
-{
-}
+//void CF2fsSimulator::DumpFileMap_merge(FILE* out, _NID fid)
+//{
+//}
 
-void CF2fsSimulator::DumpFileMap_no_merge(FILE* out, _NID fid)
-{
-}
+//void CF2fsSimulator::DumpFileMap_no_merge(FILE* out, _NID fid)
+//{
+//}
+
+
 
 
 bool CF2fsSimulator::InitInode(BLOCK_DATA* block, CPageInfo* page, F2FS_FILE_TYPE type)

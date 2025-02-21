@@ -1,4 +1,4 @@
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+﻿///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #include "pch.h"
 #include "../include/extester.h"
 #include <Psapi.h>
@@ -236,15 +236,12 @@ ERROR_CODE CExTester::EnumerateOp_Thread_V2(TRACE_ENTRY* ops, size_t op_size, CF
 		if (result->result != ERR_OK)
 		{	// error handling
 			m_states.put(state);
+			ERROR_CODE ee = result->result;
+			if (ee != ERR_NO_OPERATION && ee != ERR_NO_SPACE && ee != ERR_MAX_OPEN_FILE) {
+				if (err == ERR_OK) err = ee;
+			}
 		}
 		else {
-			//if (m_closed.Check(state) )		{		m_states.put(state);	}
-			//else		{
-			//	m_open_list.insert(insert, state);
-			//	m_closed.Insert(state);
-			//	UpdateFsParam(state->m_real_fs);
-			//	inserted++;
-			//}
 			if (m_closed.CheckAndInsert(state)) {
 				m_states.put(state);
 			}
@@ -296,6 +293,7 @@ ERROR_CODE CExTester::EnumerateOp_Thread_V2(TRACE_ENTRY* ops, size_t op_size, CF
 #endif
 
 #endif
+	//if (err == ERR_NO_OPERATION || err == ERR_NO_SPACE || err == ERR_MAX_OPEN_FILE) err = ERR_OK;
 	return err;
 }
 

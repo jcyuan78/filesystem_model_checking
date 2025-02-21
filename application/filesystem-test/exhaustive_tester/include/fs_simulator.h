@@ -1,4 +1,4 @@
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+﻿///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma once
 
 #include <stdext.h>
@@ -53,6 +53,7 @@ enum ERROR_CODE
 
 	ERR_VERIFY_FILE,		// 文件比较时错误，长度不对，内容不对等
 //	ERR_VERIFY_FILE_CONTENT,	
+	ERR_CKPT_FAIL,				// Ckeckpoint 错误。两个同时有效且版本相等，或者两个都无效
 
 	ERR_WRONG_BLOCK_TYPE,		// block的类型不符
 	ERR_WRONG_FILE_TYPE, 
@@ -220,15 +221,18 @@ public:
 	virtual void GetFileDirNum(_NID fid, UINT& file_nr, UINT& dir_nr)=0;
 
 	// for debug
+	// 通过flag，打开或者关闭对应的log内容，这些内容只保存在file system内部。
+	virtual void LogOption(FILE * out, DWORD flag) = 0;
+	// 通过dump相应的log到指定输出
+	virtual void DumpLog(FILE* out, const char* log_name) = 0;
 
-	virtual void DumpSegments(const std::wstring& fn, bool sanity_check) = 0;
-	virtual void DumpSegmentBlocks(const std::wstring& fn) = 0;
-	virtual void DumpFileMap(FILE* out, _NID fid) = 0;
-	virtual void DumpAllFileMap(const std::wstring& fn) = 0;
-	virtual void DumpBlockWAF(const std::wstring& fn) = 0;
-	virtual size_t DumpFileIndex(_NID index[], size_t buf_size, _NID fid) = 0;
-
-	virtual void GetGcTrace(std::vector<GC_TRACE>&) = 0;
+	//virtual void DumpSegments(const std::wstring& fn, bool sanity_check) = 0;
+	//virtual void DumpSegmentBlocks(const std::wstring& fn) = 0;
+	//virtual void DumpFileMap(FILE* out, _NID fid) = 0;
+	//virtual void DumpAllFileMap(const std::wstring& fn) = 0;
+	//virtual void DumpBlockWAF(const std::wstring& fn) = 0;
+	//virtual size_t DumpFileIndex(_NID index[], size_t buf_size, _NID fid) = 0;
+	//virtual void GetGcTrace(std::vector<GC_TRACE>&) = 0;
 };
 
 class CFsException : public jcvos::CJCException

@@ -30,6 +30,8 @@ public:
 	void Rollback(LBLK_T nr);
 	void Reset(void);
 
+	void DumpStorage(FILE* out);
+
 protected:
 	void cache_enque(LBLK_T lba, LBLK_T cache_index);						// 节点插入cache
 	void cache_deque(LBLK_T cache_index);		// cache index的节点移出
