@@ -93,19 +93,19 @@ bool CF2fsSimulator::Initialzie(const boost::property_tree::wptree& config, cons
 	// 这里配置上有个问题，原先方法时配置文件指定logical block的数量，然后根据这个数量，计算所需要的physical block数量。
 	// 但是这里出现了计算错误，physical block数量应该要大于logical block数量。
 	// 将block的计算方法修改为正常，但是这个修改可能会引起WAF测试的计算错误。因此保留原来的算法
-	size_t device_size = config.get<size_t>(L"volume_size");	// device_size 以字节为单位
-	BLK_T phy_blk = (BLK_T)(ROUND_UP_DIV(device_size, BLOCK_SIZE));		
-	SEG_T seg_nr = (SEG_T)ROUND_UP_DIV(phy_blk, BLOCK_PER_SEG);
+//	size_t device_size = config.get<size_t>(L"volume_size");	// device_size 以字节为单位
+//	BLK_T phy_blk = (BLK_T)(ROUND_UP_DIV(device_size, BLOCK_SIZE));		
+	//SEG_T seg_nr = (SEG_T)ROUND_UP_DIV(phy_blk, BLOCK_PER_SEG);
 
-	SEG_T gc_th_lo = config.get<SEG_T>(L"gc_seg_lo");
-	SEG_T gc_th_hi = config.get<SEG_T>(L"gc_seg_hi");
+	//SEG_T gc_th_lo = config.get<SEG_T>(L"gc_seg_lo");
+	//SEG_T gc_th_hi = config.get<SEG_T>(L"gc_seg_hi");
 
 	m_op_segs = config.get<int>(L"op_segments", OP_SEGMENT);
 	LOG_DEBUG(L"overprovision segments = %d\n", m_op_segs);
 	// 初始化
 	m_storage.Initialize();
 
-	m_segments.InitSegmentManager(seg_nr, gc_th_lo, gc_th_hi);
+	m_segments.InitSegmentManager(/*seg_nr, gc_th_lo, gc_th_hi*/);
 	m_pages.Init(m_health_info.m_blk_nr);
 	m_nat.Init(NID_IN_USE);
 	InitOpenList();
@@ -113,7 +113,8 @@ bool CF2fsSimulator::Initialzie(const boost::property_tree::wptree& config, cons
 	// 文件系统大小由编码固定，
 	m_health_info.m_seg_nr = MAIN_SEG_NR;
 	m_health_info.m_blk_nr = m_health_info.m_seg_nr * BLOCK_PER_SEG;
-	m_health_info.m_logical_blk_nr = m_health_info.m_blk_nr - ((gc_th_lo+10) * BLOCK_PER_SEG);
+//	m_health_info.m_logical_blk_nr = m_health_info.m_blk_nr - ((gc_th_lo+10) * BLOCK_PER_SEG);
+	m_health_info.m_logical_blk_nr = m_health_info.m_blk_nr - (RESERVED_SEG * BLOCK_PER_SEG);
 	m_health_info.m_free_blk = m_health_info.m_logical_blk_nr;
 
 	// 初始化root

@@ -24,7 +24,8 @@ struct SEG_INFO
 {
 public:
 	// block存放在storage中，
-	DWORD valid_bmp[BITMAP_SIZE];
+//	DWORD valid_bmp[BITMAP_SIZE];
+	DWORD valid_bmp;
 	// 当segment free的时候，作为free链表的指针使用。valid_blk_nr == -1 表示block为free，可以再分配
 	DWORD valid_blk_nr;		
 //	DWORD cur_blk;			// 可以分配的下一个block, 0:表示这个segment未被使用，BLOCK_PER_SEG：表示已经填满，其他：当前segment
@@ -100,7 +101,8 @@ struct CKPT_BLOCK
 class SegmentInfo
 {
 public:
-	DWORD		valid_bmp[BITMAP_SIZE];
+//	DWORD		valid_bmp[BITMAP_SIZE];
+	DWORD		valid_bmp;
 	UINT		valid_blk_nr;	// 当segment free的时候，作为free链表的指针使用。valid_blk_nr == -1 表示block为free，可以再分配
 	BLK_TEMP	seg_temp;	// 指示segment的温度，用于GC和
 	_NID		nids[BLOCK_PER_SEG];
@@ -229,7 +231,7 @@ public:
 	CF2fsSegmentManager(CF2fsSimulator* fs);
 	~CF2fsSegmentManager(void)	{}
 	void CopyFrom(const CF2fsSegmentManager& src);
-	bool InitSegmentManager(SEG_T segment_nr, SEG_T gc_lo, SEG_T gc_hi);
+	bool InitSegmentManager(/*SEG_T segment_nr, SEG_T gc_lo, SEG_T gc_hi*/);
 	void Reset(void);
 
 public:
@@ -316,7 +318,7 @@ public:
 	}
 
 	DWORD is_blk_valid(SEG_T seg_id, BLK_T blk)	{
-		return test_bitmap(m_segments[seg_id].valid_bmp, blk);
+		return test_bitmap(&(m_segments[seg_id].valid_bmp), blk);
 	}
 
 	void GetBlockInfo(_NID& nid, WORD& offset, PHY_BLK phy_blk);
@@ -348,7 +350,7 @@ protected:	// 临时措施，需要考虑如何处理GcPool。(1)将GC作为算�
 protected:
 //	SEG_T m_cur_segs[BT_TEMP_NR];
 	CURSEG_INFO m_cur_segs[BT_TEMP_NR];
-	SEG_T m_gc_lo, m_gc_hi;
+	//SEG_T m_gc_lo, m_gc_hi;
 	// SIT entry的dirty标志，一个bit表示一个SIT entry。一个DWORD表示一个SIT block。
 	DWORD m_dirty_map[SIT_BLK_NR];
 

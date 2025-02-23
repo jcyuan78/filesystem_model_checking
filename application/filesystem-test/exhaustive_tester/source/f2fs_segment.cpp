@@ -17,20 +17,21 @@ CF2fsSegmentManager::CF2fsSegmentManager(CF2fsSimulator* fs)
 	m_checkpoint = &m_fs->m_checkpoint;
 }
 
-bool CF2fsSegmentManager::InitSegmentManager(SEG_T segment_nr, SEG_T gc_lo, SEG_T gc_hi)
+bool CF2fsSegmentManager::InitSegmentManager(/*SEG_T segment_nr, SEG_T gc_lo, SEG_T gc_hi*/)
 {
 	// 初始化，如果blk_map指向block_id，初始化为0xFF，如果指向指针，初始化为0
 	memset(m_segments, 0xFF, sizeof(SegmentInfo) * MAIN_SEG_NR);
 	for (SEG_T ii = 0; ii < MAIN_SEG_NR; ++ii)
 	{
 		m_segments[ii].valid_blk_nr = 0;
-		memset(m_segments[ii].valid_bmp, 0, sizeof(SegmentInfo::valid_bmp));
+//		memset(m_segments[ii].valid_bmp, 0, sizeof(SegmentInfo::valid_bmp));
+		m_segments[ii].valid_bmp = 0;
 	}
 	memset(m_dirty_map, 0xFF, sizeof(m_dirty_map));
 	// 构建free链表
 	build_free_link();
 	memset(m_cur_segs, 0xFF, sizeof(m_cur_segs));
-	m_gc_lo = gc_lo, m_gc_hi = gc_hi;
+//	m_gc_lo = gc_lo, m_gc_hi = gc_hi;
 	memset(&m_data_cache, 0xFF, sizeof(m_data_cache));
 	return true;
 }
@@ -44,8 +45,8 @@ void CF2fsSegmentManager::CopyFrom(const CF2fsSegmentManager& src/*, CF2fsSimula
 	m_free_tail = src.m_free_tail;
 	m_free_head = src.m_free_head;
 	m_used_blk_nr = src.m_used_blk_nr;
-	m_gc_lo = src.m_gc_lo;
-	m_gc_hi = src.m_gc_hi;
+	//m_gc_lo = src.m_gc_lo;
+	//m_gc_hi = src.m_gc_hi;
 	memset(&m_data_cache, 0xFF, sizeof(m_data_cache));
 }
 
@@ -188,14 +189,16 @@ void CF2fsSegmentManager::SyncSSA(void)
 
 void CF2fsSegmentManager::fill_seg_info(SEG_INFO* seg_info, SEG_T seg)
 {
-	memcpy_s(seg_info->valid_bmp, bmp_size, m_segments[seg].valid_bmp, bmp_size);
+//	memcpy_s(seg_info->valid_bmp, bmp_size, m_segments[seg].valid_bmp, bmp_size);
+	seg_info->valid_bmp = m_segments[seg].valid_bmp;
 	seg_info->valid_blk_nr = m_segments[seg].valid_blk_nr;
 	seg_info->seg_temp = m_segments[seg].seg_temp;
 }
 
 void CF2fsSegmentManager::read_seg_info(SEG_INFO* seg_info, SEG_T seg)
 {
-	memcpy_s(m_segments[seg].valid_bmp, bmp_size, seg_info->valid_bmp, bmp_size);
+//	memcpy_s(m_segments[seg].valid_bmp, bmp_size, seg_info->valid_bmp, bmp_size);
+	m_segments[seg].valid_bmp = seg_info->valid_bmp;
 	m_segments[seg].valid_blk_nr = seg_info->valid_blk_nr;
 	m_segments[seg].seg_temp = seg_info->seg_temp;
 }
@@ -307,7 +310,8 @@ SEG_T CF2fsSegmentManager::AllocSegment(BLK_TEMP temp, bool by_gc, bool force)
 	seg.valid_blk_nr = 0;
 	seg.seg_temp = temp;
 //	seg.cur_blk = 0;
-	memset(seg.valid_bmp, 0, sizeof(SegmentInfo::valid_bmp));
+//	memset(seg.valid_bmp, 0, sizeof(SegmentInfo::valid_bmp));
+	seg.valid_bmp = 0;
 	memset(seg.nids, 0xFF, sizeof(SegmentInfo::nids));
 	memset(seg.offset, 0xFF, sizeof(SegmentInfo::offset));
 	set_dirty(new_seg);
@@ -372,7 +376,7 @@ void CF2fsSegmentManager::GetBlockInfo(_NID& nid, WORD& offset, PHY_BLK phy_blk)
 	BLK_T blk_id;
 	BlockToSeg(seg_id, blk_id, phy_blk);
 	SegmentInfo& seg = m_segments[seg_id];
-	if (test_bitmap(seg.valid_bmp, blk_id) == 0)
+	if (test_bitmap(&(seg.valid_bmp), blk_id) == 0)
 	{	// 对于invalid block
 		nid = INVALID_BLK;
 		offset = INVALID_BLK;
@@ -430,7 +434,7 @@ PHY_BLK CF2fsSegmentManager::WriteBlockToSeg(CPageInfo* page, bool force, bool b
 	}
 	SegmentInfo& seg = m_segments[curseg.seg_no];
 	BLK_T blk_id = curseg.blk_offset;
-	set_bitmap(seg.valid_bmp, blk_id);
+	set_bitmap(&(seg.valid_bmp), blk_id);
 	UINT lba = seg_to_lba(curseg.seg_no, blk_id);
 	m_storage->BlockWrite(lba, page);
 
@@ -498,11 +502,10 @@ ERROR_CODE CF2fsSegmentManager::GarbageCollection(CF2fsSimulator* fs)
 		SegmentInfo* seg = m_segments + ss;
 		// 当valid block为0时，直接回收。seg_temp表示block是否已经被回收。
 		if (seg->valid_blk_nr == 0 && is_invalid(seg->free_next)) {
-			if (seg->valid_bmp[0] != 0)	THROW_ERROR(ERR_USER, L"try to free a non-empty segment, seg=%d", ss);
+			if (seg->valid_bmp != 0)	THROW_ERROR(ERR_USER, L"try to free a non-empty segment, seg=%d", ss);
 			FreeSegment(ss);
 			continue;
 		}
-//		if (seg->cur_blk < BLOCK_PER_SEG) continue;  // 跳过未写满的segment
 		if (m_cur_segs[seg->seg_temp].seg_no == ss) continue;
 		pool.Push(seg);
 	}
@@ -516,7 +519,8 @@ ERROR_CODE CF2fsSegmentManager::GarbageCollection(CF2fsSimulator* fs)
 
 	CPageInfo _page;
 	CPageInfo* page = &_page;
-	while (m_free_nr < m_gc_hi)
+	SEG_T gc_hi = 15;
+	while (m_free_nr < gc_hi)
 	{
 		SegmentInfo* src_seg = pool.Pop();
 		if (src_seg == nullptr) break;
@@ -526,7 +530,7 @@ ERROR_CODE CF2fsSegmentManager::GarbageCollection(CF2fsSimulator* fs)
 		m_fs->m_health_info.gc_count++;
 		for (BLK_T bb = 0; bb < BLOCK_PER_SEG; ++bb)
 		{
-			if (test_bitmap(src_seg->valid_bmp, bb) == 0) continue;
+			if (test_bitmap(&(src_seg->valid_bmp), bb) == 0) continue;
 			_NID nid = src_seg->nids[bb];		// block 所在的inode
 			WORD offset = src_seg->offset[bb];
 			// 如果有效，检查block的nid和offset
@@ -634,13 +638,13 @@ bool CF2fsSegmentManager::InvalidBlock(SEG_T seg_id, BLK_T blk_id)
 	JCASSERT(seg_id < MAIN_SEG_NR);
 	SegmentInfo& seg = m_segments[seg_id];
 	// block的有效性判断以SIT为主
-	if (test_bitmap(seg.valid_bmp, blk_id) == 0) {
+	if (test_bitmap(&(seg.valid_bmp), blk_id) == 0) {
 		THROW_FS_ERROR(ERR_DOUBLED_BLK, L"double invalid phy block, seg=%d, blk=%d,", seg_id, blk_id);
 	}
 
 	seg.valid_blk_nr--;
 	m_used_blk_nr--;
-	clear_bitmap(seg.valid_bmp, blk_id);
+	clear_bitmap(&(seg.valid_bmp), blk_id);
 	LOG_DEBUG_(1, L"[invalid block] seg=%d, blk=%d, nid=%d, offset=%d, valid_blk=%d,", 
 		seg_id, blk_id, seg.nids[blk_id], seg.offset[blk_id], seg.valid_blk_nr);
 
@@ -649,12 +653,11 @@ bool CF2fsSegmentManager::InvalidBlock(SEG_T seg_id, BLK_T blk_id)
 	set_dirty(seg_id);
 
 	// 不回收当前的segment
-	if (seg.valid_blk_nr == 0 // && seg.cur_blk >= BLOCK_PER_SEG)
-		&& m_cur_segs[seg.seg_temp].seg_no != seg_id)
+	if (seg.valid_blk_nr == 0 && m_cur_segs[seg.seg_temp].seg_no != seg_id)
 	{
 		SEG_T seg_id =SegId(&seg);
 #if 1		// for debug only, 检查是否所有block都invalid
-		if (seg.valid_bmp[0] != 0)	THROW_ERROR(ERR_USER, L"try to free a non-empty segment, seg=%d", seg_id);
+		if (seg.valid_bmp != 0)	THROW_ERROR(ERR_USER, L"try to free a non-empty segment, seg=%d", seg_id);
 #endif
 		FreeSegment(seg_id);
 		free_seg = true;

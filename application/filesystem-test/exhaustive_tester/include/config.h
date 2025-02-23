@@ -12,24 +12,24 @@
 #define SIT_START_BLK			(CKPT_START_BLK + CKPT_BLK_NR*2)	// 12
 #define SIT_BLK_NR				(10)		// 总共10个SIT block(120个main segment)
 #define NAT_START_BLK			(SIT_START_BLK + 2* SIT_BLK_NR)		// 12+20 =32
-#define NAT_BLK_NR				(8)								// NAT block的数量
+#define NAT_BLK_NR				(4)								// NAT block的数量
 #define SSA_START_BLK			(NAT_START_BLK + 2* NAT_BLK_NR)		// 32+16=48
 #define SSA_BLK_NUM				(MAIN_SEG_NR)						// 118
 #define END_META_BLK			(SSA_START_BLK + SSA_BLK_NUM)		// 48+118= 266 < 320
 
-#define BLOCK_PER_SEG			(32)					// 一个segment有多少块
-#define BITMAP_SIZE				(BLOCK_PER_SEG /32)		// 512 blocks / 32 bit
-#define SEG_NUM					(128)
-#define MAIN_SEG_OFFSET			(10)
-#define MAIN_SEG_NR				(SEG_NUM - MAIN_SEG_OFFSET)
+#define BLOCK_PER_SEG			(16)					// 一个segment有多少块
+#define BITMAP_SIZE				(1)			//(BLOCK_PER_SEG /32)		// 512 blocks / 32 bit
+#define MAIN_SEG_OFFSET			(8)
+#define MAIN_SEG_NR				(60)
 #define MAIN_BLK_NR				(MAIN_SEG_NR * BLOCK_PER_SEG)
+#define SEG_NUM					(MAIN_SEG_OFFSET + MAIN_SEG_NR)
 
 
 // checkpoint and journal
-#define JOURNAL_NR				(32)
+#define JOURNAL_NR				(16)
 
 // 每个SIT block拥有的segment数量
-#define SIT_ENTRY_PER_BLK		(12)		// 每个SIT block存放 12 个segment entry
+#define SIT_ENTRY_PER_BLK		(6)		// 每个SIT block存放 12 个segment entry
 #define SUMMARY_PER_BLK			(BLOCK_PER_SEG)		// 
 #define GC_THRESHOLD_LO			(5)
 #define GC_THRESHOLD_HI			(15)
@@ -53,7 +53,7 @@
 // nid, index node配置
 #define MAX_INDEX_LEVEL			(3)				// index node 层次
 #define INDEX_SIZE				(32)			// inode中，包含index block的数量
-#define INDEX_TABLE_SIZE		(32)			// index block中，包含index/data block的数量
+#define INDEX_TABLE_SIZE		(16)			// index block中，包含index/data block的数量
 #define MAX_FILE_BLKS			(INDEX_SIZE * INDEX_TABLE_SIZE)		// 一个文件的最大长度，block单位.
 
 // Dentry 配置
