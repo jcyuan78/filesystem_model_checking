@@ -119,6 +119,7 @@ public:
 
 protected:
 	void InternalCopyFrom(const CF2fsSimulator* src);
+	bool SanityCheckConfig(void);
 
 public:
 	virtual bool Initialzie(const boost::property_tree::wptree& config, const std::wstring & log_path);

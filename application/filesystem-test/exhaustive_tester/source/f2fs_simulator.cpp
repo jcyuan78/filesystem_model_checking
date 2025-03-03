@@ -22,8 +22,8 @@ LOG_CLASS_SIZE(CKPT_NAT_JOURNAL);
 LOG_CLASS_SIZE(CKPT_SIT_JOURNAL);
 
 LOG_CLASS_SIZE(CKPT_BLOCK);
+LOG_CLASS_SIZE(CStorage);
 LOG_CLASS_SIZE(CF2fsSimulator);
-//LOG_CLASS_SIZE();
 //LOG_CLASS_SIZE();
 
 //#define MULTI_HEAD	1
@@ -84,8 +84,51 @@ void CF2fsSimulator::InternalCopyFrom(const CF2fsSimulator* _src)
 //	memcpy_s(&m_fs_info, sizeof(FS_INFO), &_src->m_fs_info, sizeof(FS_INFO));
 }
 
+bool CF2fsSimulator::SanityCheckConfig(void)
+{
+	LOG_DEBUG(L"== Main Segment ==");
+	LOG_DEBUG(L"\t BLK per SEG=%d, SEG nr=%d, BLK nr=%d", BLOCK_PER_SEG, MAIN_SEG_NR, MAIN_BLK_NR);
+	LOG_DEBUG(L"\t Start SEG no=%d, End SEG no=%d", MAIN_SEG_OFFSET, MAIN_SEG_OFFSET + MAIN_SEG_NR);
+	LOG_DEBUG(L"== Checkpoint ==");
+	LOG_DEBUG(L"\t Start CKPT=%d, CKPT nr=%d, SIT Journal nr=%d, NIT Journal nr=%d", CKPT_START_BLK, CKPT_BLK_NR, SIT_JOURNAL_BLK, 1);
+	LOG_DEBUG(L"\t SIT Journal nr=%d, SIT Journal blk=%d, SIT Journal per blk=%d", JOURNAL_NR, SIT_JOURNAL_BLK, JOURNAL_NR/ SIT_JOURNAL_BLK);
+	LOG_DEBUG(L"\t NAT Journal nr=%d, NAT Journal blk=%d, NAT JOurnal per blk=%d", JOURNAL_NR, JOURNAL_NR / JOURNAL_NR, JOURNAL_NR);
+//	LOG_DEBUG(L"\t ");
+//	LOG_DEBUG(L"\t ");	
+
+	LOG_DEBUG(L"== SIT ==");
+	LOG_DEBUG(L"\t Start SIT=%d, SIT nr=%d, SIT blk size=%d", SIT_START_BLK, SIT_BLK_NR, sizeof(SEG_INFO) * SIT_ENTRY_PER_BLK);
+	LOG_DEBUG(L"\t SIT entry per Blk=%d, SIT blk nr=%d, Total entry nr =%d,", SIT_ENTRY_PER_BLK, SIT_BLK_NR, SIT_ENTRY_PER_BLK * SIT_BLK_NR);
+	LOG_DEBUG(L"\t check: MAIN SEG (%d) <= SIT entry nr (%d),", MAIN_SEG_NR, SIT_ENTRY_PER_BLK * SIT_BLK_NR);
+	if (MAIN_SEG_NR > SIT_ENTRY_PER_BLK * SIT_BLK_NR) THROW_ERROR(ERR_APP, L"\t check: MAIN SEG (%d) <= SIT entry nr (%d),", MAIN_SEG_NR, SIT_ENTRY_PER_BLK * SIT_BLK_NR);
+	LOG_DEBUG(L"== NAT ==");
+	LOG_DEBUG(L"\t NODE nr=%d, NAT entry per Blk=%d, NAT blk size=%d", NODE_NR, NAT_ENTRY_PER_BLK, NAT_ENTRY_PER_BLK * sizeof(PHY_BLK));
+	LOG_DEBUG(L"\t Start NAT=%d, NAT nr=%d", NAT_START_BLK, NAT_BLK_NR);
+	LOG_DEBUG(L"\t check: NODE nr(%d) <= NAT entry nr(%d)", NODE_NR, NAT_BLK_NR * NAT_ENTRY_PER_BLK);
+	if (NODE_NR > NAT_BLK_NR * NAT_ENTRY_PER_BLK)  THROW_ERROR(ERR_APP, L"check: NODE nr(%d) <= NAT entry nr(%d)", NODE_NR, NAT_BLK_NR * NAT_ENTRY_PER_BLK);
+	LOG_DEBUG(L"== SSA ==");
+	LOG_DEBUG(L"\t SSA start blk=%d, SSA blk nr=%d", SSA_START_BLK, SSA_BLK_NUM);
+
+	LOG_DEBUG(L"\t Max file blks = %d", INDEX_SIZE * INDEX_TABLE_SIZE);
+
+//	LOG_DEBUG(L"\t ");
+//	LOG_DEBUG(L"\t ");
+//	LOG_DEBUG(L"\t ");
+//	LOG_DEBUG(L"\t ");
+//	LOG_DEBUG(L"\t ");
+//	LOG_DEBUG(L"\t ");
+//	LOG_DEBUG(L"\t ");
+//	LOG_DEBUG(L"\t ");
+	LOG_DEBUG(L"\t check: META BLK nr(%d) <= BLK before MAIN_SEG (%d) ", END_META_BLK, MAIN_SEG_OFFSET * BLOCK_PER_SEG);
+	if (END_META_BLK > MAIN_SEG_OFFSET * BLOCK_PER_SEG) THROW_ERROR(ERR_APP, L"check: META BLK nr(%s) <= BLK before MAIN_SEG (%d) ", END_META_BLK, MAIN_SEG_OFFSET * BLOCK_PER_SEG);
+	return true;
+}	
+
+
+
 bool CF2fsSimulator::Initialzie(const boost::property_tree::wptree& config, const std::wstring & log_path)
 {
+	SanityCheckConfig();
 	memset(&m_health_info, 0, sizeof(FsHealthInfo));
 	float op = config.get<float>(L"over_provision");
 	m_multihead_cnt = config.get<int>(L"multi_header_num");

@@ -10,8 +10,8 @@ struct F2FS_FSCK {
 	UINT sit_valid_blk;
 	UINT nat_valid_node;
 
-	DWORD main_area_map[SEG_NUM * BLOCK_PER_SEG / 32];
-	DWORD sit_area_map[SEG_NUM * BLOCK_PER_SEG / 32];
+	DWORD main_area_map[SEG_NUM * BLOCK_PER_SEG / 32+1];
+	DWORD sit_area_map[SEG_NUM * BLOCK_PER_SEG / 32+1];
 	DWORD nat_area_map[NODE_NR / 32];
 	DWORD node_map[NODE_NR / 32];
 

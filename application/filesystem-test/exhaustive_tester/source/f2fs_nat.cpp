@@ -106,8 +106,8 @@ int CNodeAddressTable::build_free(void)
 _NID CNodeAddressTable::get_node(void)
 {
 	_NID cur = next_scan;
+	LOG_DEBUG(L"free nid=%d", free_nr);
 	if (free_nr == 0) {
-//		THROW_ERROR(ERR_APP, L"remained node=0");
 		LOG_ERROR(L"no valid node, free_nr==0");
 		return INVALID_BLK;
 	}
@@ -117,7 +117,7 @@ _NID CNodeAddressTable::get_node(void)
 		if (is_invalid(nat[next_scan]) )
 		{
 			free_nr--;
-			//			LOG_DEBUG(L"allocate_index nid: nid=%d, remain=%d", next_scan, free_nr);
+			LOG_DEBUG(L"allocate_index nid: nid=%d, remain=%d", next_scan, free_nr);
 			nat[next_scan] = NID_IN_USE;	// 避免分配以后，node没有写入磁盘之前，被再次分配，用NID_IN_USE标志已使用。
 			set_dirty(next_scan);
 			// TODO 需要确认f2fs真实系统中如何实现。
@@ -127,7 +127,6 @@ _NID CNodeAddressTable::get_node(void)
 		if (next_scan >= NODE_NR)		next_scan = 0;
 		if (next_scan == cur)
 		{
-//			THROW_ERROR(ERR_APP, L"node run out");
 			LOG_ERROR(L"no valid node");
 			return INVALID_BLK;
 		}
