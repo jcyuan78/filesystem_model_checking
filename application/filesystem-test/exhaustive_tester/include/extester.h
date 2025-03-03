@@ -208,10 +208,10 @@ protected:
 
 	int TestMove(CFsState* state, CReferenceFs& ref, const std::wstring& path_src, const std::wstring& path_dst);
 
-	ERROR_CODE VerifyForPower(CFsState* cur_state);
-	ERROR_CODE Verify(CFsState* cur_state);
+	ERROR_CODE VerifyForPower(CFsState* cur_state, bool debug = false);
+	ERROR_CODE Verify(CFsState* cur_state, bool debug = false);
 
-	ERROR_CODE VerifyState(CReferenceFs& ref_fs, IFsSimulator* real_fs);
+	ERROR_CODE VerifyState(CReferenceFs& ref_fs, IFsSimulator* real_fs, bool debug = false);
 
 	// 针对每个子项，枚举所有可能的操作。
 	//bool EnumerateOp(CFsState * cur_state, std::list<CFsState*>::iterator & insert);
@@ -265,6 +265,7 @@ protected:
 	int m_branch;							// 统计测试时，抽选的分支数量
 	bool m_check_power_loss;				
 	bool m_stop_on_error= false;
+	bool m_skip_check_file_data = false;
 
 	std::vector<OP_CODE> m_file_op_set;		// 对于文件，允许的操作
 	std::vector<OP_CODE> m_dir_op_set;		// 对于目录，允许的操作

@@ -702,6 +702,7 @@ ERROR_CODE CF2fsSimulator::InternalCreatreFile(CPageInfo*& file_page, _NID & fid
 
 ERROR_CODE CF2fsSimulator::FileCreate(_NID & fid, const std::string& fn)
 {
+	LOG_STACK_TRACE_EX(L"path=%S", fn.c_str());
 	if (m_open_nr >= MAX_OPEN_FILE) {
 		fid = INVALID_BLK;
 		return ERR_MAX_OPEN_FILE;
@@ -1003,6 +1004,8 @@ void CF2fsSimulator::f2fs_write_checkpoint()
 	// 反转checkpoing id
 	m_cur_ckpt ^= 1;
 	save_checkpoint(m_cur_ckpt);
+	LOG_DEBUG(L"save checkpoint, ver=%d, SIT bitmap=%04X, NAT bitmap=%04X", 
+		m_checkpoint.header.ver_close, m_checkpoint.header.sit_ver_bitmap, m_checkpoint.header.nat_ver_bitmap)
 }
 
 int CF2fsSimulator::load_checkpoint()
