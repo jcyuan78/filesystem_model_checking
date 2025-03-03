@@ -99,19 +99,11 @@ void CCrashDisk::add_command(UINT start_lba, UINT secs, UINT start_blk, UINT end
 	// 记录cache
 	for (int index = 0; start_blk < end_blk; ++start_blk, ++index)
 	{
-		//		LBA_ENTRY* entry = new LBA_ENTRY;
-		//		memset(entry, 0xFF, sizeof(LBA_ENTRY));
-		//		entry->lba = start_blk;
-		//		m_cache.push_back(entry);
-		//		UINT cur_index = (UINT)(m_cache.size() - 1);
-		// UINT cur_index = start_offset;
 		cmd_entry.blocks[index].offset = start_offset;	//指向data文件中的位置
-		//		entry->offset = cur_index;
-		//		cache_enque(entry->lba, cur_index);
 		cache_enque(&cmd_entry.blocks[index], start_blk);
-//		m_cache_size++;
 		start_offset++;
 	}
+	m_cache_top = m_cmd_cache.rbegin();
 
 }
 
@@ -119,14 +111,11 @@ bool CCrashDisk::WriteSectors(void* _buf, size_t lba, size_t secs)
 {
 	JCASSERT(lba % 8 == 0 && secs % 8 == 0);
 	BYTE *buf = reinterpret_cast<BYTE*>(_buf);
-//	UINT start_blk = (UINT)(lba / SECTOR_PER_BLOCK);
-////	UINT end_blk = (UINT)(round_up((lba + secs), (size_t)(SECTOR_PER_BLOCK)));
-//	UINT end_lba = (UINT)(lba + secs);
-//	UINT end_blk = (UINT)(ROUND_UP_DIV(end_lba, SECTOR_PER_BLOCK));
 	UINT start_blk, end_blk;
 	lba_to_block(start_blk, end_blk, (UINT)lba, (UINT)secs);
 //	LOG_DEBUG_(1, L"save entry from block %d to block %d", start_blk, end_blk);
-	LOG_DEBUG(L"[disk] write: start_lba=%lld, secs=%lld, start_blk=%d, end_blk=%d", lba, secs, start_blk, end_blk);
+//	LOG_DEBUG(L"[disk] write: start_lba=%lld, secs=%lld, start_blk=%d, end_blk=%d", lba, secs, start_blk, end_blk);
+	LOG_TRACK(L"disk", L"write: start_lba=%lld, secs=%lld, start_blk=%d, end_blk=%d", lba, secs, start_blk, end_blk);
 	DWORD written = 0, read=0;
 
 #if 0
@@ -227,6 +216,7 @@ bool CCrashDisk::AsyncReadSectors(void* buf, size_t secs, OVERLAPPED* overlap)
 //void CCrashDisk::cache_enque(UINT lba, UINT index)
 void CCrashDisk::cache_enque(LBA_ENTRY* lba_entry, UINT blk)
 {
+	LOG_DEBUG(L"enque, blk=%d", blk);
 	LBA_ENTRY* new_entry = lba_entry;
 	if (m_lba_mapping[blk] == nullptr)
 	{
@@ -250,9 +240,11 @@ void CCrashDisk::cache_enque(LBA_ENTRY* lba_entry, UINT blk)
 
 void CCrashDisk::cache_deque(UINT blk)
 {
+	LOG_DEBUG(L"deque, blk=%d", blk);
 	LBA_ENTRY* cur_entry = m_lba_mapping[blk]; //m_cache[index];
 //	UINT lba = cur_entry->lba;
-	if (cur_entry->cache_next == cur_entry->cache_prev)
+//	if (cur_entry->cache_next == cur_entry->cache_prev)
+	if (cur_entry->cache_next == cur_entry && cur_entry->cache_prev == cur_entry)
 	{
 		m_lba_mapping[blk] = nullptr;
 	}
@@ -277,12 +269,14 @@ int CCrashDisk::IoCtrl(int mode, UINT cmd, void* arg)
 {
 	if (cmd == (UINT)IOCTRL_MARK) {
 		wchar_t* str_cmd = (wchar_t*)(arg);
+		LOG_TRACK(L"disk", L"mark: %s", str_cmd);
 		m_cmd_cache.emplace_back();
 		CMD_ENTRY& entry = m_cmd_cache.back();
 		entry.op = str_cmd;
 		entry.start_lba = (UINT)-1;
 		entry.secs = 0;
 		entry.blocks = nullptr;
+		m_cache_top = m_cmd_cache.rbegin();
 	}
 	return 0;
 }
@@ -349,6 +343,8 @@ bool CCrashDisk::LoadFromFile(const std::wstring& fn)
 			entry.start_lba = (UINT)-1;
 			entry.secs = 0;
 			entry.blocks = nullptr;
+			m_cache_top = m_cmd_cache.rbegin();
+
 		}
 	}
 
@@ -397,31 +393,32 @@ size_t CCrashDisk::GetIoLogs(IO_ENTRY* entries, size_t io_nr)
 {
 //	for (size_t ii = 0; ii < io_nr && ii < m_cache.size(); ++ii)
 	size_t ii = 0;
-	for (auto it = m_cmd_cache.rbegin(); it!= m_cmd_cache.rend(); ++it)
+	UINT index = 0;
+	for (auto it = m_cache_top; it!= m_cmd_cache.rend(); ++it)
 	{
 		if (ii >= io_nr) break;
-		if (is_valid(it->start_lba))
+//		if (is_valid(it->start_lba))
+		if (it->op.empty())
 		{
 			UINT start_blk, end_blk, blk_nr;
 			blk_nr = lba_to_block(start_blk, end_blk, it->start_lba, it->secs);
 			UINT jj = 0;
 			for (; (jj < blk_nr) && is_valid(it->blocks[jj].offset); ++jj) {}
 			if (jj == 0) continue;
-			//		entries[ii].cmd = IO_ENTRY::WRITE_SECTOR;
-//			if (it->op.empty()) 
-//			else entries[ii].op = it->op;
 			entries[ii].op = L"write";
 			entries[ii].lba = it->start_lba;
 			entries[ii].secs = it->secs;
-			entries[ii].block_index = it->blocks[0].offset;
+//			entries[ii].block_index = it->blocks[0].offset;
+			entries[ii].block_index = index;
 			entries[ii].blk_nr = jj;		// 只计算有效的block number，被rollback的不算
+			index += jj;
 		}
 		else
 		{
 			entries[ii].op = it->op;
 			entries[ii].lba = 0;
 			entries[ii].secs = 0;
-			entries[ii].block_index = 0;
+			entries[ii].block_index = index;
 			entries[ii].blk_nr = 0;
 		}
 		++ii;
@@ -431,7 +428,8 @@ size_t CCrashDisk::GetIoLogs(IO_ENTRY* entries, size_t io_nr)
 
 bool CCrashDisk::BackLog(size_t num)
 {
-	for (auto it = m_cmd_cache.rbegin(); it != m_cmd_cache.rend(); ++it)
+	auto& it = m_cache_top;
+	for (; it != m_cmd_cache.rend(); ++it)
 	{
 		if (!is_valid(it->start_lba)) continue;
 		UINT start_blk, end_blk, blk_nr;

@@ -98,20 +98,18 @@ protected:
 protected:
 	UINT m_sector_size;
 	UINT m_block_size;
-//	UINT m_cache_size;
 	UINT m_disk_size;		// sector 单位
-//	UINT* m_lba_mapping;
 	LP_LBA_ENTRY *m_lba_mapping;
 
-
-//	std::vector<LBA_ENTRY *> m_cache;
 	std::vector<CMD_ENTRY> m_cmd_cache;
 	HANDLE m_data_file;
-//	UINT m_cur_cache_size;
 	UINT m_cache_size;
 
+	// 这两个变量只是现在cache的top位置，以及cache中最上面block的位置。
+	std::vector<CMD_ENTRY>::reverse_iterator m_cache_top;
+	UINT m_cache_top_index;
+
 	std::wstring m_data_fn;
-//	std::wstring m_journal_fn;
 
 	// 当前文件指针
 	LONG m_file_pos;
