@@ -14,6 +14,8 @@ struct F2FS_FSCK {
 	DWORD sit_area_map[SEG_NUM * BLOCK_PER_SEG / 32];
 	DWORD nat_area_map[NODE_NR / 32];
 	DWORD node_map[NODE_NR / 32];
+	char path[MAX_PATH_SIZE];			// 用于跟踪目前检查的文件名
+	char* path_ptr;						// 指向path的末尾
 
 	bool fixed;
 	bool need_to_fix;
@@ -44,6 +46,8 @@ ERROR_CODE CF2fsSimulator::fsck(bool fix)
 	// check orphan node
 	// check inode from root
 	UINT blk_cnt = 0;
+	fsck.path[0] = '\\';
+	fsck.path_ptr = fsck.path+1;
 	fsck_chk_node_blk(&fsck, ROOT_FID, F2FS_FILE_DIR, BLOCK_DATA::BLOCK_INODE, blk_cnt);
 	// verify
 	fsck_verify(&fsck);
@@ -248,6 +252,11 @@ int CF2fsSimulator::fsck_chk_data_blk(F2FS_FSCK* fsck, _NID nid, WORD offset, PH
 	for (int ii = 0; ii < DENTRY_PER_BLOCK; ++ii) {
 		if (is_invalid(entries.dentries[ii].ino)) continue;
 		UINT blk_cnt = 0;
+		memcpy_s(fsck->path_ptr, MAX_PATH_SIZE - (fsck->path_ptr-fsck->path), entries.filenames[ii], entries.dentries[ii].name_len);
+		fsck->path_ptr += entries.dentries[ii].name_len;
+//		fsck->path_ptr[0] = '\\';
+		fsck->path_ptr[0] = 0;
+//		fsck->path_ptr++;
 		fsck_chk_node_blk(fsck, entries.dentries[ii].ino, F2FS_FILE_UNKNOWN, BLOCK_DATA::BLOCK_INODE, blk_cnt);
 	}
 	m_pages.free(page);
@@ -257,8 +266,6 @@ int CF2fsSimulator::fsck_chk_data_blk(F2FS_FSCK* fsck, _NID nid, WORD offset, PH
 
 int CF2fsSimulator::fsck_chk_node_blk(F2FS_FSCK* fsck, _NID nid, F2FS_FILE_TYPE file_type, BLOCK_DATA::BLOCK_TYPE block_type, UINT &blk_cnt)
 {
-	//f2fs_sanity_check_nid();
-
 	if (nid >= NODE_NR) THROW_FS_ERROR(ERR_INVALID_NID, L"nid [%d] is invalid", nid);
 
 	if (f2fs_test_node_bitmap(fsck, nid) != 0) {
@@ -336,6 +343,16 @@ int CF2fsSimulator::fsck_chk_inode_blk(F2FS_FSCK* fsck, _NID ino, PHY_BLK blk, F
 {
 	// 检查main bitmap，确保无重复 （sanity check中已经检查）。
 	f2fs_set_main_bitmap(fsck, blk);
+	char* path_ptr = fsck->path_ptr;
+	if (node_data.inode.file_type == F2FS_FILE_DIR) {
+		fsck->path_ptr[0] = '\\';
+		fsck->path_ptr++;
+		fsck->path_ptr[0] = 0;
+	}
+	LOG_DEBUG(L"[fsck] check inode block: nid=%03d, type=%s, fn=%S",
+		ino, node_data.inode.file_type == F2FS_FILE_DIR ? L"DIR " : L"FILE", fsck->path);
+	LOG_DEBUG(L"\t file_size = %d, block_nr = %d", 
+		node_data.inode.file_size, node_data.inode.blk_num);
 
 	file_type = node_data.inode.file_type;
 	if (node_data.m_ino != node_data.m_nid) {
@@ -355,7 +372,7 @@ int CF2fsSimulator::fsck_chk_inode_blk(F2FS_FSCK* fsck, _NID ino, PHY_BLK blk, F
 		THROW_FS_ERROR(ERR_INVALID_NID, L"ino [%d] valid data blk in node (%d) does not match data blk (%d) ", 
 			ino, node_data.inode.blk_num, blk_cnt);
 	}
-
+	fsck->path_ptr = path_ptr;
 	return 0;
 }
 
@@ -369,10 +386,12 @@ int CF2fsSimulator::fsck_chk_index_blk(F2FS_FSCK* fsck, _NID nid, PHY_BLK blk, F
 	for (int ii = 0; ii < INDEX_SIZE; ++ii)
 	{
 		PHY_BLK data_blk = node_data.index.index[ii];
+		char* path_ptr = fsck->path_ptr;
 		if ( is_valid(data_blk) ) {
 			valid_index++;
 			fsck_chk_data_blk(fsck, nid, ii, data_blk, file_type);
 		}
+		fsck->path_ptr = path_ptr;
 	}
 	blk_cnt += valid_index;
 	if (node_data.index.valid_data != valid_index) {

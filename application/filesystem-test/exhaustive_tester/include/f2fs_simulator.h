@@ -191,6 +191,7 @@ public:
 protected:
 	void DumpCheckpoint(FILE * out, const CKPT_BLOCK& checkpoint);
 	void DumpNatPage(FILE* out);
+	void DumpFile(_NID fid);
 	//void DumpNat(FILE* out);
 
 

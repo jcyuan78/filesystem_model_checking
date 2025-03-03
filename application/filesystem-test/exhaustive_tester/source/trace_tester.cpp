@@ -90,7 +90,8 @@ int CExTraceTester::PrepareTest(const boost::property_tree::wptree& config, IFsS
 
 ERROR_CODE CExTraceTester::RunTest(void)
 {
-	CJCLogger::Instance()->ParseAppender(L">STDERR", L"");
+//	CJCLogger::Instance()->ParseAppender(L">STDERR", L"");
+	LOGGER_CONFIG(L"trace_test.cfg");
 
 	printf_s("Running TRACE test\n");
 	InitializeCriticalSection(&m_trace_crit);
@@ -160,6 +161,7 @@ ERROR_CODE CExTraceTester::RunTest(void)
 				_NID fid = ref_file->get_fid();
 				printf_s("[WriteFile] %s, fid=%d, offset=%d, len=%d\n", op.file_path.c_str(), fid, op.offset, op.length);
 				ir = TestWriteFileV2(next_state, fid, op.offset, op.length, op.file_path);
+				next_state->m_real_fs->DumpLog(stdout, "sit");
 				break; }
 			case OP_CODE::OP_FILE_OPEN:
 				printf_s("[OpenFile] %s\n", op.file_path.c_str());
@@ -203,7 +205,7 @@ ERROR_CODE CExTraceTester::RunTest(void)
 		}
 		//printf_s("[Verify] \n");
 		//if (is_power_off)	ir = VerifyForPower(next_state);
-		//else				ir = Verify(next_state);
+		Verify(next_state, true);
 		RealFsState(stdout, fs, false);
 		printf_s("\n");
 

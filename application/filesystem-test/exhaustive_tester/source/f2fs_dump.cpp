@@ -11,8 +11,14 @@ void CF2fsSimulator::DumpLog(FILE* out, const char* log_name)
 	{
 		DumpCheckpoint(out, m_checkpoint);
 		m_nat.DumpNat(out);
-		DumpNatPage(out);
+//		DumpNatPage(out);
 		m_segments.DumpSegments(out);
+	}
+	else if (memcmp("file:", log_name, 5) == 0)
+	{
+		int fid;
+		sscanf_s(log_name + 5, "%d", &fid);
+		DumpFile((_NID)(fid));
 	}
 	else if (strcmp(log_name, "checkpoint") == 0)
 	{
@@ -20,7 +26,7 @@ void CF2fsSimulator::DumpLog(FILE* out, const char* log_name)
 	}
 	else if (strcmp(log_name, "sit") ==0)
 	{
-
+		m_segments.DumpSegments(out);
 	}
 	else if (strcmp(log_name, "nat")==0)
 	{
@@ -91,6 +97,48 @@ void CF2fsSimulator::DumpNatPage(FILE* out)
 //	return true;
 }
 
+void CF2fsSimulator::DumpFile(_NID fid)
+{
+	LOG_DEBUG(L"[dump file] fid=%d", fid);
+	PHY_BLK blk = m_nat.get_phy_blk(fid);
+	if (is_invalid(blk)) {
+		LOG_DEBUG(L"\tinvalid fid %d", fid);
+		return;
+	}
+	CPageInfo inode_page;
+	m_storage.BlockRead(CF2fsSegmentManager::phyblk_to_lba(blk), &inode_page);
+	BLOCK_DATA* blk_data = m_pages.get_data(&inode_page);
+	INODE& inode = blk_data->node.inode;
+	LOG_DEBUG(L"\tinode(%d), phy_blk=%d, file_len=%d, file_blk_nr=%d", fid, blk, inode.file_size, inode.blk_num);
+	for (int ii = 0; ii < INDEX_TABLE_SIZE; ++ii)
+	{
+		_NID index_nid = inode.index[ii];
+		if (is_valid(index_nid))
+		{
+			PHY_BLK index_blk = m_nat.get_phy_blk(index_nid);
+			if (!is_valid(index_blk)) {
+				LOG_DEBUG(L"\tindex[%d], nid=%d, is invalid", ii, index_nid);
+			}
+			LOG_DEBUG(L"\tindex[%d], nid=%d, phy_blk=%d", ii, index_nid, index_blk);
+			CPageInfo index_page;
+			m_storage.BlockRead(CF2fsSegmentManager::phyblk_to_lba(index_blk), &index_page);
+			BLOCK_DATA* index_data = m_pages.get_data(&index_page);
+			INDEX_NODE& index = index_data->node.index;
+			wchar_t str[48];
+			wchar_t* ptr = str;
+			for (int jj = 0; jj < INDEX_SIZE; ++jj)
+			{
+				ptr+= swprintf_s(ptr, 48 - (ptr - str), L"%04X ", index.index[jj]);
+				if (jj % 8 == 7) {
+					LOG_DEBUG(L"\t data blks:%s", str);
+					ptr = str;
+				}
+			}
+		}
+	}
+	LOG_DEBUG(L"[end dump file]");
+}
+
 void CNodeAddressTable::DumpNat(FILE* out)
 {
 	fprintf_s(out, "[NAT]\n");
@@ -107,6 +155,13 @@ void CNodeAddressTable::DumpNat(FILE* out)
 
 void CF2fsSegmentManager::DumpSegments(FILE * out)
 {
+	LOG_DEBUG(L"[cur segment]");
+	for (int ii = 0; ii < BT_TEMP_NR; ++ii)
+	{
+		CURSEG_INFO& cur = m_cur_segs[ii];
+		LOG_DEBUG(L"\t type=%d, seg_no=%d, blk_offset=%d", ii, cur.seg_no, cur.blk_offset);
+	}
+
 	LOG_DEBUG(L"[Segments]");
 	wchar_t str[256];
 	for (SEG_T segno = 0; segno < MAIN_SEG_NR; ++segno)
