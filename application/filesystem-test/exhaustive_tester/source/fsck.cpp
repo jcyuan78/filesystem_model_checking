@@ -21,8 +21,6 @@ struct F2FS_FSCK {
 
 int CF2fsSimulator::fsck_init(F2FS_FSCK* fsck)
 {
-//	memset(&fsck->main_area_map, 0, sizeof(fsck->main_area_map));
-//	memset(&fsck->sit_area_map, 0, sizeof(fsck->sit_area_map));
 	memset(fsck, 0, sizeof(F2FS_FSCK));
 	return 0;
 }
@@ -30,8 +28,6 @@ int CF2fsSimulator::fsck_init(F2FS_FSCK* fsck)
 ERROR_CODE CF2fsSimulator::fsck(bool fix)
 {
 	// prepare:
-//	m_nat.Load();
-//	m_segments.Load();
 	Mount();
 	if (m_log_fsck)	{
 		LOG_DEBUG(L"[fsck dump after mount]")
@@ -70,6 +66,7 @@ ERROR_CODE CF2fsSimulator::fsck(bool fix)
 inline DWORD set_bitmap(DWORD* bmp, UINT offset)
 {
 	DWORD index = (offset >> 5);
+	JCASSERT(index < SEG_NUM * BLOCK_PER_SEG / 32);
 	DWORD mask = (1 << (offset & 0x1F));
 	DWORD org = bmp[index];
 	bmp[index] |= mask;
@@ -79,6 +76,7 @@ inline DWORD set_bitmap(DWORD* bmp, UINT offset)
 inline DWORD test_bitmap(const DWORD* bmp, UINT offset)
 {
 	DWORD index = (offset >> 5);
+	JCASSERT(index < SEG_NUM * BLOCK_PER_SEG / 32);
 	DWORD mask = (1 << (offset & 0x1F));
 	return bmp[index] & mask;
 }
@@ -114,16 +112,20 @@ int CF2fsSimulator::fsck_chk_metadata(F2FS_FSCK* fsck)
 	SEG_T total_seg_nr = m_segments.get_seg_nr();
 	SEG_T valid_seg_nr = 0;
 	fsck->sit_valid_blk = 0;
+	PHY_BLK phy_blk = 0;
 	for (SEG_T ii = 0; ii < total_seg_nr; ++ii)
 	{
 		const SegmentInfo & seg = m_segments.get_segment(ii);
 		BLK_T seg_valid_blk = 0;
-		DWORD mask = 1;
-		for (BLK_T bb = 0; bb < BLOCK_PER_SEG; ++bb, mask <<= 1)
+//		DWORD mask = 1;
+		phy_blk = ii * BLOCK_PER_SEG;
+		for (BLK_T bb = 0; bb < BLOCK_PER_SEG; ++bb, ++phy_blk/*, mask <<= 1*/)
 		{
-			if (CF2fsSegmentManager::test_bitmap(seg.valid_bmp, bb) )
+			if (CF2fsSegmentManager::test_bitmap(&(seg.valid_bmp), bb) )
 			{
-				fsck->sit_area_map[ii] |= mask;
+				// 原来BLOCK_PER_SEG=32的时候，一个DWORD表示一个segment。当BLOCK_PER_SEG=16时，比例不对。这个方法会overflow
+//				fsck->sit_area_map[ii] |= mask;
+				set_bitmap(fsck->sit_area_map, phy_blk);
 				fsck->sit_valid_blk++;
 				seg_valid_blk++;
 			}
@@ -278,7 +280,7 @@ int CF2fsSimulator::fsck_chk_node_blk(F2FS_FSCK* fsck, _NID nid, F2FS_FILE_TYPE 
 	CF2fsSegmentManager::BlockToSeg(seg_no, blk_no, blk);
 
 	const SegmentInfo& seg = m_segments.get_segment(seg_no);
-	if (test_bitmap(seg.valid_bmp, blk_no) == 0) {
+	if (test_bitmap(&(seg.valid_bmp), blk_no) == 0) {
 		THROW_FS_ERROR(ERR_SIT_MISMATCH, L"nid [%d] phy_blk=%d, is not valid in SIT[%d, %d]", nid, blk, seg_no, blk_no);
 	}
 

@@ -724,7 +724,7 @@ ERROR_CODE CExTester::FsOperatorCore(CFsState* state, TRACE_ENTRY& op)
 	// (3) 检查测试结果
 	if (ir != ERR_OK && ir != ERR_NO_OPERATION)
 	{
-		THROW_FS_ERROR(ir, L"run test error op=%d, file=%S, ", ir, CFsException::ErrCodeToString(ir), op.op_code, op.file_path.c_str());
+		THROW_FS_ERROR(ir, L"run test error op=%d, file=%S, ", op.op_code, op.file_path.c_str());
 	}
 //	if (is_power_test)	ir = VerifyForPower(state);
 //	else				ir = Verify(state);
