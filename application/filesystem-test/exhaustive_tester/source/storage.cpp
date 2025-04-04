@@ -1,4 +1,4 @@
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+ï»¿///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #include "pch.h"
 
 #include "../include/storage.h"
@@ -6,237 +6,261 @@
 
 LOCAL_LOGGER_ENABLE(L"simulator.storage", LOGGER_LEVEL_DEBUGINFO);
 
+LOG_CLASS_SIZE(StorageDataBase);
+
+
+void StorageDataBase::Release(void) {
+	long ref = InterlockedDecrement(&m_ref);
+	if (ref == 0) {
+		// ä¸ºé¿å…é€’ç»™æ·±åº¦å¤ªå¤§ï¼Œé‡‡ç”¨å¾ªç¯
+		StorageDataBase* pre = pre_ver;
+		while (pre)
+		{
+			long rr = InterlockedDecrement(&pre->m_ref);
+			if (rr != 0) break;
+			StorageDataBase* cur = pre;
+			pre = cur->pre_ver;
+			delete cur;
+		}
+		//LOG_DEBUG(L"delete StorageDataBase, ptr=%p", this);
+		//if (pre_ver)
+		//{
+		//	LOG_DEBUG_(1, L"[storage] release storage data, lba=%d, ptr=%p, ref=%d", pre_ver->lba, pre_ver, pre_ver->m_ref);
+		//	pre_ver->Release();
+		//}
+		delete this;
+	}
+}
+
 CStorage::CStorage(CF2fsSimulator* fs)
 {
 	m_pages = & fs->m_pages;
-	memset(m_data, -1, sizeof(BLOCK_DATA) * TOTAL_BLOCK_NR);
+}
+
+CStorage::~CStorage()
+{
+	for (LBLK_T ii = 0; ii < TOTAL_BLOCK_NR; ++ii)
+	{
+		if (m_data[ii]) {
+			LOG_DEBUG_(1, L"[storage] release storage data, storage=%p, lba=%d, ptr=%p, ref=%d", 
+				this, m_data[ii]->lba, m_data[ii], m_data[ii]->m_ref);
+			m_data[ii]->Release();
+		}
+	}
 }
 
 void CStorage::Initialize(void)
 {
-	memset(m_data, -1, sizeof(StorageEntry) * TOTAL_BLOCK_NR);
-	memset(m_cache, -1, sizeof(StorageEntry) * SSD_CACHE_SIZE);
-	m_cache_head = 0;
-	m_cache_tail = 0;
-	m_cache_size = 0;
+	memset(m_data, 0, sizeof(m_data));
+	m_cache_tail = nullptr;
+	m_cache_nr = 0;
+
+	m_begin_cache = nullptr;
+	m_begin_cache_nr = 0;
+	m_parent = nullptr;
 
 }
 
 void CStorage::CopyFrom(const CStorage* src)
 {
-	size_t mem_size = sizeof(StorageEntry) * TOTAL_BLOCK_NR;
-	memcpy_s(m_data, mem_size, src->m_data, mem_size);
-	size_t cache_size = sizeof(StorageEntry) * SSD_CACHE_SIZE;
-	memcpy_s(m_cache, cache_size, src->m_cache, cache_size);
-	m_cache_head = src->m_cache_head;
+	//å…ˆæ¸…é™¤åŸæœ‰è®°å½•
+#if 1
+	for (LBLK_T ii = 0; ii < TOTAL_BLOCK_NR; ++ii)
+	{
+		if (m_data[ii]) {
+			LOG_DEBUG_(1, L"[storage] release storage data, storage=%p lba=%d, ptr=%p, ref=%d", 
+				this, m_data[ii]->lba, m_data[ii], m_data[ii]->m_ref);
+			m_data[ii]->Release();
+		}
+	}
+#endif
+	//å¤åˆ¶æ–°çš„æ•°æ®
+	memcpy_s(m_data, sizeof(m_data), src->m_data, sizeof(m_data));
+	for (LBLK_T ii = 0; ii < TOTAL_BLOCK_NR; ++ii)
+	{
+		if (m_data[ii]) {
+			m_data[ii]->AddRef();
+			LOG_DEBUG_(1, L"[storage] add ref storage data, state=%p, lba=%d, ptr=%p, ref=%d", 
+				this, m_data[ii]->lba, m_data[ii], m_data[ii]->m_ref);
+		}
+	}
 	m_cache_tail = src->m_cache_tail;
-	m_cache_size = src-> m_cache_size;
+	m_cache_nr = src->m_cache_nr;
+
+	m_begin_cache = m_cache_tail;
+	m_begin_cache_nr = m_cache_nr;
+	m_parent = src;
+	LOG_DEBUG(L"[dup storage], cur=%p, parent=%p", this, m_parent);
 }
 
 void CStorage::Reset(void)
 {
-	// Çå¿Õ»º´æ
-	for (UINT ii = 0; ii < TOTAL_BLOCK_NR; ++ii)
-	{
-		m_data[ii].cache_next = INVALID_BLK;
-		m_data[ii].cache_prev = INVALID_BLK;
-	}
-	memset(m_cache, -1, sizeof(StorageEntry) * SSD_CACHE_SIZE);
-	m_cache_head = 0;
-	m_cache_tail = 0;
-	m_cache_size = 0;
+	// æ¸…ç©ºç¼“å­˜
+	//for (UINT ii = 0; ii < TOTAL_BLOCK_NR; ++ii)
+	//{
+	//	m_data[ii].cache_next = INVALID_BLK;
+	//	m_data[ii].cache_prev = INVALID_BLK;
+	//}
+	//memset(m_cache, -1, sizeof(StorageEntry) * SSD_CACHE_SIZE);
+	//m_cache_head = 0;
+	//m_cache_tail = 0;
+	//m_cache_size = 0;
 }
 
 void CStorage::DumpStorage(FILE* out)
 {
 	fprintf_s(out, "[Storage Trace]\n");
-	LBLK_T ptr = m_cache_tail;
+	StorageDataBase* data = m_cache_tail;
 	LBLK_T first = -1, end = -1, count = 0;
-	int index = 0;
-	while (1)
+
+	for (UINT ii = 0; ii < m_cache_nr; ++ii)
 	{
-		if (ptr == 0)	ptr = SSD_CACHE_SIZE - 1;
-		else			ptr--;
-		LBLK_T lba = m_cache[ptr].lba;
-		if (lba + 1 == end) {
-			//merge
-			end--; count++;
+		JCASSERT(data);
+		LBLK_T lba = data->lba;
+		if (is_invalid(lba))
+		{	// show mark
+
 		}
 		else {
-			// output
-			if (is_valid(end)) fprintf_s(out, "\t Write: index=%d, start_lba=%d, count=%d\n", index, end, count);
-			// start new
-			end = lba;
-			count = 1;
+			if (lba + 1 == end) {	//merge
+				end--; count++;
+			}
+			else {					// output
+				if (is_valid(end)) fprintf_s(out, "\t Write: start_lba=%d, count=%d\n", end, count);
+				// start new
+				end = lba;
+				count = 1;
+			}
 		}
-		index++;
-		if (ptr == m_cache_head) break;
+		data = data->pre_write;
 	}
-	if (is_valid(end)) fprintf_s(out, "\t Write: index=%d, start_lba=%d, count=%d\n", index, end, count);
+	if (is_valid(end)) fprintf_s(out, "\t Write: start_lba=%d, count=%d\n", end, count);
 }
 
 void CStorage::cache_deque(LBLK_T cache_index)
 {
-	StorageEntry* cache = m_cache + cache_index;
-	LBLK_T lba = cache->lba;
-	StorageEntry* s = m_data + lba;
-	if (is_invalid(cache->cache_next)) 
-	{
-		s->cache_next = INVALID_BLK;
-		s->cache_prev = INVALID_BLK;
-	}
-	else
-	{
-		StorageEntry* next = m_cache + cache->cache_next;
-		if (next->lba != lba) THROW_ERROR(ERR_APP, L"cache data not match, lba=%d, lba in cache=%d", lba, next->lba);
-		next->cache_prev = INVALID_BLK;
-		s->cache_next = cache->cache_next;
-	}
-	memcpy_s(&(s->data), sizeof(BLOCK_DATA), &(cache->data), sizeof(BLOCK_DATA));
-	LOG_DEBUG_(1, L"flush cache (index=%d) to storage lba=%d", cache_index, lba);
+	JCASSERT(0);
 }
 
 void CStorage::cache_enque(LBLK_T lba, LBLK_T cache_index)
 {
-	StorageEntry* s = m_data + lba;
-	LBLK_T prev = s->cache_prev;
-	if (is_valid(prev)) {
-		m_cache[prev].cache_next = cache_index;
-		m_cache[cache_index].cache_prev = prev;
-	}
-	else
-	{
-		s->cache_next = cache_index;
-		m_cache[cache_index].cache_prev = INVALID_BLK;
-
-	}
-	s->cache_prev = cache_index;
-	m_cache[cache_index].cache_next = INVALID_BLK;
-	m_cache[cache_index].lba = lba;
-	LOG_DEBUG_(1, L"write to cache (index=%d), lba=%d", cache_index, lba);
+	JCASSERT(0);
 }
 
 
 void CStorage::BlockWrite(LBLK_T lba, CPageInfo* page)
 {
 	JCASSERT(page);
-//	printf_s("[write] lba=%d\n", lba);
+	JCASSERT(lba < TOTAL_BLOCK_NR);
+	StorageDataBase* data = new StorageDataBase;
+	data->lba = lba;
 	BLOCK_DATA* block = m_pages->get_data(page);	JCASSERT(block);
-	// ¼ì²écacheÊÇ·ñÂú£¬
-	if (((m_cache_tail + 1) % SSD_CACHE_SIZE) == m_cache_head)
-	{	//	ÂúÁË£ºheadĞ´Èë´ÅÅÌ
-		cache_deque(m_cache_head);
-		m_cache_head++;
-		m_cache_size--;
-		if (m_cache_head >= SSD_CACHE_SIZE) m_cache_head = 0;
-	}
+	memcpy_s(&data->data, sizeof(BLOCK_DATA), block, sizeof(BLOCK_DATA));
 
-	// µ±Ç°ÃüÁîĞ´Èëcache
-	memcpy_s(&m_cache[m_cache_tail].data, sizeof(BLOCK_DATA), block, sizeof(BLOCK_DATA));
-	cache_enque(lba, m_cache_tail);
-	m_cache_tail++;
-	m_cache_size++;
-	if (m_cache_tail >= SSD_CACHE_SIZE) m_cache_tail = 0;
-//	memcpy_s(m_data + lba, sizeof(BLOCK_DATA), block, sizeof(BLOCK_DATA));
+
+//	InterlockedExchangePointer((PVOID*)(&data->pre_ver), m_data[lba]);
+//	InterlockedExchangePointer((PVOID*)(&m_data[lba]), data);
+//	InterlockedExchangePointer((PVOID*)(&data->pre_write), m_cache_tail);
+//	InterlockedExchangePointer((PVOID*)(&m_cache_tail), data);
+
+	data->pre_ver = m_data[lba];
+	m_data[lba] = data;
+	data->pre_write = m_cache_tail;
+	m_cache_tail = data;
+	m_cache_nr++;
+	LOG_DEBUG_(1, L"[storage] new storage data, lba=%d, ptr=%p, ref=%d", data->lba, data, data->m_ref);
+	LOG_DEBUG_(0, L"write block, storage=%p, lba=%d, type=%d, ptr=%p, ref=%d, pre_ver=%p, pre_write=%p", 
+		this, lba, block->m_type, data, data->m_ref, data->pre_ver, data->pre_write);
 }
 
 void CStorage::BlockRead(LBLK_T lba, CPageInfo *page)
 {
 	BLOCK_DATA* dst = m_pages->get_data(page);
-	// ¼ì²éÊı¾İÊÇ·ñÔÚcacheÖĞ
-	BLOCK_DATA* src = nullptr;
+	// æ£€æŸ¥æ•°æ®æ˜¯å¦åœ¨cacheä¸­
+	if (m_data[lba] == nullptr)
+	{
+		THROW_FS_ERROR(ERR_READ_NO_MAPPING_DATA, L"lba=%d is no mapping");
+	}
+	if (m_data[lba]->lba != lba)
+	{
+		LOG_DEBUG_(1,L"storage=%p, lba=%d, data=%p", this, lba, m_data[lba]);
+		THROW_FS_ERROR(ERR_PHYSICAL_ADD_NOMATCH, L"request lba=%d, in data lba=%d", lba, m_data[lba]->lba);
+	}
+	BLOCK_DATA* src = &m_data[lba]->data;
+	LOG_DEBUG_(1,L"read block, lba=%d, type=%d", lba, src->m_type);
 
-	if (is_valid(m_data[lba].cache_prev)) {
-		// ÔÚcacheÖĞ
-		StorageEntry& cache = m_cache[ m_data[lba].cache_prev ];
-		if (cache.lba != lba) {
-			THROW_ERROR(ERR_APP, L"LBA (%d) in cache does not match request (%d).", cache.lba, lba);
-		}
-		src = &cache.data;
-	}
-	else {
-		src = & m_data[lba].data;
-	}
 	memcpy_s(dst, sizeof(BLOCK_DATA), src, sizeof(BLOCK_DATA));
-//	printf_s("[read] lba=%d, index=%d\n", lba, m_data[lba].cache_prev);
 }
 
 void CStorage::Sync(void)
 {
-	while (1)
-	{
-		if (m_cache_head == m_cache_tail) break;
-		if (m_cache_tail == 0) m_cache_tail = SSD_CACHE_SIZE - 1;
-		else m_cache_tail--;
-		m_cache_size--;
-		// Ö»Ğè¸´ÖÆ×îĞÂµÄcacheµ½ssd
-		if (is_invalid(m_cache[m_cache_tail].lba)) continue;
-		// ¸´ÖÆcacheµ½storage
-		LBLK_T lba = m_cache[m_cache_tail].lba;
-		BLOCK_DATA* dst = &m_data[lba].data;
-		BLOCK_DATA* src = &m_cache[m_cache_tail].data;
-		memcpy_s(dst, sizeof(BLOCK_DATA), src, sizeof(BLOCK_DATA));
-		LOG_DEBUG_(1, L"sync: cache[%d] to lba=%d", m_cache_tail, lba);
-		m_data[lba].cache_next = INVALID_BLK;
-		m_data[lba].cache_prev = INVALID_BLK;
-		// Çå³ıcache chain
-		LBLK_T cache = m_cache_tail;
-		while (1)
-		{
-			LBLK_T prev = m_cache[cache].cache_prev;
-			m_cache[cache].cache_next = INVALID_BLK;
-			m_cache[cache].cache_prev = INVALID_BLK;
-			m_cache[cache].lba = INVALID_BLK;
-			cache = prev;
-			if (is_invalid(cache)) break;
-		}
-	}
+	//while (1)
+	//{
+	//	if (m_cache_head == m_cache_tail) break;
+	//	if (m_cache_tail == 0) m_cache_tail = SSD_CACHE_SIZE - 1;
+	//	else m_cache_tail--;
+	//	m_cache_size--;
+	//	// åªéœ€å¤åˆ¶æœ€æ–°çš„cacheåˆ°ssd
+	//	if (is_invalid(m_cache[m_cache_tail].lba)) continue;
+	//	// å¤åˆ¶cacheåˆ°storage
+	//	LBLK_T lba = m_cache[m_cache_tail].lba;
+	//	BLOCK_DATA* dst = &m_data[lba].data;
+	//	BLOCK_DATA* src = &m_cache[m_cache_tail].data;
+	//	memcpy_s(dst, sizeof(BLOCK_DATA), src, sizeof(BLOCK_DATA));
+	//	LOG_DEBUG_(1, L"sync: cache[%d] to lba=%d", m_cache_tail, lba);
+	//	m_data[lba].cache_next = INVALID_BLK;
+	//	m_data[lba].cache_prev = INVALID_BLK;
+	//	// æ¸…é™¤cache chain
+	//	LBLK_T cache = m_cache_tail;
+	//	while (1)
+	//	{
+	//		LBLK_T prev = m_cache[cache].cache_prev;
+	//		m_cache[cache].cache_next = INVALID_BLK;
+	//		m_cache[cache].cache_prev = INVALID_BLK;
+	//		m_cache[cache].lba = INVALID_BLK;
+	//		cache = prev;
+	//		if (is_invalid(cache)) break;
+	//	}
+	//}
 }
 
 LBLK_T CStorage::GetCacheNum(void)
 {
-	return m_cache_size;
+	JCASSERT(m_cache_nr >= m_begin_cache_nr);
+	return m_cache_nr - m_begin_cache_nr;
 }
 
 void CStorage::Rollback(LBLK_T nr)
 {
-	if (nr > m_cache_size) THROW_ERROR(ERR_APP, L"rollback (%d) > cache size (%d)", nr, m_cache_size);
+	if (nr > m_cache_nr) THROW_ERROR(ERR_APP, L"rollback (%d) > cache size (%d)", nr, m_cache_nr);
 	LBLK_T ii = 0;
-	while (true)
-	{
-		if (m_cache_tail == m_cache_head) break;	// cache¿Õ
-		if (m_cache_tail == 0) m_cache_tail = SSD_CACHE_SIZE - 1;
-		else m_cache_tail--;
-		m_cache_size--;
 
-		LBLK_T lba = m_cache[m_cache_tail].lba;
-		// sanity check
-		if (lba > TOTAL_BLOCK_NR) THROW_ERROR(ERR_APP, L"invalid lba (%d) in cache[%d]", lba, m_cache_tail);
-		if (is_valid(m_cache[m_cache_tail].cache_next)) {
-			THROW_ERROR(ERR_APP, L"not the end of cache chain, next=%d", m_cache[m_cache_tail].cache_next);
+	for (int ii = 0; ii < nr; ++ii)
+	{
+		StorageDataBase* data = m_cache_tail;
+//		InterlockedExchangePointer((PVOID*)(&m_cache_tail), m_cache_tail->pre_write);
+		m_cache_tail = data->pre_write;	
+		m_cache_nr--;
+		if (m_parent) {
+//			JCASSERT(m_cache_nr >= m_parent->m_begin_cache_nr);
 		}
-		LBLK_T prev = m_cache[m_cache_tail].cache_prev;
-		if (is_valid(prev))
-		{
-			m_cache[prev].cache_next = INVALID_BLK;
-			m_data[lba].cache_prev = prev;
+		if (m_cache_nr < m_begin_cache_nr) m_begin_cache_nr = m_cache_nr;
+		LBLK_T lba = data->lba;
+		if (is_invalid(lba)) {
+			// mark, ç®€å•æ”¾å¼ƒ
 		}
 		else
 		{
-			m_data[lba].cache_next = INVALID_BLK;
-			m_data[lba].cache_prev = INVALID_BLK;
+			if (lba >= TOTAL_BLOCK_NR) {
+				THROW_FS_ERROR(ERR_PHYSICAL_ADD_NOMATCH, L"lba (%d) in cache is invalid", lba);
+			}
+//			InterlockedExchangePointer((PVOID*)(&m_data[lba]), data->pre_ver);
+			m_data[lba] = data->pre_ver;
+			if (m_data[lba]) m_data[lba]->AddRef();
+			LOG_DEBUG_(1, L"[storage] release storage data, storage=%p, lba=%d, ptr=%p, ref=%d, pre_ptr=%p, pre_ref=%d", 
+				this, lba, data, data->m_ref, m_data[lba], m_data[lba]?m_data[lba]->m_ref:0);
+			data->Release();
 		}
-		// Çå³ım_cache_tail
-		m_cache[m_cache_tail].cache_next = INVALID_BLK;
-		m_cache[m_cache_tail].cache_prev = INVALID_BLK;
-		m_cache[m_cache_tail].lba = INVALID_BLK;
-
-		LOG_DEBUG_(0,L"deque: index=%d, lba=%d, new_index=%d", m_cache_tail, lba, prev);
-		//printf_s("[rollback] index=%d, lba=%d, new_index=%d\n", m_cache_tail, lba, prev);
-
-		++ii;
-//		if ((lba==0 || lba>= SIT_START_BLK) && (ii >= nr)) break;
-		if (ii >= nr) break;
 	}
 }
 
@@ -255,33 +279,33 @@ const wchar_t* CFsException::ErrCodeToString(ERROR_CODE code)
 	switch (code)
 	{
 	case ERR_OK:				return L"OK";
-	case ERR_NO_OPERATION:		return L"No operation";	// ²âÊÔ¹ı³ÌÖĞ£¬Õı³£Çé¿öÏÂ£¬µ±Ç°²Ù×÷ÎŞ·¨±»Ö´ĞĞ¡£
-	case ERR_NO_SPACE:			return L"No enough space";		// GCÊ±·¢ÏÖ¿Õ¼ä²»¹»£¬ÎŞ·¨»ØÊÕ¸ü¶àsegment
-	case ERR_MAX_OPEN_FILE:		return L"Reached max open file";		// ´ò¿ªµÄÎÄ¼ş³¬¹ıÊıÁ¿
+	case ERR_NO_OPERATION:		return L"No operation";	// æµ‹è¯•è¿‡ç¨‹ä¸­ï¼Œæ­£å¸¸æƒ…å†µä¸‹ï¼Œå½“å‰æ“ä½œæ— æ³•è¢«æ‰§è¡Œã€‚
+	case ERR_NO_SPACE:			return L"No enough space";		// GCæ—¶å‘ç°ç©ºé—´ä¸å¤Ÿï¼Œæ— æ³•å›æ”¶æ›´å¤šsegment
+	case ERR_MAX_OPEN_FILE:		return L"Reached max open file";		// æ‰“å¼€çš„æ–‡ä»¶è¶…è¿‡æ•°é‡
 
 	case ERR_GENERAL:			return L"General Error";
-	case OK_ALREADY_EXIST:		return L"File already exist";			// ÎÄ¼ş»òÕßÄ¿Â¼ÒÑ¾­´æÔÚ£¬µ«ÊÇ½á¹û·µ»Øtrue: 
-	case ERR_CREATE_EXIST:		return L"File already exist";			// ¶ÔÓÚÒÑ¾­´æÔÚµÄÎÄ¼ş£¬ÖØ¸´´´½¨¡£: 
-	case ERR_CREATE:			return L"Create file failed";			// ÎÄ¼ş»òÕßÄ¿Â¼²»´æÔÚ£¬µ«ÊÇ´´½¨Ê§°Ü:
-	case ERR_OPEN_FILE:			return L"Open file failed";				// ÊÔÍ¼´ò¿ªÒ»¸öÒÑ¾­´æÔÚµÄÎÄ¼şÊÇ³ö´í:
-	case ERR_GET_INFOMATION:	return L"Get file information failed";	// »ñÈ¡File InformaitonÊ±³ö´í:
-	case ERR_DELETE_FILE:		return L"Delete file failed";			// É¾³ıÎÄ¼şÊ±³ö´í: 
-	case ERR_DELETE_DIR:		return L"Delete directory failed";		// É¾³ıÄ¿Â¼Ê±³ö´í:
-	case ERR_NON_EMPTY:			return L"Directory is not empty";		// É¾³ıÎÄ¼ş¼ĞÊ±£¬·Ç¿Õ
-	case ERR_READ_FILE:			return L"Failed on reading file";		// ¶ÁÎÄ¼şÊ±³ö´í: 
+	case OK_ALREADY_EXIST:		return L"File already exist";			// æ–‡ä»¶æˆ–è€…ç›®å½•å·²ç»å­˜åœ¨ï¼Œä½†æ˜¯ç»“æœè¿”å›true: 
+	case ERR_CREATE_EXIST:		return L"File already exist";			// å¯¹äºå·²ç»å­˜åœ¨çš„æ–‡ä»¶ï¼Œé‡å¤åˆ›å»ºã€‚: 
+	case ERR_CREATE:			return L"Create file failed";			// æ–‡ä»¶æˆ–è€…ç›®å½•ä¸å­˜åœ¨ï¼Œä½†æ˜¯åˆ›å»ºå¤±è´¥:
+	case ERR_OPEN_FILE:			return L"Open file failed";				// è¯•å›¾æ‰“å¼€ä¸€ä¸ªå·²ç»å­˜åœ¨çš„æ–‡ä»¶æ˜¯å‡ºé”™:
+	case ERR_GET_INFOMATION:	return L"Get file information failed";	// è·å–File Informaitonæ—¶å‡ºé”™:
+	case ERR_DELETE_FILE:		return L"Delete file failed";			// åˆ é™¤æ–‡ä»¶æ—¶å‡ºé”™: 
+	case ERR_DELETE_DIR:		return L"Delete directory failed";		// åˆ é™¤ç›®å½•æ—¶å‡ºé”™:
+	case ERR_NON_EMPTY:			return L"Directory is not empty";		// åˆ é™¤æ–‡ä»¶å¤¹æ—¶ï¼Œéç©º
+	case ERR_READ_FILE:			return L"Failed on reading file";		// è¯»æ–‡ä»¶æ—¶å‡ºé”™: 
 	case ERR_WRONG_FILE_SIZE:	return L"Wrong file size";				// :
 	case ERR_WRONG_FILE_DATA:	return L"Wrong file data";
 	case ERR_SYNC:				return L"Error happended in sync fs";	
 
-	case ERR_PENDING:			return L"Test is running";				// ²âÊÔ»¹ÔÚ½øĞĞÖĞ: 
-	case ERR_PARENT_NOT_EXIST:	return L"Parent directory not exist";	// ´ò¿ªÎÄ¼ş»òÕß´´½¨ÎÄ¼şÊ±£¬¸¸Ä¿Â¼²»´æÔÚ
-	case ERR_WRONG_PATH:		return L"Wrong path format";			// ÎÄ¼şÃû¸ñÊ½²»¶Ô£¬ÒªÇó´Ó\\¿ªÊ¼
-	case ERR_VERIFY_FILE:		return L"File compare fail";			// ÎÄ¼ş±È½ÏÊ±£¬³¤¶È²»¶Ô
-	case ERR_CKPT_FAIL:			return L"Ckeckpoint failed";			// Ckeckpoint ´íÎó¡£Á½¸öÍ¬Ê±ÓĞĞ§ÇÒ°æ±¾ÏàµÈ£¬»òÕßÁ½¸ö¶¼ÎŞĞ§
+	case ERR_PENDING:			return L"Test is running";				// æµ‹è¯•è¿˜åœ¨è¿›è¡Œä¸­: 
+	case ERR_PARENT_NOT_EXIST:	return L"Parent directory not exist";	// æ‰“å¼€æ–‡ä»¶æˆ–è€…åˆ›å»ºæ–‡ä»¶æ—¶ï¼Œçˆ¶ç›®å½•ä¸å­˜åœ¨
+	case ERR_WRONG_PATH:		return L"Wrong path format";			// æ–‡ä»¶åæ ¼å¼ä¸å¯¹ï¼Œè¦æ±‚ä»\\å¼€å§‹
+	case ERR_VERIFY_FILE:		return L"File compare fail";			// æ–‡ä»¶æ¯”è¾ƒæ—¶ï¼Œé•¿åº¦ä¸å¯¹
+	case ERR_CKPT_FAIL:			return L"Ckeckpoint failed";			// Ckeckpoint é”™è¯¯ã€‚ä¸¤ä¸ªåŒæ—¶æœ‰æ•ˆä¸”ç‰ˆæœ¬ç›¸ç­‰ï¼Œæˆ–è€…ä¸¤ä¸ªéƒ½æ— æ•ˆ
 
-	case ERR_WRONG_BLOCK_TYPE:	return L"Wrong block type";				// blockµÄÀàĞÍ²»·û
+	case ERR_WRONG_BLOCK_TYPE:	return L"Wrong block type";				// blockçš„ç±»å‹ä¸ç¬¦
 	case ERR_WRONG_FILE_TYPE:	return L"Wrong file/dir type";
-	case ERR_WRONG_FILE_NUM:	return L"Wrong file number";			// ÎÄ¼ş»òÕßÄ¿Â¼ÊıÁ¿²»Æ¥Åä
+	case ERR_WRONG_FILE_NUM:	return L"Wrong file number";			// æ–‡ä»¶æˆ–è€…ç›®å½•æ•°é‡ä¸åŒ¹é…
 
 	case ERR_SIT_MISMATCH:		return L"SIT mismatch";
 	case ERR_PHY_ADDR_MISMATCH:	return L"Physical address mismatch";
@@ -292,11 +316,11 @@ const wchar_t* CFsException::ErrCodeToString(ERROR_CODE code)
 	case ERR_DEAD_NID:			return L"Dead NID";
 	case ERR_LOST_NID:			return L"Lost NID";
 	case ERR_DOUBLED_NID:		return L"Doubled NID"; 
-	case ERR_INVALID_NID:		return L"Invalid NID";						// ²»ºÏ·¨µÄnid, »òÕß²»´æÔÚµÄnid/fid
+	case ERR_INVALID_NID:		return L"Invalid NID";						// ä¸åˆæ³•çš„nid, æˆ–è€…ä¸å­˜åœ¨çš„nid/fid
 	case ERR_DEAD_BLK:			return L"Dead Block";
 	case ERR_LOST_BLK:			return L"Lost Block";
 	case ERR_DOUBLED_BLK:		return L"Doubled Block"; 
-	case ERR_INVALID_BLK:		return L"Invalid Block";						// ²»ºÏ·¨µÄphysical block id
+	case ERR_INVALID_BLK:		return L"Invalid Block";						// ä¸åˆæ³•çš„physical block id
 
 	default:					return L"Unknown Error";
 	}

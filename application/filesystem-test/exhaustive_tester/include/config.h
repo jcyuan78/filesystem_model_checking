@@ -42,7 +42,7 @@
 
 // SSD 空间
 #define TOTAL_BLOCK_NR			(SEG_NUM * BLOCK_PER_SEG)
-#define SSD_CACHE_SIZE			(256)
+#define SSD_CACHE_SIZE			(128)
 
 // 文件系统内存配置// OS 缓存配置
 #define MAX_PAGE_NUM			(2048)

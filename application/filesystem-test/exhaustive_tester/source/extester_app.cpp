@@ -1,4 +1,4 @@
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+ï»¿///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "pch.h"
 #include "extester_app.h"
@@ -7,7 +7,7 @@
 #include <boost/property_tree/json_parser.hpp>
 
 #ifdef _DEBUG
-//#include <vld.h>
+#include <vld.h>
 #endif
 
 LOCAL_LOGGER_ENABLE(L"simulation.app", LOGGER_LEVEL_DEBUGINFO);
@@ -63,7 +63,7 @@ void CExhaustiveTesterApp::CleanUp(void)
 
 void CExhaustiveTesterApp::MakeTestId(void)
 {
-	// Ëæ»úÉú³É test id
+	// éšæœºç”Ÿæˆ test id
 	time_t now;
 	time(&now);
 	tm ptm;
@@ -88,7 +88,7 @@ void CExhaustiveTesterApp::GenerateLogFileName(void)
 	m_fn_seg = str_fn;
 }
 
-// Ôö¼ÓCtrl+CµÄ´¦Àí
+// å¢åŠ Ctrl+Cçš„å¤„ç†
 BOOL WINAPI HandlerRoutine(DWORD dwCtrlType)
 {
 	if (dwCtrlType == CTRL_C_EVENT)
@@ -146,7 +146,7 @@ int CExhaustiveTesterApp::Run(void)
 	boost::property_tree::wptree& test_config = prop.get_child(L"config.test");
 	boost::property_tree::wptree& fs_config = prop.get_child(L"config.filesystem");
 
-	// ²ÎÊı¸²¸ÇÅäÖÃÎÄ¼ş
+	// å‚æ•°è¦†ç›–é…ç½®æ–‡ä»¶
 	if (m_multihead_cnt != 0)	{	fs_config.put(L"multi_header_num", m_multihead_cnt);	}
 	if (m_searching_depth != 0)	{	test_config.put(L"depth", m_searching_depth);	}
 	if (m_thread_num > 0)		{	test_config.put(L"thread_num", m_thread_num); }
@@ -168,11 +168,11 @@ int CExhaustiveTesterApp::Run(void)
 	tester->StartTest();
 
 	tester->GetTestSummary(m_test_summary);
-	// ±£´æ²âÊÔµÄÅäÖÃ½á¹û
+	// ä¿å­˜æµ‹è¯•çš„é…ç½®ç»“æœ
 	std::string str_log_fn;
 	jcvos::UnicodeToUtf8(str_log_fn, m_test_id + L"\\config.xml");
 	boost::property_tree::xml_parser::write_xml(str_log_fn, prop);
-	// ±£´æ²âÊÔ½á¹ûĞ¡½á
+	// ä¿å­˜æµ‹è¯•ç»“æœå°ç»“
 	jcvos::UnicodeToUtf8(str_log_fn, m_test_id + L"\\summary.json");
 	boost::property_tree::json_parser::write_json(str_log_fn, m_test_summary);
 

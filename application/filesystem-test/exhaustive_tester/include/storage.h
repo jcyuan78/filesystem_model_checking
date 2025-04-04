@@ -1,24 +1,34 @@
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+ï»¿///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma once
 
 #include "f2fs_segment.h"
 #include "blocks.h"
+#include <list>
 
-struct StorageEntry
+struct StorageDataBase
+{
+	void AddRef(void) { InterlockedIncrement(&m_ref); }
+	void Release(void);
+
+	BLOCK_DATA data;
+	StorageDataBase* pre_ver=nullptr;		// ç›¸åŒæ•°æ®çš„å‰ä¸€ä¸ªç‰ˆæœ¬
+	StorageDataBase* pre_write=nullptr;		// å‰ä¸€ç¬”write command
+	long m_ref=1;
+	// for debug
+	LBLK_T lba;		// å¯¹åº”çš„lba. (-1)è¡¨ç¤ºå…¶ä»–æ•°æ®ã€‚
+};
+
+class StorageDataManager
 {
 public:
-	LBLK_T lba;
-	BLOCK_DATA data;
-	// ½öÓÃÓÚstorage¡£ÔÚpower outage²âÊÔ×¨ÓÃ£¬±êÖ¾Êı¾İµÄ¸üĞÂÁ´¡£Êı¾İÔÚcacheÖĞ¿ÉÒÔ±»¶à´Î¸üĞÂ¡£
-	// ¶ÔÓÚÃ¿¸öÊı¾İ¿é£¬¹¹³ÉÒ»¸öË«ÏòÁ´±í¡£prevÖ¸ÏòÊı¾İµÄÇ°Ò»¸ö°æ±¾£¬nextÖ¸ÏòÊı¾İµÄĞÂ°æ±¾¡£storageÖĞµÄblockÊ±Á´±íÍ·¡£
-	LBLK_T cache_next, cache_prev;
+
 };
 
 class CStorage
 {
 public:
 	CStorage(CF2fsSimulator * fs);
-	~CStorage() {};
+	~CStorage();
 
 	void Initialize(void);
 	void CopyFrom(const CStorage* src);
@@ -27,22 +37,30 @@ public:
 	void BlockRead(LBLK_T lba, CPageInfo * page);
 	void Sync(void);
 	LBLK_T GetCacheNum(void);
+	UINT GetMediaWriteNum(void) const { return m_cache_nr; }
 	void Rollback(LBLK_T nr);
 	void Reset(void);
 
 	void DumpStorage(FILE* out);
 
 protected:
-	void cache_enque(LBLK_T lba, LBLK_T cache_index);						// ½Úµã²åÈëcache
-	void cache_deque(LBLK_T cache_index);		// cache indexµÄ½ÚµãÒÆ³ö
+	void cache_enque(LBLK_T lba, LBLK_T cache_index);						// èŠ‚ç‚¹æ’å…¥cache
+	void cache_deque(LBLK_T cache_index);		// cache indexçš„èŠ‚ç‚¹ç§»å‡º
 
 protected:
-	StorageEntry m_data[TOTAL_BLOCK_NR];
+	StorageDataBase *m_data[TOTAL_BLOCK_NR];
 	CPageAllocator* m_pages;
-	// ÓÃcacheÄ£Äâ¶Ïµç¹ı³Ì¡£cache ÊÇÒ»¸öÑ­»·¶ÓÁĞ£¬ËùÓĞĞ´Èë¶¼»áÊ×ÏÈ±»Ğ´ÈëcacheÖĞ¡£µ±cacheÂúÊ±£¬¶ÓÎ²µÄÄÚÈİ»á±»Ğ´Èë´ÅÅÌ¡£
-	// »òÕßÔÚsync()º¯ÊıÖĞ£¬°ÑËùÓĞÄÚÈİĞ´Èë´ÅÅÌ¡£
-	// Ä£Äâpower outageÊ±£¬Í¨¹ırollback()º¯ÊıÉ¾³ı²¿·ÖcacheÄÚÈİ¡£
+	// ç”¨cacheæ¨¡æ‹Ÿæ–­ç”µè¿‡ç¨‹ã€‚cache æ˜¯ä¸€ä¸ªå¾ªç¯é˜Ÿåˆ—ï¼Œæ‰€æœ‰å†™å…¥éƒ½ä¼šé¦–å…ˆè¢«å†™å…¥cacheä¸­ã€‚å½“cacheæ»¡æ—¶ï¼Œé˜Ÿå°¾çš„å†…å®¹ä¼šè¢«å†™å…¥ç£ç›˜ã€‚
+	// æˆ–è€…åœ¨sync()å‡½æ•°ä¸­ï¼ŒæŠŠæ‰€æœ‰å†…å®¹å†™å…¥ç£ç›˜ã€‚
+	// æ¨¡æ‹Ÿpower outageæ—¶ï¼Œé€šè¿‡rollback()å‡½æ•°åˆ é™¤éƒ¨åˆ†cacheå†…å®¹ã€‚
 	// 
-	StorageEntry m_cache[SSD_CACHE_SIZE];
-	LBLK_T m_cache_head, m_cache_tail, m_cache_size;
+
+	StorageDataBase* m_cache_tail;
+	UINT m_cache_nr;		// ç´¯è®¡çš„cacheæ•°é‡
+
+	// for DEBUG
+	UINT m_begin_cache_nr;
+	StorageDataBase* m_begin_cache;
+	const CStorage* m_parent;
 };
+

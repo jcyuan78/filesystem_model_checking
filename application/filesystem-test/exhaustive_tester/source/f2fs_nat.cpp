@@ -9,7 +9,7 @@ LOCAL_LOGGER_ENABLE(L"simulator.f2fs.nat", LOGGER_LEVEL_DEBUGINFO);
 CNodeAddressTable::CNodeAddressTable(CF2fsSimulator* fs)
 	: m_pages(&fs->m_pages), m_storage(&fs->m_storage), m_fs(fs)
 {
-	fs->m_health_info.m_node_nr = NODE_NR;
+//	fs->m_health_info.m_node_nr = NODE_NR;
 }
 
 _NID CNodeAddressTable::Init(PHY_BLK root)
@@ -224,8 +224,8 @@ void CNodeAddressTable::f2fs_flush_nat_entries(CKPT_BLOCK& checkpoint)
 		{	// nid添加到journal中，检查nid是否已经在journal中
 			if (checkpoint.header.nat_journal_nr >= JOURNAL_NR) {
 				f2fs_out_nat_journal(nat_pages, checkpoint);
-				m_fs->m_health_info.nat_journal_overflow++;
-				LOG_ERROR(L"too many nat journal");
+//				m_fs->m_health_info.nat_journal_overflow++;
+//				LOG_ERROR(L"too many nat journal");
 			}
 			int index = checkpoint.header.nat_journal_nr;
 			checkpoint.nat_journals[index].nid = nid;

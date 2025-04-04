@@ -3,6 +3,8 @@
 #include "../include/extester.h"
 #include <boost/property_tree/json_parser.hpp>
 
+LOCAL_LOGGER_ENABLE(L"extester", LOGGER_LEVEL_DEBUGINFO + 1);
+
 OP_CODE StringToOpId(const std::wstring& str)
 {
 	OP_CODE id;
@@ -44,36 +46,22 @@ const char* OpName(OP_CODE op_code)
 	}
 }
 
-template <size_t N>
-void Op2String(char(&str)[N], TRACE_ENTRY& op)
-{
-	const char* op_name = NULL;
-	char str_param[128] = "";
-	//switch (op.op_code)
-	//{
-	//case OP_CODE::OP_NOP:				op_name = "none       ";	break;
-	//case OP_CODE::OP_FILE_CREATE:		op_name = "create-file";	break;
-	//case OP_CODE::OP_DIR_CREATE:		op_name = "create-dir ";	break;
-	//case OP_CODE::OP_FILE_DELETE:		op_name = "delete-file";	break;
-	//case OP_CODE::OP_DIR_DELETE:		op_name = "delete-dir ";	break;
-	//case OP_CODE::OP_MOVE:				op_name = "move       ";	break;
-	//case OP_CODE::OP_FILE_WRITE:		op_name = "overwrite  ";
-	//	sprintf_s(str_param, "offset=%d, secs=%d", op.offset, op.length);
-	//	break;
-	//case OP_CODE::OP_FILE_OPEN:			op_name = "open-file  ";	break;
-	//case OP_CODE::OP_FILE_CLOSE:		op_name = "close-file ";	break;
-	//case OP_CODE::OP_DEMOUNT_MOUNT:		op_name = "demnt-mount";	break;
-	//case OP_CODE::OP_POWER_OFF_RECOVER:	op_name = "power-off-on";	break;
-	//default:							op_name = "unknown    ";	break;
-	//}
-	if (op.op_code == OP_CODE::OP_FILE_WRITE) {
-		sprintf_s(str_param, "offset=%d, secs=%d", op.offset, op.length);
-	}
-	else if (op.op_code == OP_CODE::OP_POWER_OFF_RECOVER) {
-		sprintf_s(str_param, "rollback=%d", op.rollback);
-	}
-	sprintf_s(str, "op:(%d) [%s], path=%s, param: %s", op.op_sn, OpName(op.op_code), op.file_path.c_str(), str_param);
-}
+//template <size_t N>
+//void Op2String(char(&str)[N], TRACE_ENTRY& op)
+//{
+//	const char* op_name = NULL;
+//	char str_param[128] = "";
+//
+//	if (op.op_code == OP_CODE::OP_FILE_WRITE) {
+//		sprintf_s(str_param, "offset=%d, secs=%d", op.offset, op.length);
+//	}
+//	else if (op.op_code == OP_CODE::OP_POWER_OFF_RECOVER) {
+//		sprintf_s(str_param, "rollback=%d", op.rollback);
+//	}
+//	sprintf_s(str, "op:(%d) [%s], path=%s, param: %s", op.op_sn, OpName(op.op_code), op.file_path.c_str(), str_param);
+//}
+//
+//template <size_t N>void Op2String(char(&str)[512], TRACE_ENTRY& op);
 
 int CExTraceTester::PrepareTest(const boost::property_tree::wptree& config, IFsSimulator* fs, const std::wstring& log_path)
 {
@@ -126,6 +114,10 @@ ERROR_CODE CExTraceTester::RunTest(void)
 		{
 			op.offset = prop_op.get<FSIZE>("offset");
 		}
+		else if (op.op_code == OP_MOVE)
+		{
+			op.dst = prop_op.get<std::string>("dst");
+		}
 
 		printf_s("[setp]=%06d, ", step);
 		CFsState* next_state = m_states.duplicate(cur_state);
@@ -155,7 +147,10 @@ ERROR_CODE CExTraceTester::RunTest(void)
 				printf_s("[DeleteDir] %s\n", op.file_path.c_str());
 				ir = TestDeleteDir(next_state, op.file_path);
 				break;
-			case OP_CODE::OP_MOVE:			break;
+			case OP_CODE::OP_MOVE:			
+				printf_s("[MoveFile] %s to %s\n", op.file_path.c_str(), op.dst.c_str());
+				ir = TestMoveFile(next_state, op.file_path, op.dst);
+				break;
 			case OP_CODE::OP_FILE_WRITE: {
 				CReferenceFs::CRefFile* ref_file = next_state->m_ref_fs.FindFile(op.file_path);
 				_NID fid = ref_file->get_fid();
@@ -205,7 +200,9 @@ ERROR_CODE CExTraceTester::RunTest(void)
 		}
 		//printf_s("[Verify] \n");
 		//if (is_power_off)	ir = VerifyForPower(next_state);
-		Verify(next_state, true);
+		next_state->m_real_fs->DumpLog(stderr, "storage");
+//		ir= Verify(next_state, true);
+		LOG_DEBUG(L"verify state, result=%d", ir);
 		RealFsState(stdout, fs, false);
 		printf_s("\n");
 
@@ -249,9 +246,9 @@ bool CExTester::OutputTrace(CFsState* state)
 		IFsSimulator* fs = state->m_real_fs;
 		FS_INFO fs_info;
 		fs->GetFsInfo(fs_info);
-		TEST_LOG("\tfs: logic=%d, phisic=%d, total_blk=%d, free_blk=%d, total_seg=%d, free_seg=%d\n",
-			 fs_info.used_blks, fs_info.physical_blks, fs_info.total_blks, fs_info.free_blks, fs_info.total_seg, fs_info.free_seg);
-		TEST_LOG("\tfs: free pages= %d / %d\n",	fs_info.free_page_nr, fs_info.total_page_nr);
+		//TEST_LOG("\tfs: logic=%d, phisic=%d, total_blk=%d, free_blk=%d, total_seg=%d, free_seg=%d\n",
+		//	 fs_info.used_blks, fs_info.physical_blks, fs_info.total_blks, fs_info.free_blks, fs_info.total_seg, fs_info.free_seg);
+		//TEST_LOG("\tfs: free pages= %d / %d\n",	fs_info.free_page_nr, fs_info.total_page_nr);
 
 		CReferenceFs& ref = state->m_ref_fs;
 		auto endit = ref.End();

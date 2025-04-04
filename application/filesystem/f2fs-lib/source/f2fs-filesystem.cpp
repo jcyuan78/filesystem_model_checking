@@ -1,4 +1,4 @@
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+ï»¿///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #include "pch.h"
 
 #include <linux-fs-wrapper.h>
@@ -30,7 +30,7 @@ CF2fsFileSystem::CF2fsFileSystem(void)
 	InitializeCriticalSection(&m_f2fs_list_lock);
 	m_f2fs_list.next = &m_f2fs_list;
 	m_f2fs_list.prev = &m_f2fs_list;
-	//³õÊ¼»¯ super_block
+	//åˆå§‹åŒ– super_block
 
 }
 
@@ -42,7 +42,7 @@ CF2fsFileSystem::~CF2fsFileSystem(void)
 bool CF2fsFileSystem::ConnectToDevice(IVirtualDisk* dev)
 {
 	if (dev == NULL) THROW_ERROR(ERR_APP, L"device cannot be null");
-	// ×öformatµÄÊ±ºò£¬m_sb_info=nullptr;
+	// åšformatçš„æ—¶å€™ï¼Œm_sb_info=nullptr;
 	if (m_sb_info)	m_sb_info->SetDevice(dev);
 
 	m_config.devices[0].m_fd = dev;
@@ -86,7 +86,7 @@ void f2fs_sb_info::destroy_device_list()
 void f2fs_sb_info::destory_super(void)
 {
 //	f2fs_kvfree(m_sb_info->ckpt);
-	free(ckpt);	//ÔÚ checkpoint.cpp: CF2fsFileSystem::f2fs_get_valid_checkpoint()ÖĞ´´½¨
+	free(ckpt);	//åœ¨ checkpoint.cpp: CF2fsFileSystem::f2fs_get_valid_checkpoint()ä¸­åˆ›å»º
 	ckpt = NULL;
 
 //	delete m_sb_info->ckpt;
@@ -104,7 +104,7 @@ void f2fs_sb_info::destory_super(void)
 	s_encoding = NULL;
 	// new in read_raw_super_block()
 	if (raw_super) delete raw_super;
-	// ²»ĞèÒªÊÍ·ÅSRWLock
+	// ä¸éœ€è¦é‡Šæ”¾SRWLock
 }
 
 static const char* fs_name = "f2fs";
@@ -117,13 +117,13 @@ ULONG CF2fsFileSystem::GetFileSystemOption(void) const
 bool CF2fsFileSystem::Mount(IVirtualDisk* dev)
 {
 	LOG_STACK_TRACE();
-	//m_sb_info ÒÑ¾­³õÊ¼»¯¹ı
+	//m_sb_info å·²ç»åˆå§‹åŒ–è¿‡
 
 	JCASSERT(m_sb_info == nullptr && m_file_manager == nullptr);
 
 	m_file_manager = new CFileInfoManager(1024);
 
-	// ³õÊ¼»¯ file_system_type½á¹¹¡£Ô­£ºsuper.cppÖĞ¾²Ì¬³õÊ¼»¯£¬ÔÚinit_f2fs_fs()ÖĞ×¢²áµ½Linux fs
+	// åˆå§‹åŒ– file_system_typeç»“æ„ã€‚åŸï¼šsuper.cppä¸­é™æ€åˆå§‹åŒ–ï¼Œåœ¨init_f2fs_fs()ä¸­æ³¨å†Œåˆ°Linux fs
 	file_system_type* fs_type = new file_system_type;
 	fs_type->name = fs_name;
 	fs_type->fs_flags = FS_REQUIRES_DEV;
@@ -289,11 +289,11 @@ NTSTATUS CF2fsFileSystem::DokanCreateFile(IFileInfo*& file, const std::wstring& 
 		return OpenSpecialFile(file, path);
 	}
 
-	//	(1) ´ò¿ªparent
-	// 	(2) ÔÚparentÖĞ²éÕÒÄ¿±ê
-	//  (3) Èç¹ûÊÇ OPEN_EXIST, OPEN_ALWAYS, TRUNCATE_EXIST: 
-	//		ÎÄ¼ş´æÔÚ£º·µ»Ø£¬·ñÔò±¨´í
-	// 	(4) Èç¹ûÊÇ CREATE_ALWAYS
+	//	(1) æ‰“å¼€parent
+	// 	(2) åœ¨parentä¸­æŸ¥æ‰¾ç›®æ ‡
+	//  (3) å¦‚æœæ˜¯ OPEN_EXIST, OPEN_ALWAYS, TRUNCATE_EXIST: 
+	//		æ–‡ä»¶å­˜åœ¨ï¼šè¿”å›ï¼Œå¦åˆ™æŠ¥é”™
+	// 	(4) å¦‚æœæ˜¯ CREATE_ALWAYS
 	// 
 	// 
 	// case 1: not exist, create
@@ -309,9 +309,9 @@ NTSTATUS CF2fsFileSystem::DokanCreateFile(IFileInfo*& file, const std::wstring& 
 	if (access_mask & GENERIC_EXECUTE) file_mode |= FMODE_EXEC;
 	if (access_mask & GENERIC_ALL) file_mode |= (FMODE_READ | FMODE_WRITE | FMODE_EXEC);
 
-	// Â·¾¶½âÎö£ºµÃµ½¸¸½ÚµãÂ·¾¶£ºstr_path, Ä¿±êÎÄ¼şÃû£ºstr_fn;
+	// è·¯å¾„è§£æï¼šå¾—åˆ°çˆ¶èŠ‚ç‚¹è·¯å¾„ï¼šstr_path, ç›®æ ‡æ–‡ä»¶åï¼šstr_fn;
 
-	// TODO: Ê¹ÓÃfile»º´æ
+	// TODO: ä½¿ç”¨fileç¼“å­˜
 	jcvos::auto_interface<CF2fsFile> parent_dir;
 	jcvos::auto_interface<IFileInfo> _file;
 	std::wstring str_fn;
@@ -323,7 +323,7 @@ NTSTATUS CF2fsFileSystem::DokanCreateFile(IFileInfo*& file, const std::wstring& 
 	}
 
 	if (str_fn.empty())
-	{	// ´ò¿ª¸ùÄ¿Â¼
+	{	// æ‰“å¼€æ ¹ç›®å½•
 		if (disp == OPEN_ALWAYS || disp == OPEN_EXISTING)
 		{
 			parent_dir.detach(file);
@@ -372,14 +372,14 @@ NTSTATUS CF2fsFileSystem::DokanCreateFile(IFileInfo*& file, const std::wstring& 
 		
 	case CREATE_ALWAYS:
 		if (br && _file)	
-		{	// É¾³ı => ÖØ½¨ <TODO> ÓÅ»¯
+		{	// åˆ é™¤ => é‡å»º <TODO> ä¼˜åŒ–
 			_file->CloseFile();
 			_file.release();
 			parent_dir->_DeleteChild(str_fn);
 		}
 		break;
 	case TRUNCATE_EXISTING:
-		// truncate existingÒÑ¾­ÓÉDockan´¦Àí
+		// truncate existingå·²ç»ç”±Dockanå¤„ç†
 		if (!br || !_file)	{	LOG_ERROR(L"[err] file %s does not exist", path.c_str()); return STATUS_NO_SUCH_FILE;}
 		// <TODO> clear file
 		_file->SetEndOfFile(0);
@@ -427,7 +427,7 @@ bool CF2fsFileSystem::MakeDir(const std::wstring& dir)
 NTSTATUS CF2fsFileSystem::DokanDeleteFile(const std::wstring& full_path, IFileInfo* file, bool isdir)
 {
 	LOG_STACK_TRACE();
-	// <TODO> Èç¹ûÊÇdir£¬¼ì²éÊÇ·ñÎª¿Õ
+	// <TODO> å¦‚æœæ˜¯dirï¼Œæ£€æŸ¥æ˜¯å¦ä¸ºç©º
 	CF2fsFile* ff = dynamic_cast<CF2fsFile*>(file);
 	JCASSERT(ff);
 	LOG_TRACK(L"dentry", L"dentry=%p, inode=%p, fn=%S, ino=%d", ff->m_dentry, ff->m_inode, ff->m_dentry->d_name.name.c_str(), ff->m_inode->i_ino);
@@ -444,7 +444,7 @@ NTSTATUS CF2fsFileSystem::DokanDeleteFile(const std::wstring& full_path, IFileIn
 NTSTATUS CF2fsFileSystem::DokanMoveFile(const std::wstring& src_fn, const std::wstring& dst_fn, bool replace, IFileInfo* file)
 {
 	LOG_STACK_TRACE();
-	//<TODO>ÓÅ»¯£ºfileÒÑ¾­Ö¸ÏòsourceÁË£¬²»ĞèÒªÔÙ´Î²éÕÒsource.
+	//<TODO>ä¼˜åŒ–ï¼šfileå·²ç»æŒ‡å‘sourceäº†ï¼Œä¸éœ€è¦å†æ¬¡æŸ¥æ‰¾source.
 	CF2fsFile* ff = dynamic_cast<CF2fsFile*>(file);
 	if (ff) LOG_DEBUG_(1,L"file: dentry=%p, inode=%p, fn=%S, ino=%d", ff->m_dentry, ff->m_inode, ff->m_dentry->d_name.name.c_str(), ff->m_inode->i_ino);
 	jcvos::auto_interface<CF2fsFile> old_parent_dir;
@@ -486,7 +486,7 @@ NTSTATUS CF2fsFileSystem::DokanMoveFile(const std::wstring& src_fn, const std::w
 	//new_parent_dir->m_dentry->dentry_trace(__FUNCTIONW__, __LINE__);
 	dentry* new_entry = new_dir->lookup(_new_entry, 0);
 //	dput(_new_entry);
-	if (IS_ERR(new_entry)) new_entry = _new_entry;		// Ä¿±êÎÄ¼ş²»´æÔÚ
+	if (IS_ERR(new_entry)) new_entry = _new_entry;		// ç›®æ ‡æ–‡ä»¶ä¸å­˜åœ¨
 
 	UINT flag = 0;
 	if (!replace) flag |= RENAME_NOREPLACE;
@@ -546,7 +546,7 @@ bool CF2fsFileSystem::_GetRoot(CF2fsFile*& root)
 
 bool CF2fsFileSystem::OpenParent(CF2fsFile*& dir, const std::wstring& path, std::wstring& fn)
 {
-	// Â·¾¶½âÎö£ºµÃµ½¸¸½ÚµãÂ·¾¶£ºstr_path, Ä¿±êÎÄ¼şÃû£ºstr_fn;
+	// è·¯å¾„è§£æï¼šå¾—åˆ°çˆ¶èŠ‚ç‚¹è·¯å¾„ï¼šstr_path, ç›®æ ‡æ–‡ä»¶åï¼šstr_fn;
 	size_t path_len = path.size();
 	jcvos::auto_array<wchar_t> _str_path(path_len + 1);
 	wchar_t* str_path = (wchar_t*)_str_path;
@@ -556,9 +556,9 @@ bool CF2fsFileSystem::OpenParent(CF2fsFile*& dir, const std::wstring& path, std:
 	//	jcvos::auto_interface<IFileInfo> parent_dir;
 	wchar_t* ch = str_path + path_len - 1;
 	while (*ch != DIR_SEPARATOR && ch >= str_path) ch--;
-	str_fn = ch + 1;	// ÅÅ³ı¸ùÄ¿Â¼µÄ"\"
-	size_t fn_len = path_len - (str_fn - str_path);		// ²»°üº¬Ğ±¸Ü
-	size_t parent_len = ch - str_path;					// °üº¬Ğ±¸Ü
+	str_fn = ch + 1;	// æ’é™¤æ ¹ç›®å½•çš„"\"
+	size_t fn_len = path_len - (str_fn - str_path);		// ä¸åŒ…å«æ–œæ 
+	size_t parent_len = ch - str_path;					// åŒ…å«æ–œæ 
 	LOG_DEBUG_(1,L"parent=%s, parent len=%zd, file name = %s, length = %zd", ch, parent_len, str_fn, fn_len);
 
 	fn = str_fn;
@@ -595,7 +595,7 @@ void CF2fsFileSystem::f2fs_parse_operation(const std::wstring& vol_name, const s
 	}
 
 	m_vol_name = vol_name;
-	//<YUAN>ÓÉÓÚnum_cache_entry==0µÄ»°£¬²»»á·ÖÅäcache£¬³¢ÊÔÒ»ÏÂ
+	//<YUAN>ç”±äºnum_cache_entry==0çš„è¯ï¼Œä¸ä¼šåˆ†é…cacheï¼Œå°è¯•ä¸€ä¸‹
 	m_config.cache_config.num_cache_entry = 1;
 
 }
@@ -658,7 +658,7 @@ int f2fs_sb_info::__blkdev_issue_discard(block_device* bdev, sector_t lba, secto
 		JCASSERT(!((req_sects << 9) > UINT_MAX));
 
 		//bio_ptr = blk_next_bio(bio_ptr, 0, gfp_mask);
-		//<YUAN> Õ¹¿ªblk_next_bio
+		//<YUAN> å±•å¼€blk_next_bio
 //		bio* new_bio = m_bio_set.bio_alloc_bioset(gfp_mask, 0/*, NULL*/);
 		bio* new_bio = m_io_control->bio_alloc_bioset(gfp_mask, 0);
 		if (bio_ptr)
@@ -809,7 +809,7 @@ public:
 	UINT start_seg = 0;
 	UINT seg_num = 0;
 	UINT first_start_blk = 0;
-	UINT last_start_blk = 0;		// start_blkÎª0 ±íÊ¾ÎŞĞ§£¬Ç¿ÖÆÊä³ö
+	UINT last_start_blk = 0;		// start_blkä¸º0 è¡¨ç¤ºæ— æ•ˆï¼Œå¼ºåˆ¶è¾“å‡º
 };
 
 void MergeFreeSegment()
@@ -831,7 +831,7 @@ void f2fs_sb_info::DumpSegInfo(void)
 
 	MERGED_SEGMENT merged;
 
-	jcvos::auto_array<wchar_t> str_valid_blk(65);	// 64blk /ĞĞ
+	jcvos::auto_array<wchar_t> str_valid_blk(65);	// 64blk /è¡Œ
 //	jcvos::auto_array<wchar_t> str_discard(65);
 	for (UINT ss = 0; ss < seg_num; ++ss, free_bmp_mask <<=1)
 	{
@@ -852,7 +852,7 @@ void f2fs_sb_info::DumpSegInfo(void)
 			merged.last_start_blk = first_block;
 			continue;
 		}
-		// Êä³ömerged segments
+		// è¾“å‡ºmerged segments
 		if (merged.last_start_blk != 0)
 		{
 			LOG_DEBUG(L"segments:%d ~ %d, start block=0x%X ~, free segments", merged.start_seg, ss - 1, merged.first_start_blk);
