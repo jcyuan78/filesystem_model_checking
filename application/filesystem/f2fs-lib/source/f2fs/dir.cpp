@@ -1268,17 +1268,19 @@ void MergeLogicalBlock(MERGED_BLOCKS& mb, UINT64 lblk, UINT phy_blk)
 	}
 }
 
-void f2fs_inode_info::DumpInodeMapping(void)
+void f2fs_inode_info::DumpInodeMapping(FILE * out)
 {
 	UINT64 blk_num = ROUND_UP_DIV(i_size, PAGE_SIZE);
-	LOG_DEBUG(L"begin dump inode, ino=%d, file size=%lld, blk_num=%d", i_ino, i_size, i_size / PAGE_SIZE);
+	if (out) fwprintf_s(out,L"begin dump inode, ino=%d, file size=%lld, blk_num=%d\n", i_ino, i_size, i_size / PAGE_SIZE);
+	else LOG_DEBUG(L"begin dump inode, ino=%d, file size=%lld, blk_num=%d", i_ino, i_size, i_size / PAGE_SIZE);
 	int err = 0;
 	UINT64 lblk = 0;
 
 	/* if inline_data is set, should not report any block indices */
 	if (f2fs_has_inline_data(this))
 	{
-		LOG_DEBUG(L"inline inode");
+		if (out) fwprintf_s(out, L"inline inode\n");
+		else LOG_DEBUG(L"inline inode");
 		return;
 	}
 
@@ -1339,12 +1341,14 @@ void f2fs_inode_info::DumpInodeMapping(void)
 			UINT nid = le32_to_cpu(cur_state.tab[cur_state.offset]);
 			node_info ni;
 			m_sbi->nm_info->f2fs_get_node_info(nid, &ni);
-			LOG_DEBUG(L"node, level=%d, offset=%d, nid=%d, phy blk=0x%08X", cur_level, cur_state.offset, nid, ni.blk_addr);
+			if (out) fwprintf_s(out,L"node, level=%d, offset=%d, nid=%d, phy blk=0x%08X\n", cur_level, cur_state.offset, nid, ni.blk_addr);
+			else	LOG_DEBUG(L"node, level=%d, offset=%d, nid=%d, phy blk=0x%08X", cur_level, cur_state.offset, nid, ni.blk_addr);
 			cur_state.node_page = m_sbi->f2fs_get_node_page(nid);
 			if (IS_ERR(cur_state.node_page))
 			{
 				cur_state.node_page = nullptr;
-				LOG_ERROR(L"failed on reading node, nid=%d", nid);
+				if (out) fwprintf_s(out,L"[err] failed on reading node, nid=%d\n", nid);
+				else 	LOG_ERROR(L"failed on reading node, nid=%d", nid);
 //				cur_level--;
 				break;
 			}
@@ -1400,7 +1404,8 @@ void f2fs_inode_info::DumpInodeMapping(void)
 		if (states[level].node_page) f2fs_put_page(states[level].node_page, 1);
 	}
 
-	LOG_DEBUG(L"end dump inode");
+	if (out) fwprintf_s(out,L"end dump inode\n");
+	else LOG_DEBUG(L"end dump inode");
 }
 
 #endif

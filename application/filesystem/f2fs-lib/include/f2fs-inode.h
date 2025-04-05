@@ -304,7 +304,7 @@ public:
 
 #ifdef _DEBUG
 public:
-	void DumpInodeMapping(void);
+	void DumpInodeMapping(FILE * out=nullptr);
 #endif
 };
 

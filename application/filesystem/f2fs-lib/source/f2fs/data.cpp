@@ -3116,16 +3116,14 @@ static int prepare_write_begin(struct f2fs_sb_info *sbi, struct page *page, loff
 
 	/* we already allocated all the blocks, so we don't need to get the block addresses when there is no need to fill
 	the page. */
-	if (!f2fs_has_inline_data(inode) && len == PAGE_SIZE &&
-	    !is_inode_flag_set(inode, FI_NO_PREALLOC) && !f2fs_verity_in_progress(inode))
+	if (!f2fs_has_inline_data(inode) && len == PAGE_SIZE && !is_inode_flag_set(inode, FI_NO_PREALLOC) && !f2fs_verity_in_progress(inode))
 		return 0;
 
 	/* f2fs_lock_op avoids race between write CP and convert_inline_page */
 	if (f2fs_has_inline_data(inode) && pos + len > MAX_INLINE_DATA(inode))	flag = F2FS_GET_BLOCK_DEFAULT;
 	else		flag = F2FS_GET_BLOCK_PRE_AIO;
 
-	if (f2fs_has_inline_data(inode) ||
-			(pos & PAGE_MASK) >= i_size_read(inode)) {
+	if (f2fs_has_inline_data(inode) || (pos & PAGE_MASK) >= i_size_read(inode)) {
 		f2fs_do_map_lock(sbi, flag, true);
 		locked = true;
 	}
@@ -3144,27 +3142,27 @@ restart:
 		if (pos + len <= MAX_INLINE_DATA(inode)) {
 			f2fs_do_read_inline_data(page, ipage);
 			set_inode_flag(inode, FI_DATA_EXIST);
-			if (inode->i_nlink)
-				set_inline_node(ipage);
-		} else {
+			if (inode->i_nlink)					set_inline_node(ipage);
+		} 
+		else {
 			err = f2fs_convert_inline_page(&dn, page);
-			if (err)
-				goto out;
-			if (dn.data_blkaddr == NULL_ADDR)
-				err = f2fs_get_block(&dn, index);
+			if (err)							goto out;
+			if (dn.data_blkaddr == NULL_ADDR)	err = f2fs_get_block(&dn, index);
 		}
-	} else if (locked) {
+	} 
+	else if (locked) {
 		err = f2fs_get_block(&dn, index);
-	} else {
+	} 
+	else {
 		if (f2fs_lookup_extent_cache(inode, index, &ei)) {
 			dn.data_blkaddr = ei.blk + index - ei.fofs;
-		} else {
+		} 
+		else {
 			/* hole case */
 			err = f2fs_get_dnode_of_data(&dn, index, LOOKUP_NODE);
 			if (err || dn.data_blkaddr == NULL_ADDR) {
 				f2fs_put_dnode(&dn);
-				f2fs_do_map_lock(sbi, F2FS_GET_BLOCK_PRE_AIO,
-								true);
+				f2fs_do_map_lock(sbi, F2FS_GET_BLOCK_PRE_AIO, true);
 				WARN_ON(flag != F2FS_GET_BLOCK_PRE_AIO);
 				locked = true;
 				goto restart;

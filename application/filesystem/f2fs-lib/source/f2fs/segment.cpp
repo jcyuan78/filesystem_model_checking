@@ -3332,6 +3332,7 @@ page* f2fs_sb_info::get_next_sit_page(unsigned int start)
 
 	set_page_dirty(ppage);
 	set_to_next_sit(sit_i, start);
+	LOG_DEBUG(L"[sit] write sit to page, seg_no=%d, blk=%d", start, dst_off);
 
 	return ppage;
 }
@@ -3407,8 +3408,9 @@ void f2fs_sb_info::remove_sits_in_journal(void)
 	f2fs_journal *journal = &curseg->journal;
 	int i;
 
-	TRACK_JOURNAL_SEM(curseg - sm_info->curseg_array, L"down_write", L"");
+//	TRACK_JOURNAL_SEM(curseg - sm_info->curseg_array, L"down_write", L"");
 	down_write(&curseg->journal_rwsem);
+//	LOG_DEBUG(L"[sit] sit in cursum=%d")
 	for (i = 0; i < sits_in_cursum(journal); i++) 
 	{
 		unsigned int segno;
@@ -3417,12 +3419,12 @@ void f2fs_sb_info::remove_sits_in_journal(void)
 		segno = le32_to_cpu(segno_in_journal(journal, i));
 		dirtied = sm_info->sit_info->__mark_sit_entry_dirty(segno);
 
-		if (!dirtied)
-			add_sit_entry(segno, &SM_I()->sit_entry_set);
-		LOG_DEBUG_(1,L"remove sit_entry from journal, segment no=%d, dirtied=%d", segno, dirtied);
+		if (!dirtied)		add_sit_entry(segno, &SM_I()->sit_entry_set);
+		LOG_DEBUG(L"[sit] remove sit_entry from journal, segment no=%d, dirtied=%d", segno, dirtied);
 	}
+	LOG_TRACK(L"sit", L"remove sit from journal, sit_nr=%d", i);
 	update_sits_in_cursum(journal, -i);
-	TRACK_JOURNAL_SEM(curseg - sm_info->curseg_array, L"up_write", L"");
+//	TRACK_JOURNAL_SEM(curseg - sm_info->curseg_array, L"up_write", L"");
 	up_write(&curseg->journal_rwsem);
 }
 
@@ -3446,10 +3448,10 @@ void f2fs_sb_info::f2fs_flush_sit_entries(cp_control* cpc)
 	/* add and account sit entries of dirty bitmap in sit entry set temporarily	 */
 	add_sits_in_set();
 
-	LOG_DEBUG_(1,L"block_size=%d, sum_foot=%d, entries_size=%d, journal_size=%d", F2FS_BLKSIZE, SUM_FOOTER_SIZE, SUM_ENTRIES_SIZE, SUM_JOURNAL_SIZE);
-	LOG_DEBUG_(1,L"total sit journal entries=%d, sit_journal_entry size=%d", F2FS_BLKSIZE, SIT_JOURNAL_ENTRIES, sizeof(sit_journal_entry));
+	LOG_DEBUG(L"[journal] block_size=%d, sum_foot=%d, entries_size=%d, journal_size=%d", F2FS_BLKSIZE, SUM_FOOTER_SIZE, SUM_ENTRIES_SIZE, SUM_JOURNAL_SIZE);
+	LOG_DEBUG_(0,L"[journal] total sit journal entries=%d, sit_journal_entry size=%d", F2FS_BLKSIZE, SIT_JOURNAL_ENTRIES, sizeof(sit_journal_entry));
 	/* if there are no enough space in journal to store dirty sit entries, remove all entries from journal and add and account them in sit entry set. */
-	LOG_DEBUG_(1,L"sit journal: used=%d, remain=%d, dirty entries=%d", sits_in_cursum(journal), MAX_SIT_JENTRIES(journal), sit_i->dirty_sentries);
+	LOG_DEBUG_(0,L"[jounal] sit journal: used=%d, remain=%d, dirty entries=%d", sits_in_cursum(journal), MAX_SIT_JENTRIES(journal), sit_i->dirty_sentries);
 	if (!__has_cursum_space(journal, sit_i->dirty_sentries, SIT_JOURNAL) ||	!to_journal)
 		remove_sits_in_journal();
 
@@ -3464,22 +3466,24 @@ void f2fs_sb_info::f2fs_flush_sit_entries(cp_control* cpc)
 		unsigned int end = min(start_segno + SIT_ENTRY_PER_BLOCK, (unsigned long)MAIN_SEGS());
 		unsigned int segno = start_segno;
 
-		LOG_DEBUG_(1,L"sit journal: used=%d, remain=%d, dirty entries=%d", sits_in_cursum(journal), MAX_SIT_JENTRIES(journal), sit_i->dirty_sentries);
+		LOG_DEBUG_(0,L"[journal] sit journal: used=%d, remain=%d, dirty entries=%d", sits_in_cursum(journal), MAX_SIT_JENTRIES(journal), sit_i->dirty_sentries);
 		if (to_journal && !__has_cursum_space(journal, ses->entry_cnt, SIT_JOURNAL))
 			to_journal = false;
-		LOG_DEBUG_(1,L"update sit to <%s>", to_journal ? L"journal" : L"sit");
+		LOG_TRACK(L"sit", L"add sit set (start seg_no=%d) to <%s>", segno, to_journal ? L"journal" : L"cache");
 
 		if (to_journal) {
-			TRACK_JOURNAL_SEM(curseg - sm_info->curseg_array, L"down_write", L"");
+//			TRACK_JOURNAL_SEM(curseg - sm_info->curseg_array, L"down_write", L"");
 			down_write(&curseg->journal_rwsem);	}
 		else
 		{
+			// get_next_sit_page()中调用的seg_info_to_sit_page()中已经将segment entry的内容写入page中了
 			ppage = get_next_sit_page(start_segno);
 			raw_sit = page_address<f2fs_sit_block>(ppage);
 			LOG_DEBUG_(1,L"get sit page, page=%p, index=0x%X, segment_no=%d", ppage, ppage->index, start_segno);
 		}
 
 		/* flush dirty sit entries in region of current sit set */
+		// 此处的bit map是dirty bitmap， 一下循环flush一个SIT block的entries
 		for_each_set_bit_from(segno, bitmap, end) 
 		{
 			int offset, sit_offset;
@@ -3495,6 +3499,7 @@ void f2fs_sb_info::f2fs_flush_sit_entries(cp_control* cpc)
 				add_discard_addrs(this, cpc, false);
 			}
 			LOG_DEBUG_(1,L"update segment, seg_no=%d, type=%d, valid_blocks=%d", segno, se->type, se->valid_blocks);
+			LOG_TRACK(L"sit", L"add sit (seg_no=%d) to <%s>", segno, to_journal ? L"journal" : L"cache");
 			if (to_journal) 
 			{
 				offset = f2fs_lookup_journal_in_cursum(journal,	SIT_JOURNAL, segno, 1);

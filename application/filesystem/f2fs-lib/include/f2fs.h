@@ -729,8 +729,8 @@ inline f2fs_inode_info* F2FS_I(inode* iinode)
 inline size_t MAX_INLINE_DATA(f2fs_inode_info* iinode)
 {
 	int extra_isize = iinode->get_extra_isize();
-	wprintf_s(L"extra_isize=%d, cur_addrs_per_inode=%d, inline_xattr_addrs=%d\n",
-		extra_isize, CUR_ADDRS_PER_INODE(iinode), iinode->get_inline_xattr_addrs());
+//	wprintf_s(L"extra_isize=%d, cur_addrs_per_inode=%d, inline_xattr_addrs=%d\n",
+//		extra_isize, CUR_ADDRS_PER_INODE(iinode), iinode->get_inline_xattr_addrs());
 	return (sizeof(__le32) * (CUR_ADDRS_PER_INODE(iinode) - iinode->get_inline_xattr_addrs() - DEF_INLINE_RESERVED_SIZE));
 }
 

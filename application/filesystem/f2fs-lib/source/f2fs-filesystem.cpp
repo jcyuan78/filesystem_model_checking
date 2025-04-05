@@ -6,6 +6,7 @@
 #include "../include/io-complete-ctrl.h"
 #include <boost/property_tree/json_parser.hpp>
 #include "f2fs/segment.h"
+#include <boost/unordered_set.hpp>
 
 #ifdef _DEBUG
 #include "unit_test.h"
@@ -22,21 +23,19 @@ LOCAL_LOGGER_ENABLE(L"f2fs.filesystem", LOGGER_LEVEL_DEBUGINFO);
 CF2fsFileSystem::CF2fsFileSystem(void)
 {
 	// sanity check: for debug only => checked
-	//size_t s1 = (offsetof(struct f2fs_inode, _u._s.i_extra_end) - F2FS_EXTRA_ISIZE_OFFSET);
-	//size_t s2 = sizeof(f2fs_inode::_u._s);
-	//JCASSERT(s1 == s2);
-
 	// initialize f2fs_list (shinker)
 	InitializeCriticalSection(&m_f2fs_list_lock);
 	m_f2fs_list.next = &m_f2fs_list;
 	m_f2fs_list.prev = &m_f2fs_list;
 	//初始化 super_block
+	m_file_manager = new CFileInfoManager(1024);
 
 }
 
 CF2fsFileSystem::~CF2fsFileSystem(void)
 {
 	dcache_release();
+	delete m_file_manager;
 }
 
 bool CF2fsFileSystem::ConnectToDevice(IVirtualDisk* dev)
@@ -119,9 +118,10 @@ bool CF2fsFileSystem::Mount(IVirtualDisk* dev)
 	LOG_STACK_TRACE();
 	//m_sb_info 已经初始化过
 
-	JCASSERT(m_sb_info == nullptr && m_file_manager == nullptr);
+//	JCASSERT(m_sb_info == nullptr && m_file_manager == nullptr);
+	JCASSERT(m_sb_info == nullptr && m_file_manager);
 
-	m_file_manager = new CFileInfoManager(1024);
+//	m_file_manager = new CFileInfoManager(1024);
 
 	// 初始化 file_system_type结构。原：super.cpp中静态初始化，在init_f2fs_fs()中注册到Linux fs
 	file_system_type* fs_type = new file_system_type;
@@ -159,6 +159,11 @@ void CF2fsFileSystem::Unmount(void)
 		m_sb_info = nullptr;
 	}
 	DeleteSpecialFileList();
+	//if (m_file_manager)
+	//{
+	//	delete m_file_manager;
+	//	m_file_manager = nullptr;
+	//}
 	Disconnect();
 }
 
@@ -205,6 +210,8 @@ IFileSystem::FSCK_RESULT CF2fsFileSystem::FileSystemCheck(IVirtualDisk* dev, boo
 	m_config.bug_on = option.get<int>(L"bug_on", 0);
 	m_config.dbg_lv = option.get<int>(L"debug_level", 1);
 	m_config.preen_mode = option.get<int>(L"preen_mode", 0);
+	m_config.dump_index_nodes = option.get<bool>(L"dump_index_nodes", 0);
+	m_config.dump_segments = option.get<bool>(L"dump_segments", 0);
 	m_config.func = FSCK;
 //	f2fs_parse_operation()
 	ConnectToDevice(dev);
@@ -535,6 +542,8 @@ bool CF2fsFileSystem::GetRoot(IFileInfo*& root)
 	return br;
 }
 
+
+
 bool CF2fsFileSystem::_GetRoot(CF2fsFile*& root)
 {
 //	root = jcvos::CDynamicInstance<CF2fsFile>::Create();
@@ -764,6 +773,34 @@ DWORD CF2fsFileSystem::GetSpecialData(LPVOID buf, DWORD len, UINT id)
 
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// ==== debug ====
+
+void CF2fsFileSystem::Debug(boost::property_tree::wptree& debug_out, const boost::property_tree::wptree& debug_in)
+{
+	const std::wstring& action = debug_in.get<std::wstring>(L"action");
+	if (action == L"dump") {
+		FILE* output = nullptr;
+		const std::wstring& dump_out = debug_in.get<std::wstring>(L"dump.out");
+		if (dump_out == L"stderr") output = stderr;
+		else if (dump_out == L"debug") output = nullptr;
+		else output = stdout;
+		const std::wstring& data_type = debug_in.get<std::wstring>(L"dump.data_type");
+		if (data_type == L"segments") {
+			m_sb_info->DumpSegInfo(output);
+		}
+		else if (data_type == L"inode")
+		{
+			UINT64 file_ptr = debug_in.get<UINT64>(L"dump.file_ptr");
+			IFileInfo* file = (IFileInfo*)(file_ptr);
+			CF2fsFile* ff = dynamic_cast<CF2fsFile*>(file);
+			if (ff) ff->m_inode->DumpInodeMapping(output);
+
+		}
+	}
+}
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // ==== factory ====
 
 jcvos::CStaticInstance<CF2fsFactory> g_factory;
@@ -817,13 +854,14 @@ void MergeFreeSegment()
 
 }
 
-void f2fs_sb_info::DumpSegInfo(void)
+void f2fs_sb_info::DumpSegInfo(FILE * out)
 {
 	// dump setment info from memory
 	f2fs_lock_all();
 	UINT seg_num = sm_info->main_segments;
 	size_t free_seg = sm_info->free_info->free_segments;
-	LOG_DEBUG(L"Start dumpping segment info, total segment=%d, used=%d, free=%d", seg_num, seg_num-free_seg, free_seg);
+	if (out) 	fwprintf_s(out, L"Start dumpping segment info, total segment=%d, used=%lld, free=%lld\n", seg_num, seg_num - free_seg, free_seg);
+	else 	LOG_DEBUG(L"Start dumpping segment info, total segment=%d, used=%lld, free=%lld", seg_num, seg_num-free_seg, free_seg);
 
 	size_t free_bitmap_size = f2fs_bitmap_size(seg_num);
 	unsigned long* free_bmp = sm_info->free_info->free_segmap;
@@ -831,8 +869,9 @@ void f2fs_sb_info::DumpSegInfo(void)
 
 	MERGED_SEGMENT merged;
 
-	jcvos::auto_array<wchar_t> str_valid_blk(65);	// 64blk /行
-//	jcvos::auto_array<wchar_t> str_discard(65);
+//	jcvos::auto_array<wchar_t> str_valid_blk(65);	// 64blk /行
+	wchar_t str_valid_blk[128];
+
 	for (UINT ss = 0; ss < seg_num; ++ss, free_bmp_mask <<=1)
 	{
 		if (free_bmp_mask == 0)
@@ -843,7 +882,6 @@ void f2fs_sb_info::DumpSegInfo(void)
 
 		seg_entry& entry = sm_info->sit_info->sentries[ss];
 		block_t first_block = START_BLOCK(this, ss);
-//		UINT type = entry.type;
 		if ((*free_bmp & free_bmp_mask) == 0)
 		{
 			if (merged.first_start_blk == 0) merged.first_start_blk = first_block;
@@ -855,15 +893,48 @@ void f2fs_sb_info::DumpSegInfo(void)
 		// 输出merged segments
 		if (merged.last_start_blk != 0)
 		{
-			LOG_DEBUG(L"segments:%d ~ %d, start block=0x%X ~, free segments", merged.start_seg, ss - 1, merged.first_start_blk);
+			if (out) fwprintf_s(out, L"segments:%d ~ %d, start block=0x%X ~, free segments\n", merged.start_seg, ss - 1, merged.first_start_blk);
+			else 	LOG_DEBUG(L"segments:%d ~ %d, start block=0x%X ~, free segments", merged.start_seg, ss - 1, merged.first_start_blk);
 			memset(&merged, 0, sizeof(merged));
 			merged.start_seg = ss + 1;
 		}
 
-		LOG_DEBUG(L"Segment=%d, first_block=0x%X, type=%s, valid_block=%d, padding=%d", ss, first_block, STR_SGEMENT_TYPE[entry.type], entry.valid_blocks, entry.padding);
+		if (out) fwprintf_s(out, L"Segment=%d, first_block=0x%X, type=%s, valid_block=%d, padding=%d\n", ss, first_block, STR_SGEMENT_TYPE[entry.type], entry.valid_blocks, entry.padding);
+		else LOG_DEBUG(L"Segment=%d, first_block=0x%X, type=%s, valid_block=%d, padding=%d", ss, first_block, STR_SGEMENT_TYPE[entry.type], entry.valid_blocks, entry.padding);
 		curseg_info& curseg = sm_info->curseg_array[entry.type];
-		if (curseg.segno == ss) LOG_DEBUG(L" == current segment of %s, alloc type=%d, next blk=0x%X, next seg=%d, ", STR_SGEMENT_TYPE[curseg.seg_type], curseg.alloc_type, curseg.next_blkoff, curseg.next_segno);
-		// dump valid block
+		if (curseg.segno == ss) {
+			if (out) fwprintf_s(out, L" == current segment of %s, alloc type=%d, next blk=0x%X, next seg=%d, \n", STR_SGEMENT_TYPE[curseg.seg_type], curseg.alloc_type, curseg.next_blkoff, curseg.next_segno);
+			else LOG_DEBUG(L" == current segment of %s, alloc type=%d, next blk=0x%X, next seg=%d, ", STR_SGEMENT_TYPE[curseg.seg_type], curseg.alloc_type, curseg.next_blkoff, curseg.next_segno);
+		}
+
+		// dump segment中，block对应的文件, 每个单位显示16个block
+		memset(str_valid_blk, 0, sizeof(str_valid_blk));
+		int bb = 0;
+		seg_type type;
+		f2fs_summary_block* sum_blk = get_sum_block(ss, type);
+		boost::unordered_set<UINT> nid_set;
+		for (int bb = 0; bb < SIT_VBLOCK_MAP_SIZE; ++bb)
+		{
+			BYTE mask = (0x80 >> (bb % 8));
+			BYTE valid = entry.cur_valid_map[bb / 8];
+			if (mask & valid)
+			{
+				UINT nid = sum_blk->entries[bb].nid;
+				nid_set.insert(nid);
+			}
+		}
+		int jj = 0;
+		wchar_t* ptr = str_valid_blk;
+		for (auto ii = nid_set.begin(); jj<25 && ii != nid_set.end(); ++ii, ++jj) {
+			ptr += swprintf_s(ptr, 128 - (ptr - str_valid_blk), L"%04d, ", *ii);
+		}
+		if (out) fwprintf_s(out, L"NIDs = {%s %s}\n", str_valid_blk, nid_set.size() > 25 ? L"..." : L"");
+		else LOG_DEBUG(L"NIDs = {%s %s}", str_valid_blk, nid_set.size() > 25 ? L"..." : L"");
+
+		if (type == SEG_TYPE_NODE || type == SEG_TYPE_DATA || type == SEG_TYPE_MAX) delete sum_blk;
+
+#if 1
+		// dump valid block 每行64 block， 共8行
 		for (size_t bb = 0; bb < SIT_VBLOCK_MAP_SIZE/8; ++bb)
 		{
 			for (size_t ll = 0; ll < 8; ll++)
@@ -882,12 +953,70 @@ void f2fs_sb_info::DumpSegInfo(void)
 				}
 			}
 			str_valid_blk[64] = 0;
-			LOG_DEBUG(L"Blk Bitmap: %s", (const wchar_t*)str_valid_blk);
+			if (out) fwprintf_s(out, L"Blk Bitmap: %s\n", (const wchar_t*)str_valid_blk);
+			else 		LOG_DEBUG(L"Blk Bitmap: %s", (const wchar_t*)str_valid_blk);
 		}
+#endif
 	}
 	if (merged.last_start_blk != 0)
 	{
-		LOG_DEBUG(L"segments:%d ~ %d, start block=0x%X ~, free segments", merged.start_seg, merged.start_seg+merged.seg_num-1, merged.first_start_blk);
+		if (out) fwprintf_s(out, L"segments:%d ~ %d, start block=0x%X ~, free segments\n", merged.start_seg, merged.start_seg+merged.seg_num-1, merged.first_start_blk);
+		else 	LOG_DEBUG(L"segments:%d ~ %d, start block=0x%X ~, free segments", merged.start_seg, merged.start_seg+merged.seg_num-1, merged.first_start_blk);
 	}
 	f2fs_unlock_all();
 }
+
+f2fs_summary_block* f2fs_sb_info::get_sum_block(UINT segno, seg_type & ret_type)
+{
+	f2fs_checkpoint* cp = F2FS_CKPT();
+	f2fs_summary_block* sum_blk;
+	curseg_info* curseg;
+	int type, ret;
+	u64 ssa_blk;
+
+	ret_type = SEG_TYPE_MAX;
+	
+	ssa_blk = GET_SUM_BLOCK(this, segno);
+	for (type = 0; type < NR_CURSEG_NODE_TYPE; type++) {
+		if (segno == get_cp(cur_node_segno[type])) {
+			curseg = CURSEG_I(CURSEG_HOT_NODE + type);
+//			if (!IS_SUM_NODE_SEG(curseg->sum_blk->footer)) {
+			if (curseg->sum_blk.footer.entry_type != SUM_TYPE_NODE) {
+//				ASSERT_MSG("segno [0x%x] indicates a data segment, but should be node", segno);
+//				*ret_type = -SEG_TYPE_CUR_NODE;
+				ret_type = SEG_TYPE_CUR_NODE;
+			}
+			else { ret_type = SEG_TYPE_CUR_NODE; }
+			return &curseg->sum_blk;
+		}
+	}
+
+	for (type = 0; type < NR_CURSEG_DATA_TYPE; type++) {
+		if (segno == get_cp(cur_data_segno[type])) {
+			curseg = CURSEG_I(type);
+//			if (IS_SUM_NODE_SEG(curseg->sum_blk->footer)) {
+			if (curseg->sum_blk.footer.entry_type == SUM_TYPE_NODE){
+//				ASSERT_MSG("segno [0x%x] indicates a node segment, but should be data", segno);
+				ret_type = SEG_TYPE_CUR_DATA;
+			}
+			else { ret_type = SEG_TYPE_CUR_DATA; }
+			return &curseg->sum_blk;
+		}
+	}
+
+//	sum_blk = (f2fs_summary_block*)calloc(BLOCK_SZ, 1);
+//	ASSERT(sum_blk);
+	LOG_DEBUG(L"summary block size=%d", sizeof(f2fs_summary_block));
+	sum_blk = new f2fs_summary_block;
+	ret = m_fs->dev_read_block(sum_blk, ssa_blk);
+	ASSERT(ret >= 0);
+
+	//if (IS_SUM_NODE_SEG(sum_blk->footer))		*ret_type = SEG_TYPE_NODE;
+	//else if (IS_SUM_DATA_SEG(sum_blk->footer))	*ret_type = SEG_TYPE_DATA;
+	if (sum_blk->footer.entry_type == SUM_TYPE_NODE)	ret_type = SEG_TYPE_NODE;
+	else if (sum_blk->footer.entry_type == SUM_TYPE_DATA) ret_type = SEG_TYPE_DATA;
+
+	return sum_blk;
+}
+
+

@@ -368,6 +368,7 @@ skip_write:
 //long f2fs_sync_meta_pages(f2fs_sb_info *sbi, enum page_type type, long nr_to_write, enum iostat_type io_type)
 long f2fs_sb_info::f2fs_sync_meta_pages(enum page_type type, long nr_to_write, enum iostat_type io_type)
 {
+	LOG_DEBUG(L"Sync Meta Page, page_nr=%d", nr_to_write);
 	address_space *mapping = META_MAPPING(this);
 	pgoff_t index = 0, prev = ULONG_MAX;
 	pagevec pvec;
@@ -1565,6 +1566,7 @@ int f2fs_sb_info::f2fs_write_checkpoint(cp_control *cpc)
 {
 	LOG_STACK_TRACE();
 	LOG_DEBUG(L"write checkpoint, due to reason %03X", cpc->reason);
+	//m_fs->SendMarkToDrive(L"WriteCheckpoint");
 	f2fs_checkpoint *ckpt = F2FS_CKPT();
 	unsigned long long ckpt_ver;
 	int err = 0;
@@ -1588,12 +1590,14 @@ int f2fs_sb_info::f2fs_write_checkpoint(cp_control *cpc)
 	}
 
 	//trace_f2fs_write_checkpoint(sb, cpc->reason, "start block_ops");
+	m_fs->SendMarkToDrive(L"CP.SyncNode");
 
 	err = block_operations();
 	if (err) goto out;
 
 	//trace_f2fs_write_checkpoint(sb, cpc->reason, "finish block_ops");
 
+	m_fs->SendMarkToDrive(L"CP.FlushMergedWrite");
 	f2fs_flush_merged_writes(this);
 
 	/* this is the case of multiple fstrims without any changes */
@@ -1617,17 +1621,22 @@ int f2fs_sb_info::f2fs_write_checkpoint(cp_control *cpc)
 	/* update checkpoint pack index Increase the version number so that SIT entries and seg summaries are written at correct place	 */
 	ckpt_ver = cur_cp_version(ckpt);
 	ckpt->checkpoint_ver = cpu_to_le64(++ckpt_ver);
-	LOG_DEBUG_(1,L"write checkpoint, version=%d", ckpt_ver);
-
+	LOG_TRACK(L"cp", L"write checkpoint, version=0x%llX", ckpt_ver);
+//	m_fs->SendMarkToDrive(_str);
 	/* write cached NAT/SIT entries to NAT/SIT area */
+//	m_fs->SendMarkToDrive(L"CP.FlushNatEntry");
 	err = f2fs_flush_nat_entries(this, cpc);
 	if (err)		goto stop;
 
+//	m_fs->SendMarkToDrive(L"CP.FlushSitEntry");
 	f2fs_flush_sit_entries(cpc);
 
 	/* save inmem log status */
 	f2fs_save_inmem_curseg(this);
 
+	wchar_t _str[128];
+	swprintf_s(_str, L"CP.DoCkpt[0x%llX]", ckpt_ver);
+	m_fs->SendMarkToDrive(_str);
 	err = do_checkpoint(cpc);
 	if (err)	f2fs_release_discard_addrs(this);
 	else		f2fs_clear_prefree_segments(this, cpc);

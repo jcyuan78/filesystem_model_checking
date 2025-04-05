@@ -65,6 +65,7 @@ public:
 	dentry* GetDentry(void) { return m_dentry; }
 	int DeleteThis(void);	// É¾³ý´ËÎÄ¼þ
 	UINT GetIno(void) const { return m_inode->i_ino; }
+	//void DumpFileMapping(FILE* out) { m_inode->DumpInodeMapping(out); }
 
 protected:
 	bool _OpenChildEx(CF2fsFile*& file, const wchar_t* fn, size_t len);
@@ -92,6 +93,9 @@ public:
 	typedef  Allocator<jcvos::CDynamicInstance<CF2fsFile> > __base_allocator;
 public:
 	CFileInfoManager(size_t increment) : __base_allocator(increment) {};
+	virtual ~CFileInfoManager(void) {
+
+	}
 	CF2fsFile* file_get(void)
 	{
 		void * ptr = __base_allocator::alloc_obj();
@@ -100,19 +104,15 @@ public:
 		CF2fsFile* file = static_cast<CF2fsFile*>(ff );
 		
 		file->m_manager = this;
-//		file->AddRef();
 		return file;
 	}
 	void file_put(CF2fsFile* file)
 	{
 		file->AddRef();
-//		jcvos::CDynamicInstance< CF2fsFile>* pp = dynamic_cast<jcvos::CDynamicInstance< CF2fsFile>*>(file);
 		OBJ_PTR pp = (OBJ_PTR)((UINT_PTR)file);
-//		pp->AddRef();
 		free_obj(pp);
 	}
 };
-
 
 class CF2fsSpecialFile : public IFileInfo
 {
@@ -245,6 +245,8 @@ public:
 
 public:
 	virtual bool GetRoot(IFileInfo* &root);
+	virtual void Debug(boost::property_tree::wptree& debug_out, const boost::property_tree::wptree& debug_in);
+
 
 protected:
 	bool OpenParent(CF2fsFile*& dir, const std::wstring & path, std::wstring &fn);

@@ -563,6 +563,10 @@ struct f2fs_configuration {
 
 	/* compression support for sload.f2fs */
 	compress_config_t compress;
+
+// for debug
+	bool dump_index_nodes;
+	bool dump_segments;
 };
 
 
@@ -1109,20 +1113,12 @@ struct f2fs_nat_block
 	f2fs_nat_entry entries[NAT_ENTRY_PER_BLOCK];
 } ;
 
-/*
- * For SIT entries
- *
- * Each segment is 2MB in size by default so that a bitmap for validity of
- * there-in blocks should occupy 64 bytes, 512 bits.
- * Not allow to change this.
- */
+/* For SIT entries
+ * Each segment is 2MB in size by default so that a bitmap for validity of there-in blocks should occupy 64 bytes, 512 bits. Not allow to change this. */
 #define SIT_VBLOCK_MAP_SIZE 64
 #define SIT_ENTRY_PER_BLOCK (PAGE_CACHE_SIZE / sizeof(struct f2fs_sit_entry))
 
-/*
- * F2FS uses 4 bytes to represent block address. As a result, supported size of
- * disk is 16 TB and it equals to 16 * 1024 * 1024 / 2 segments.
- */
+/* F2FS uses 4 bytes to represent block address. As a result, supported size of disk is 16 TB and it equals to 16 * 1024 * 1024 / 2 segments. */
 #define F2FS_MIN_SEGMENT      9 /* SB + 2 (CP + SIT + NAT) + SSA + MAIN */
 #define F2FS_MAX_SEGMENT       ((16 * 1024 * 1024) / 2)
 #define MAX_SIT_BITMAP_SIZE    (SEG_ALIGN(SIZE_ALIGN(F2FS_MAX_SEGMENT, \

@@ -2396,9 +2396,9 @@ out:
 //static int __f2fs_build_free_nids(struct f2fs_sb_info* sbi, bool sync, bool mount)
 int f2fs_nm_info::__f2fs_build_free_nids(bool sync, bool mount)
 {
-//	struct f2fs_nm_info *nm_i = NM_I(sbi);
 	int i = 0, ret;
 	nid_t nid = next_scan_nid;
+	LOG_DEBUG(L"max nid=%d", max_nid);
 
 	if (unlikely(nid >= max_nid))	nid = 0;
 	if (unlikely(nid % NAT_ENTRY_PER_BLOCK))	nid = NAT_BLOCK_OFFSET(nid) * NAT_ENTRY_PER_BLOCK;
@@ -2418,8 +2418,6 @@ int f2fs_nm_info::__f2fs_build_free_nids(bool sync, bool mount)
 	m_sbi->f2fs_ra_meta_pages( NAT_BLOCK_OFFSET(nid), FREE_NID_PAGES, META_NAT, true);
 
 	{ auto_lock<semaphore_read_lock> lock(nat_tree_lock);
-		//down_read(&nat_tree_lock);
-
 		while (1)
 		{
 			if (!test_bit_le(NAT_BLOCK_OFFSET(nid), nat_block_bitmap))
@@ -2435,8 +2433,6 @@ int f2fs_nm_info::__f2fs_build_free_nids(bool sync, bool mount)
 
 				if (ret)
 				{
-					//up_read(&nat_tree_lock);
-					//f2fs_err(m_sbi, L"NAT is corrupt, run fsck to fix it");
 					LOG_ERROR(L"[err] NAT is corrupt, run fsck to fix it");
 					return ret;
 				}
@@ -2450,7 +2446,6 @@ int f2fs_nm_info::__f2fs_build_free_nids(bool sync, bool mount)
 		next_scan_nid = nid;
 		/* find free nids from current sum_pages */
 		scan_curseg_cache(m_sbi);
-//		up_read(&nat_tree_lock);
 	}
 	m_sbi->f2fs_ra_meta_pages( NAT_BLOCK_OFFSET(next_scan_nid),	ra_nid_pages, META_NAT, false);
 
@@ -2462,9 +2457,7 @@ int f2fs_nm_info::f2fs_build_free_nids(bool sync, bool mount)
 	int ret;
 	LOG_DEBUG_(1,L"[build_lock] lock");
 	auto_lock<mutex_locker> lock(build_lock);
-	//mutex_lock(&NM_I(this)->build_lock);
 	ret = __f2fs_build_free_nids(sync, mount);
-	//mutex_unlock(&NM_I(this)->build_lock);
 	LOG_DEBUG_(1,L"[build_lock] release");
 	return ret;
 }
@@ -2473,10 +2466,8 @@ int f2fs_nm_info::f2fs_build_free_nids(bool sync, bool mount)
  * The returned nid could be used ino as well as nid when inode is created. */
 // 申请新的nid，如果成功，在nid参数中返回。如果时inode则nid用作ino.
 // 在free_nid_list中提取第一个entry，返回其nid,
-//bool f2fs_alloc_nid(f2fs_sb_info *sbi, nid_t *nid)
 bool f2fs_nm_info::f2fs_alloc_nid(OUT nid_t *nid)
 {
-//	struct f2fs_nm_info *nm_i = NM_I(sbi);
 	struct free_nid *i = NULL;
 retry:
 	if (time_to_inject(m_sbi, FAULT_ALLOC_NID))
@@ -2498,17 +2489,14 @@ retry:
 		if (nid_cnt[FREE_NID] && !mutex_is_locked(&build_lock))
 		{
 			LOG_DEBUG_(1,L"[build_lock] check result not locked");
-//			f2fs_bug_on(sbi, list_empty(&nm_i->free_nid_list));
 			JCASSERT(!list_empty(&free_nid_list));
 			i = list_first_entry(&free_nid_list, free_nid, list);
 			*nid = i->nid;
 			__move_free_nid(i, FREE_NID, PREALLOC_NID);
 			available_nids--;
 			update_free_nid_bitmap(*nid, false, false);
-//			spin_unlock(&nm_i->nid_list_lock);
 			return true;
 		}
-//		spin_unlock(&nm_i->nid_list_lock);
 	}
 	/* Let's scan nat pages and its caches to get free nids */
 	if (!f2fs_build_free_nids(true, false))  goto retry;
@@ -2795,6 +2783,7 @@ static void remove_nats_in_journal(f2fs_sb_info *sbi)
 	f2fs_journal *journal = &curseg->journal;
 	int i;
 
+
 //	TRACK_JOURNAL_SEM(curseg - sbi->sm_info->curseg_array, L"down_write", L"");
 	down_write(&curseg->journal_rwsem);
 	for (i = 0; i < nats_in_cursum(journal); i++) 
@@ -2804,7 +2793,7 @@ static void remove_nats_in_journal(f2fs_sb_info *sbi)
 		nid_t nid = le32_to_cpu(nid_in_journal(journal, i));
 
 		if (f2fs_check_nid_range(sbi, nid))		continue;
-		LOG_DEBUG(L"[journal] remove nat journal, nid=%d", nid);
+		LOG_DEBUG(L"[nat] remove nat journal, nid=%d", nid);
 
 		raw_ne = nat_in_journal(journal, i);
 
@@ -2825,7 +2814,8 @@ static void remove_nats_in_journal(f2fs_sb_info *sbi)
 
 		__set_nat_cache_dirty(nm_i, ne);
 	}
-	LOG_DEBUG(L"[journal] %d nat journals are removed", i);
+	LOG_TRACK(L"nat", L"removed nat from journal, nat_nr=%d", i);
+//	LOG_DEBUG(L"[journal] %d nat journals are removed", i);
 	update_nats_in_cursum(journal, -i);
 //	TRACK_JOURNAL_SEM(curseg - sbi->sm_info->curseg_array, L"up_write", L"");
 	up_write(&curseg->journal_rwsem);
@@ -2899,12 +2889,12 @@ static int __flush_nat_entry_set(f2fs_sb_info *sbi, nat_entry_set *set, cp_contr
 	 * #2, flush nat entries to nat page.	 */
 	if (enabled_nat_bits(sbi, cpc) || !__has_cursum_space(journal, set->entry_cnt, NAT_JOURNAL))
 	{
-//		LOG_TRACK(L"nat", L"flush nat to page, count=%d", set->entry_cnt);
+		LOG_TRACK(L"nat", L"flush nat to cache, count=%d", set->entry_cnt);
 		to_journal = false;
 	}
 	else
 	{
-//		LOG_TRACK(L"nat", L"flush nat to journal, count=%d", set->entry_cnt);
+		LOG_TRACK(L"nat", L"flush nat to journal, count=%d", set->entry_cnt);
 	}
 
 	if (to_journal) 
@@ -2930,7 +2920,7 @@ static int __flush_nat_entry_set(f2fs_sb_info *sbi, nat_entry_set *set, cp_contr
 		int offset;
 
 		f2fs_bug_on(sbi, nat_get_blkaddr(ne) == NEW_ADDR);
-		LOG_TRACK(L"nat", L"flush nat, nid=%d, blk=%d to %s", ne->ni.nid, ne->ni.blk_addr, to_journal ? L"journal" : L"cache");
+		LOG_TRACK(L"nat", L"add nat (nid=%d, blk=%d) to %s", ne->ni.nid, ne->ni.blk_addr, to_journal ? L"journal" : L"cache");
 
 		if (to_journal) 
 		{
@@ -3005,7 +2995,9 @@ int f2fs_flush_nat_entries(f2fs_sb_info *sbi, cp_control *cpc)
 	/* if there are no enough space in journal to store dirty nat entries, remove all entries from journal and merge them
 	 * into nat entry set. */
 	if (enabled_nat_bits(sbi, cpc) || !__has_cursum_space(journal, nm_i->nat_cnt[DIRTY_NAT], NAT_JOURNAL))
+	{
 		remove_nats_in_journal(sbi);
+	}
 
 	int nat_entry_nr = 0;
 
@@ -3267,6 +3259,7 @@ f2fs_nm_info::f2fs_nm_info(f2fs_sb_info * sbi) : m_sbi(sbi), build_lock(NULL)
 	UINT32 nat_segs = le32_to_cpu(sb_raw->segment_count_nat) >> 1;
 	nat_blocks = nat_segs << le32_to_cpu(sb_raw->log_blocks_per_seg);
 	max_nid = NAT_ENTRY_PER_BLOCK * nat_blocks;
+	LOG_DEBUG(L"nat entry per block=%d, nat blocks=%d, max nid=%d", NAT_ENTRY_PER_BLOCK, nat_blocks, max_nid);
 
 	/* not used nids: 0, node, meta, (and root counted as valid node) */
 	available_nids = max_nid - m_sbi->total_valid_node_count - F2FS_RESERVED_NODE_NUM;
@@ -3390,9 +3383,15 @@ f2fs_nm_info::~f2fs_nm_info(void)
 inline bool __has_cursum_space(f2fs_journal* journal, int size, int type)
 {
 	bool has_space;
-	if (type == NAT_JOURNAL)	has_space = size <= MAX_NAT_JENTRIES(journal);
-	else						has_space = size <= MAX_SIT_JENTRIES(journal);
-	LOG_DEBUG(L"[journal] nat journal size=%d, sit journal size=%d, request size =%d, type = %d, has_space=%d",
-		MAX_NAT_JENTRIES(journal), MAX_SIT_JENTRIES(journal), size, type, has_space);
+	if (type == NAT_JOURNAL) {
+		has_space = size <= MAX_NAT_JENTRIES(journal);
+		LOG_TRACK(L"nat", L"nat journal size=%d, request size =%d, type = %d, has_space=%d",
+			MAX_NAT_JENTRIES(journal), size, type, has_space);
+	}
+	else {
+		has_space = size <= MAX_SIT_JENTRIES(journal);
+		LOG_TRACK(L"sit", L"sit journal size=%d, request size =%d, type = %d, has_space=%d",
+			MAX_SIT_JENTRIES(journal), size, type, has_space);
+	}
 	return has_space;
 }

@@ -799,7 +799,11 @@ public:
 	void f2fs_record_iostat(void);
 
 #ifdef _DEBUG
-	void DumpSegInfo(void);
+	enum seg_type {
+		SEG_TYPE_DATA, SEG_TYPE_CUR_DATA, SEG_TYPE_NODE, SEG_TYPE_CUR_NODE,	SEG_TYPE_MAX,
+	};
+	void DumpSegInfo(FILE *out = nullptr);
+	f2fs_summary_block* get_sum_block(UINT segno, seg_type & ret_type);
 #endif
 
 };

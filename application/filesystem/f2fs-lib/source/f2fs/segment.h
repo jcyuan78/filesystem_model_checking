@@ -393,8 +393,7 @@ static inline void seg_info_to_sit_page(struct f2fs_sb_info *sbi, struct page *p
 	struct f2fs_sit_block *raw_sit;
 	struct seg_entry *se;
 	struct f2fs_sit_entry *rs;
-	unsigned int end = min(start + SIT_ENTRY_PER_BLOCK,
-					(unsigned long)sbi->MAIN_SEGS());
+	unsigned int end = min(start + SIT_ENTRY_PER_BLOCK,	(unsigned long)sbi->MAIN_SEGS());
 //	int i;
 
 	raw_sit = page_address<f2fs_sit_block>(page);
@@ -407,8 +406,7 @@ static inline void seg_info_to_sit_page(struct f2fs_sb_info *sbi, struct page *p
 	}
 }
 
-static inline void seg_info_to_raw_sit(struct seg_entry *se,
-					struct f2fs_sit_entry *rs)
+static inline void seg_info_to_raw_sit(struct seg_entry *se, struct f2fs_sit_entry *rs)
 {
 	__seg_info_to_raw_sit(se, rs);
 
@@ -720,11 +718,8 @@ static inline pgoff_t next_sit_addr(struct f2fs_sb_info *sbi, pgoff_t block_addr
 {
 	struct sit_info *sit_i = sbi->SIT_I();
 	block_addr -= sit_i->sit_base_addr;
-	if (block_addr < sit_i->sit_blocks)
-		block_addr += sit_i->sit_blocks;
-	else
-		block_addr -= sit_i->sit_blocks;
-
+	if (block_addr < sit_i->sit_blocks)		block_addr += sit_i->sit_blocks;
+	else									block_addr -= sit_i->sit_blocks;
 	return block_addr + sit_i->sit_base_addr;
 }
 
