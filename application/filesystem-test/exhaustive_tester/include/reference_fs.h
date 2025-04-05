@@ -31,11 +31,11 @@ enum OP_CODE
 	OP_MARK_TRACE_BEGIN,
 };
 
-class TRACE_ENTRY
+struct TRACE_ENTRY
 {
-public:
 	OP_CODE op_code = OP_CODE::OP_NOP;
 	std::string file_path;
+	std::string dst;
 	_NID fid;				// 对于已经打开的文件，传递文件号
 	UINT op_sn;
 	union {
@@ -58,6 +58,9 @@ public:
 			WORD trace_id;
 			WORD test_cycle;
 		};
+		//struct {
+		//	std::string dst;
+		//};
 	};
 };
 
@@ -71,7 +74,6 @@ public:
 	{
 	protected:
 		FSIZE size;				// 对于文件，size表示文件大小，对于目录，size表示子项的数量
-//		UINT checksum;			// 对于文件，文件的checksum；对于目录，-1; 等文件无效时，checksum作为free链表指针使用；
 		UINT next;				// 用于文件列表，使用列表或者free列表
 
 		char m_fn[MAX_PATH_SIZE+1];
@@ -94,7 +96,6 @@ public:
 		void RemoveChild(_NID fid);
 		void UpdateEncode(CRefFile* files);
 		static int CompareEncode(void*, const void* e1, const void* e2);
-//		void GetEncodeString(std::string& str) const { str = m_encode; }
 		void GetEncodeString(char* str, size_t len) const {
 			memcpy_s(str, len, m_encode, m_encode_size);
 			str[m_encode_size] = 0;
@@ -106,9 +107,6 @@ public:
 		inline _NID get_fid(void) const { return fid; }
 		inline bool is_open(void) const { return m_is_open; }
 	};
-public:
-//	typedef std::map<std::string, UINT>::iterator ITERATOR;
-//	typedef std::map<std::string, UINT>::const_iterator CONST_ITERATOR;
 
 public:
 	void Initialize(const std::string & root_path = "\\");
@@ -123,10 +121,8 @@ public:
 		return dir.m_depth;
 	}
 	size_t GetFileNumber(void) const {
-//		JCASSERT((m_free_num + m_file_num + m_dir_num) == MAX_FILE_NUM);
 		return (MAX_FILE_NUM - m_free_num);
 	}
-	//void AddRoot(void);
 	void OpenFile(CRefFile& file);
 	void CloseFile(CRefFile& file);
 	UINT OpenedFileNr(void) const { return m_opened; }
@@ -135,6 +131,7 @@ public:
 	inline bool IsDir(const CRefFile& file) const { return file.isdir(); }
 	CRefFile * FindFile(const std::string & path);
 	void RemoveFile(const std::string & path);
+	void MoveFile(const std::string& src, const std::string dst);
 
 	// 对树进行同构编码，用于判断树的同构性
 #if 0
@@ -150,9 +147,6 @@ public:
 #else
 	size_t Encode(char* code, size_t buf_len) const;
 #endif
-
-//	void Encode(DWORD* code, size_t buf_len) const;
-	//void GetEncodeString(std::string& str) const;
 
 protected:
 	UINT FindFileIndex(const std::string & path);
@@ -174,6 +168,7 @@ public:
 	CReferenceFs::CONST_ITERATOR End() { return CONST_ITERATOR((UINT)-1, m_files); }
 	const CRefFile& GetFile(CONST_ITERATOR& it) const { return m_files[it.index]; }
 	UINT m_file_num=0, m_dir_num=0; // 文件数量和目录数量
+	UINT m_reset_count = 0;	// 重置次数
 
 protected:
 	UINT get_file(void);
@@ -181,12 +176,10 @@ protected:
 	void debug_out_used_files(void);
 	// 对于文件，UINT64存放length | checksum, 对于dir，存放子目录数量
 	//	map中存方ref file的index
-//	std::map<std::string, UINT> m_ref;
 	CRefFile m_files[MAX_FILE_NUM];
 	// 利用m_files本身构建一个free list。free list的checksum指向其下一个对象。m_free_list指向其头部。
 	UINT m_free_list;
 	UINT m_used_list;
 	UINT m_free_num;
 	UINT m_opened =0;		// 打开的文件数量
-	UINT m_reset_count = 0;	// 重置次数
 };

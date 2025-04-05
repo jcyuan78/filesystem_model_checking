@@ -1,4 +1,4 @@
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+ï»¿///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma once
 
 #include <dokanfs-lib.h>
@@ -6,7 +6,7 @@
 #include "f2fs_fs.h"
 #include "f2fs.h"
 
-//<YUAN>ÕâÊÇÒ»¸ödeviceµÄÊôĞÔ£¬Ò»¸öÃüÁî×î´ó¿É·¢ËÍµÄsectorÊıÁ¿¡£ÔİÊ±ÓÃconst´úÌæ
+//<YUAN>è¿™æ˜¯ä¸€ä¸ªdeviceçš„å±æ€§ï¼Œä¸€ä¸ªå‘½ä»¤æœ€å¤§å¯å‘é€çš„sectoræ•°é‡ã€‚æš‚æ—¶ç”¨constä»£æ›¿
 #define MAX_DISCARD_SECTOR		(256)
 
 class CF2fsFileSystem;
@@ -39,7 +39,7 @@ public:
 	virtual bool DokanSetFileSecurity(PSECURITY_INFORMATION psinfo, PSECURITY_DESCRIPTOR psdesc, ULONG buf_size) {UNSUPPORT_1(bool);}
 	// for dir only
 	virtual bool IsDirectory(void) const {	return m_inode->is_dir();	}
-	virtual bool IsEmpty(void) const;			// ¶ÔÓÚÄ¿Â¼£¬·µ»ØÄ¿Â¼ÊÇ·ñÎª¿Õ£»¶ÔÓÚ·ÇÄ¿Â¼£¬·µ»Øtrue.
+	virtual bool IsEmpty(void) const;			// å¯¹äºç›®å½•ï¼Œè¿”å›ç›®å½•æ˜¯å¦ä¸ºç©ºï¼›å¯¹äºéç›®å½•ï¼Œè¿”å›true.
 
 	virtual bool SetAllocationSize(LONGLONG size);
 	virtual bool SetEndOfFile(LONGLONG);
@@ -50,20 +50,20 @@ public:
 
 	virtual void GetParent(IFileInfo*& parent);
 
-	// É¾³ıËùÓĞ¸øÎÄ¼ş·ÖÅäµÄ¿Õ¼ä¡£Èç¹ûÊÇÄ¿Â¼£¬É¾³ıÄ¿Â¼ÏÂµÄËùÓĞÎÄ¼ş¡£
+	// åˆ é™¤æ‰€æœ‰ç»™æ–‡ä»¶åˆ†é…çš„ç©ºé—´ã€‚å¦‚æœæ˜¯ç›®å½•ï¼Œåˆ é™¤ç›®å½•ä¸‹çš„æ‰€æœ‰æ–‡ä»¶ã€‚
 	virtual void ClearData(void) { UNSUPPORT_0; }
 
 	virtual bool OpenChild(IFileInfo*& file, const wchar_t* fn, UINT32 mode) const;
 	virtual bool OpenChildEx(IFileInfo*& file, const wchar_t* fn, size_t len);
 	virtual bool CreateChild(IFileInfo*& file, const wchar_t* fn, bool dir, UINT32 mode);
-	// µ±CloseÎÄ¼şÊ±£¬É¾³ı´ËÎÄ¼ş¡£ÅĞ¶ÏÌõ¼şÓÉDokanAppÊµÏÖ¡£ÓĞĞ©Ó¦ÓÃ£¨Explorer£©»áÍ¨¹ıÕâ¸ö·½·¨É¾³ıÎÄ¼ş¡£
+	// å½“Closeæ–‡ä»¶æ—¶ï¼Œåˆ é™¤æ­¤æ–‡ä»¶ã€‚åˆ¤æ–­æ¡ä»¶ç”±DokanAppå®ç°ã€‚æœ‰äº›åº”ç”¨ï¼ˆExplorerï¼‰ä¼šé€šè¿‡è¿™ä¸ªæ–¹æ³•åˆ é™¤æ–‡ä»¶ã€‚
 	virtual void SetDeleteOnClose(bool del) { m_delete_on_close = del; }
 
 public:
 	friend class CF2fsFileSystem;
 	template <class T> T* GetInode(void) { return dynamic_cast<T*>(m_inode); }
 	dentry* GetDentry(void) { return m_dentry; }
-	int DeleteThis(void);	// É¾³ı´ËÎÄ¼ş
+	int DeleteThis(void);	// åˆ é™¤æ­¤æ–‡ä»¶
 	UINT GetIno(void) const { return m_inode->i_ino; }
 	//void DumpFileMapping(FILE* out) { m_inode->DumpInodeMapping(out); }
 
@@ -80,7 +80,7 @@ protected:
 	CF2fsFileSystem* m_fs;
 	file m_file;
 	bool m_delete_on_close = false;
-	// Îª·ÀÖ¹¶àÏß³ÌÊÇ m_dentryºÍm_inode±»É¾³ıµÄÍ¬Ê±£¬½øĞĞÆäËû²Ù×÷¡£
+	// ä¸ºé˜²æ­¢å¤šçº¿ç¨‹æ˜¯ m_dentryå’Œm_inodeè¢«åˆ é™¤çš„åŒæ—¶ï¼Œè¿›è¡Œå…¶ä»–æ“ä½œã€‚
 	long m_valid = 0;
 
 	friend class CFileInfoManager;
@@ -144,7 +144,7 @@ public:
 	virtual bool DokanSetFileSecurity(PSECURITY_INFORMATION psinfo, PSECURITY_DESCRIPTOR psdesc, ULONG buf_size) { UNSUPPORT_1(bool); }
 	// for dir only
 	virtual bool IsDirectory(void) const { return false; }
-	virtual bool IsEmpty(void) const { return true; }			// ¶ÔÓÚÄ¿Â¼£¬·µ»ØÄ¿Â¼ÊÇ·ñÎª¿Õ£»¶ÔÓÚ·ÇÄ¿Â¼£¬·µ»Øtrue.
+	virtual bool IsEmpty(void) const { return true; }			// å¯¹äºç›®å½•ï¼Œè¿”å›ç›®å½•æ˜¯å¦ä¸ºç©ºï¼›å¯¹äºéç›®å½•ï¼Œè¿”å›true.
 
 	virtual bool SetAllocationSize(LONGLONG size) { UNSUPPORT_1(bool); }
 	virtual bool SetEndOfFile(LONGLONG) { UNSUPPORT_1(bool); }
@@ -155,13 +155,13 @@ public:
 
 	virtual void GetParent(IFileInfo*& parent) {}
 
-	// É¾³ıËùÓĞ¸øÎÄ¼ş·ÖÅäµÄ¿Õ¼ä¡£Èç¹ûÊÇÄ¿Â¼£¬É¾³ıÄ¿Â¼ÏÂµÄËùÓĞÎÄ¼ş¡£
+	// åˆ é™¤æ‰€æœ‰ç»™æ–‡ä»¶åˆ†é…çš„ç©ºé—´ã€‚å¦‚æœæ˜¯ç›®å½•ï¼Œåˆ é™¤ç›®å½•ä¸‹çš„æ‰€æœ‰æ–‡ä»¶ã€‚
 	virtual void ClearData(void) { UNSUPPORT_0; }
 
 	virtual bool OpenChild(IFileInfo*& file, const wchar_t* fn, UINT32 mode) const { UNSUPPORT_1(bool); }
 	virtual bool OpenChildEx(IFileInfo*& file, const wchar_t* fn, size_t len) { UNSUPPORT_1(bool); }
 	virtual bool CreateChild(IFileInfo*& file, const wchar_t* fn, bool dir, UINT32 mode) { UNSUPPORT_1(bool); }
-	// µ±CloseÎÄ¼şÊ±£¬É¾³ı´ËÎÄ¼ş¡£ÅĞ¶ÏÌõ¼şÓÉDokanAppÊµÏÖ¡£ÓĞĞ©Ó¦ÓÃ£¨Explorer£©»áÍ¨¹ıÕâ¸ö·½·¨É¾³ıÎÄ¼ş¡£
+	// å½“Closeæ–‡ä»¶æ—¶ï¼Œåˆ é™¤æ­¤æ–‡ä»¶ã€‚åˆ¤æ–­æ¡ä»¶ç”±DokanAppå®ç°ã€‚æœ‰äº›åº”ç”¨ï¼ˆExplorerï¼‰ä¼šé€šè¿‡è¿™ä¸ªæ–¹æ³•åˆ é™¤æ–‡ä»¶ã€‚
 	virtual void SetDeleteOnClose(bool del) { }
 
 	template <typename T> T* GetData(void) { return (T*)(m_data_ptr); }
@@ -214,14 +214,14 @@ public:
 	friend class CF2fsFile;
 
 public:
-	// ´´½¨Ò»¸öÏàÍ¬ÀàĞÍµÄfile system object¡£´´½¨µÄ¶ÔÏóÊ±¿ÕµÄ£¬ĞèÒª³õÊ¼»¯¡£
-	// ¿¼ÂÇ½«Õâ¸ö·½·¨·Åµ½IJCInterfaceÖĞ
+	// åˆ›å»ºä¸€ä¸ªç›¸åŒç±»å‹çš„file system objectã€‚åˆ›å»ºçš„å¯¹è±¡æ—¶ç©ºçš„ï¼Œéœ€è¦åˆå§‹åŒ–ã€‚
+	// è€ƒè™‘å°†è¿™ä¸ªæ–¹æ³•æ”¾åˆ°IJCInterfaceä¸­
 	virtual bool CreateObject(IJCInterface*& fs) { JCASSERT(0); return 0; }
 	virtual ULONG GetFileSystemOption(void) const;
 	virtual bool Mount(IVirtualDisk* dev);
 	virtual void Unmount(void);
 	virtual bool MakeFileSystem(IVirtualDisk* dev, size_t volume_size, const std::wstring& volume_name, const std::wstring & options);
-	// fsck£¬¼ì²éÎÄ¼şÏµÍ³£¬·µ»Ø¼ì²é½á¹û
+	// fsckï¼Œæ£€æŸ¥æ–‡ä»¶ç³»ç»Ÿï¼Œè¿”å›æ£€æŸ¥ç»“æœ
 	virtual FSCK_RESULT FileSystemCheck(IVirtualDisk* dev, bool repair, boost::property_tree::wptree& optioon);
 
 	virtual bool DokanGetDiskSpace(ULONGLONG& free_bytes, ULONGLONG& total_bytes, ULONGLONG& total_free_bytes);
@@ -270,7 +270,7 @@ public:
 	friend class f2fs_inode_info;
 
 protected:
-	// ÎÄ¼şÏµÍ³²ÎÊı, mount ²ÎÊı
+	// æ–‡ä»¶ç³»ç»Ÿå‚æ•°, mount å‚æ•°
 	MOUNT_OPTION m_mount_opt;
 	boost::property_tree::wptree m_mount_options;
 	int m_debug_mode=0;
@@ -443,7 +443,7 @@ public:
 		return m_sb_info->submit_bio_wait(&bio);
 	}
 
-	// Ä£ÄâLinux Block IO
+	// æ¨¡æ‹ŸLinux Block IO
 	//void submit_bio(bio* bb);
 	//inline void __submit_bio(bio* bio, enum page_type type);
 //	bio* __bio_alloc(f2fs_io_info* fio, int npages);
@@ -456,7 +456,7 @@ public:
 	//int sync_filesystem(void) { JCASSERT(0); return 0; }
 	unsigned int sb_set_blocksize(unsigned int size)
 	{
-		// LinuxÔ­´úÂëÖĞµ÷ÓÃset_blocksize(sb->bdev, size), Ö»ÊÇ×ösanity check£¬
+		// LinuxåŸä»£ç ä¸­è°ƒç”¨set_blocksize(sb->bdev, size), åªæ˜¯åšsanity checkï¼Œ
 		//UINT bits = blksize_bits(size);
 		m_sb_info->s_blocksize = size;
 		m_sb_info->s_blocksize_bits = blksize_bits(size);
@@ -485,7 +485,7 @@ protected:
 	dev_cache_config_t m_dcache_config = { 0, 16, 1 };
 	bool m_dcache_initialized = false;
 
-	//<YUAN>Õâ¸öÓĞ¿ÉÄÜÊ±³£Êı
+	//<YUAN>è¿™ä¸ªæœ‰å¯èƒ½æ—¶å¸¸æ•°
 	long m_dcache_relocate_offset0[16] = {
 		20, -20, 40, -40, 80, -80, 160, -160,
 		320, -320, 640, -640, 1280, -1280, 2560, -2560,
@@ -500,8 +500,8 @@ protected:
 // == super.cpp
 protected:
 	//int parse_mount_options(super_block* sb, /*const boost::property_tree::wptree& options,*/ bool is_remount);
-	// ´Ó buffer.c __bread_gfp()ÒÆÖ²
-	//	blockÎªblockµØÖ·£¬sector = block * size / sector_size. ²Î¿¼"buffer.c" submit_bh_wbc()
+	// ä» buffer.c __bread_gfp()ç§»æ¤
+	//	blockä¸ºblockåœ°å€ï¼Œsector = block * size / sector_size. å‚è€ƒ"buffer.c" submit_bh_wbc()
 	CBufferHead* bread(sector_t block, size_t size);
 
 // == checkpoing.cpp
@@ -566,7 +566,7 @@ protected:
 #endif
 public:
 
-// ==== È«¾Ö±äÁ¿¾Ö²¿»¯
+// ==== å…¨å±€å˜é‡å±€éƒ¨åŒ–
 public:
 	kmem_cache* fsync_entry_slab;
 	const f2fs_configuration* GetConfiguration(void) const { return &m_config; }

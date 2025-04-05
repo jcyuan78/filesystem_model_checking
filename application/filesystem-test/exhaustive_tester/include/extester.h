@@ -29,19 +29,23 @@ public:
 	CFsState(void) {};
 	~CFsState(void);
 public:
-	CReferenceFs m_ref_fs;
-	IFsSimulator* m_real_fs = nullptr;
-	TRACE_ENTRY m_op;		// 上一个操作如何执行到这一步
-	CFsState* m_parent = nullptr;
-	UINT m_depth;			// 搜索深度
-	bool		m_stable = false;	// true: 表示这是一个稳定状态。Power Loss的修复不能跨过这个状态。
-	void add_ref() {	InterlockedIncrement(&m_ref);	}
-	ERROR_CODE m_result;
+	CReferenceFs	m_ref_fs;
+	IFsSimulator*	m_real_fs = nullptr;
+	TRACE_ENTRY		m_op;		// 上一个操作如何执行到这一步
+	CFsState*		m_parent = nullptr;
+	UINT			m_depth;			// 搜索深度
+	bool			m_stable = false;	// true: 表示这是一个稳定状态。Power Loss的修复不能跨过这个状态。
+	ERROR_CODE		m_result = ERR_OK;
+// 测试参数
+	UINT			m_unsafe_mount_cnt;
+	std::wstring* m_err_msg = nullptr;
+
 protected:
-	UINT m_ref=1;			// (被参考的子节)引用计数。
+	UINT			m_ref=1;			// (被参考的子节)引用计数。
 	friend class CStateManager;
 
 public:
+	void add_ref() {	InterlockedIncrement(&m_ref);	}
 	void Initialize(const std::string& root_path, IFsSimulator * fs)
 	{
 		m_ref_fs.Initialize(root_path);
@@ -52,6 +56,11 @@ public:
 	void DuplicateFrom(CFsState* src_state);
 	// 仅复制ref fs, real fs共用一个实体。
 	void DuplicateWithoutFs(CFsState* src_state);
+	void SetErrorMessage(const std::wstring& msg)
+	{
+		if (m_err_msg == nullptr) m_err_msg = new std::wstring;
+		*m_err_msg = msg;
+	}
 };
 
 class CStateManager
@@ -76,8 +85,7 @@ protected:
 public:
 	size_t m_free_nr=0;
 	// for debug
-	//size_t m_buffer_size = 0;
-	//CFsState* states[500];
+	size_t m_allocated = 0;
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -194,7 +202,6 @@ protected:
 		return tester->FsOperator_Queue();
 	}
 	DWORD FsOperator_Queue(void);
-
 	ERROR_CODE TestCreateFile(CFsState* cur_state, const std::string& path);
 	ERROR_CODE TestCreateDir (CFsState* cur_state, const std::string& path);
 //	ERROR_CODE TestWriteFile(CFsState * cur_state, const std::string& path, FSIZE offset, FSIZE len);
@@ -205,8 +212,9 @@ protected:
 	ERROR_CODE TestDeleteDir(CFsState* cur_state, const std::string& path);
 	ERROR_CODE TestMount(CFsState * cur_state, bool debug=false);
 	ERROR_CODE TestPowerOutage(CFsState* cur_state, UINT rollback, bool debug= false);
+	ERROR_CODE TestMoveFile(CFsState* cur_state, const std::string& src, const std::string dst);
 
-	int TestMove(CFsState* state, CReferenceFs& ref, const std::wstring& path_src, const std::wstring& path_dst);
+	//int TestMove(CFsState* state, CReferenceFs& ref, const std::wstring& path_src, const std::wstring& path_dst);
 
 	ERROR_CODE VerifyForPower(CFsState* cur_state, bool debug = false);
 	ERROR_CODE Verify(CFsState* cur_state, bool debug = false);
@@ -339,6 +347,7 @@ protected:
 protected:
 	// 选择一个可执行的操作执行
 //	static DWORD WINAPI _OneTest(PTP_CALLBACK_ENVIRON instance, PVOID context, PTP_WORK work);
+	ERROR_CODE SingleThreadTest(void);
 
 	DWORD RunTestQueue(WORK_CONTEXT * work);
 
@@ -352,11 +361,12 @@ protected:
 	}
 	ERROR_CODE OneTest(CFsState* init_state, DWORD test_id, int seed, TRACE_ENTRY * op_buf, CStateManager * states = nullptr);
 
+	void OutputTestParameter(FILE* param_out, int depth, CFsState * state);
+	size_t GenerateOps(CFsState* cur_state, TRACE_ENTRY* ops, size_t op_size);
+
 protected:
 	LONG m_test_times;
 	LONG m_tested, m_failed, m_testing;
-	
-
 };
 
 class CExTraceTester : public CExTester
@@ -371,10 +381,10 @@ protected:
 	virtual int PrepareTest(const boost::property_tree::wptree& config, IFsSimulator* fs, const std::wstring& log_path);
 	virtual int PreTest(void) { return 0; };
 	virtual ERROR_CODE RunTest(void);
-	virtual void FinishTest(void) {};
 	virtual bool PrintProgress(INT64 ts) { return false; };
 
 protected:
+	virtual void FinishTest(void) {};
 	//std::string m_trace_fn;
 	boost::property_tree::ptree m_trace;
 };
@@ -404,9 +414,34 @@ protected:
 	fflush(m_log_file); }}
 
 
-template <size_t N> void Op2String(char(&str)[N], TRACE_ENTRY& op);
+template <size_t N> void Op2String(char(&str)[N], TRACE_ENTRY& op)
+{
+	const char* op_name = NULL;
+	char str_param[128] = "";
+
+	if (op.op_code == OP_CODE::OP_FILE_WRITE) {
+		sprintf_s(str_param, "offset=%d, secs=%d", op.offset, op.length);
+	}
+	else if (op.op_code == OP_CODE::OP_POWER_OFF_RECOVER) {
+		sprintf_s(str_param, "rollback=%d", op.rollback);
+	}
+	else if (op.op_code == OP_CODE::OP_MOVE) {
+		sprintf_s(str_param, "dst=%s", op.dst.c_str());
+	}
+	sprintf_s(str, "op:(%d) [%s], path=%s, param: %s", op.op_sn, OpName(op.op_code), op.file_path.c_str(), str_param);
+}
 
 // len: fn缓存长度。返回fn长度
 int GenerateFn(char* fn, int len);
 const char* OpName(OP_CODE op_code);
 
+TRACE_ENTRY* op_index(std::vector<TRACE_ENTRY>& ops, size_t& index);
+
+void AddOp(TRACE_ENTRY* ops, size_t op_size, size_t& index, OP_CODE op_code, const std::string& file_path);
+
+void AddOp(TRACE_ENTRY* ops, size_t op_size, size_t& index, OP_CODE op_code, const std::string& file_path,
+	UINT fid, FSIZE offset, FSIZE length);
+
+void AddOp(TRACE_ENTRY* ops, size_t op_size, size_t& index, OP_CODE op_code);
+
+void AddOp(TRACE_ENTRY* ops, size_t op_size, size_t& index, OP_CODE op_code, UINT rollback);

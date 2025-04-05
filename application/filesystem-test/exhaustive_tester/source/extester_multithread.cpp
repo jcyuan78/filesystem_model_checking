@@ -183,7 +183,7 @@ ERROR_CODE CExTester::EnumerateOp_Thread(TRACE_ENTRY* ops, size_t op_size, CFsSt
 ERROR_CODE CExTester::EnumerateOp_Thread_V2(TRACE_ENTRY* ops, size_t op_size, CFsState* cur_state,
 		std::list<CFsState*>::iterator& insert)
 {
-	LOG_STACK_TRACE();
+	LOG_STACK_TRACE_EX(L"extend state=%p", cur_state);
 	size_t op_nr = GenerateOps(cur_state, ops, op_size);
 
 	UINT context_id = 0;
@@ -230,11 +230,12 @@ ERROR_CODE CExTester::EnumerateOp_Thread_V2(TRACE_ENTRY* ops, size_t op_size, CF
 
 		char str[256];
 		Op2String(str, state->m_op);
-		LOG_DEBUG(L"operation: %S", str);
+		LOG_DEBUG(L"operation completed: state=%p, %S", result->state, str);
 
 		if (result->result == ERR_NO_OPERATION) non_op++;
 		if (result->result != ERR_OK)
 		{	// error handling
+			LOG_DEBUG(L"put state=%p due to error, ir=%d", state, result->result);
 			m_states.put(state);
 			ERROR_CODE ee = result->result;
 			if (ee != ERR_NO_OPERATION && ee != ERR_NO_SPACE && ee != ERR_MAX_OPEN_FILE) {
@@ -243,6 +244,7 @@ ERROR_CODE CExTester::EnumerateOp_Thread_V2(TRACE_ENTRY* ops, size_t op_size, CF
 		}
 		else {
 			if (m_closed.CheckAndInsert(state)) {
+				LOG_DEBUG(L"put state=%p due to duplicated state", state);
 				m_states.put(state);
 			}
 			else {
@@ -251,6 +253,7 @@ ERROR_CODE CExTester::EnumerateOp_Thread_V2(TRACE_ENTRY* ops, size_t op_size, CF
 				inserted++;
 			}
 		}
+		LOG_DEBUG(L"put source state, state=%p", result->src_state);
 		m_states.put(result->src_state);
 		result->result = ERR_UNKNOWN;
 	}
@@ -406,6 +409,7 @@ VOID CExTester::FsOperator_Callback(WORK_CONTEXT* context)
 	JCASSERT(context);
 	CExTester* tester = context->tester;
 	context->state->DuplicateFrom(context->src_state);
+	LOG_DEBUG(L"[dup state], depth=%d, cur=%p, parent=%p", context->state->m_depth, context->state, context->src_state);
 	TRACE_ENTRY& op = context->state->m_op;
 //	LOG_DEBUG(L"start work: context=%p, op=%d, code=%d", context, op.op_sn, op.op_code);
 
@@ -439,8 +443,6 @@ VOID CExTester::FsOperator_Callback(WORK_CONTEXT* context)
 
 bool CExTester::OutputTrace_Thread(CFsState* state, ERROR_CODE ir, const std::string& err, DWORD tid, DWORD _option)
 {
-//	LOG_STACK_PERFORM(L"OutputTrace");
-//	EnterCriticalSection(&m_trace_crit);
 	if (tid == 0) tid = GetCurrentThreadId();
 	char str_fn[MAX_PATH];
 	sprintf_s(str_fn, "%S\\error_log_%d.txt", m_log_path.c_str(), tid);
@@ -459,7 +461,6 @@ bool CExTester::OutputTrace_Thread(CFsState* state, ERROR_CODE ir, const std::st
 	fclose(fp);
 
 	printf_s("dump trace for:%s to %s\n", err.c_str(), str_fn);
-//	LeaveCriticalSection(&m_trace_crit);
 	return true;
 }
 
@@ -467,10 +468,10 @@ void CExTester::RealFsState(FILE* out_file, IFsSimulator* real_fs, bool file_nr)
 {
 	FS_INFO fs_info;
 	UINT real_file_nr = 0, real_dir_nr = 0;
-	FsHealthInfo health_info;
+//	FsHealthInfo health_info;
 	try {
 		real_fs->GetFsInfo(fs_info);
-		real_fs->GetHealthInfo(health_info);
+//		real_fs->GetHealthInfo(health_info);
 		if (file_nr) real_fs->GetFileDirNum(0, real_file_nr, real_dir_nr);		
 	}
 	catch (jcvos::CJCException& err)
@@ -484,11 +485,11 @@ void CExTester::RealFsState(FILE* out_file, IFsSimulator* real_fs, bool file_nr)
 	}
 
 	fprintf_s(out_file, "\treal_fs: dir=%d, files=%d, logic=%d, physic=%d, seg:free/total=%d / %d, blk:free/total=%d / %d, \n",
-		real_dir_nr, real_file_nr, fs_info.used_blks, fs_info.physical_blks, fs_info.free_seg, fs_info.total_seg,
-		fs_info.free_blks, fs_info.total_blks);
-	fprintf_s(out_file, "\t\t node:free/total=%d / %d\n", health_info.m_free_node_nr, health_info.m_node_nr);
-	fprintf_s(out_file, "\t\t sit_journal=%d, nat_journal=%d, gc_count=%d\n",
-		health_info.sit_journal_overflow, health_info.nat_journal_overflow, health_info.gc_count);
+		real_dir_nr, real_file_nr, fs_info.used_blk, fs_info.used_seg*BLOCK_PER_SEG, fs_info.free_seg, fs_info.main_seg_nr,
+		fs_info.free_blk, fs_info.main_blk_nr);
+	fprintf_s(out_file, "\t\t node:free/total=%d / %d, gc_count=%d\n", fs_info.free_node, fs_info.node_nr, fs_info.gc_count);
+	//fprintf_s(out_file, "\t\t sit_journal=%d, nat_journal=%d, gc_count=%d\n",
+	//	health_info.sit_journal_overflow, health_info.nat_journal_overflow, health_info.gc_count);
 }
 
 
@@ -527,8 +528,8 @@ bool CExTester::OutputTrace(FILE* fp, const std::string& json_fn, CFsState* stat
 			}
 
 			fprintf_s(fp,"\treal_fs: dir=%d, files=%d, logic=%d, physic=%d, seg:free/total=%d / %d, blk:free/total=%d / %d, \n",
-				real_dir_nr, real_file_nr, fs_info.used_blks, fs_info.physical_blks, fs_info.free_seg, fs_info.total_seg, 
-				fs_info.free_blks, fs_info.total_blks);
+				real_dir_nr, real_file_nr, fs_info.used_blk, fs_info.used_seg *BLOCK_PER_SEG, 
+				fs_info.free_seg, fs_info.main_seg_nr, fs_info.free_blk, fs_info.main_blk_nr);
 		}
 		if (option & TRACE_REF_FS) {
 			UINT ref_dir_nr = ref_fs.m_dir_num, ref_file_nr = ref_fs.m_file_num;
@@ -573,10 +574,10 @@ bool CExTester::OutputTrace(FILE* fp, const std::string& json_fn, CFsState* stat
 			//	}
 			//}
 		}
-//		fprintf_s(fp, "\ttotal logic block=%d\n", logic_blk);
 		char str[256];
 		Op2String(str, state->m_op);
-		fprintf_s(fp,"\t%s, result=%d, %S\n", str, state->m_result, CFsException::ErrCodeToString(state->m_result) );
+		fprintf_s(fp, "\t%s, result=%d (%S) %S\n", str, state->m_result, CFsException::ErrCodeToString(state->m_result),
+			state->m_err_msg ? state->m_err_msg->c_str():L"");
 		if (option & TRACE_JSON)	stack.push_front(state);
 		state = state->m_parent;
 	}
@@ -596,6 +597,7 @@ bool CExTester::OutputTrace(FILE* fp, const std::string& json_fn, CFsState* stat
 			prop_op.add("step", step);
 			prop_op.add<std::string>("op_name", OpName(op.op_code));
 			prop_op.add<std::string>("path", op.file_path);
+			prop_op.add<std::string>("dst", op.dst);
 			prop_op.add("offset", op.offset);
 			prop_op.add("length", op.length);
 			prop_op_array.push_back(std::make_pair("", prop_op));

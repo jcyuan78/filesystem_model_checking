@@ -52,7 +52,12 @@ ERROR_CODE CF2fsSimulator::fsck(bool fix)
 	// verify
 	fsck_verify(&fsck);
 	// fix
-	if (fsck.fixed) {
+	ERROR_CODE ir = ERR_OK;
+	if (fsck.fixed || m_health_ckpt < 2) {
+		ir = sync_fs();
+		if (ir != ERR_OK) {
+			THROW_FS_ERROR(ir, L"failed on sync_fs(), ir=%d, in fsck()", ir);
+		}
 		// clear journal in checkpoint
 //		m_segments.SyncSIT();
 //		m_nat.Sync();
@@ -64,7 +69,7 @@ ERROR_CODE CF2fsSimulator::fsck(bool fix)
 	m_nat.Reset();
 	m_pages.Reset();
 
-	return ERR_OK;
+	return ir;
 }
 
 inline DWORD set_bitmap(DWORD* bmp, UINT offset)

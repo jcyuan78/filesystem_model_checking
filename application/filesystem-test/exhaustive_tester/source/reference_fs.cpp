@@ -45,8 +45,6 @@ void CReferenceFs::CopyFrom(const CReferenceFs & src)
 
 UINT CReferenceFs::get_file(void)
 {
-	//wprintf_s(L"pre get file: used_list=%d, next_used=%d, free_list=%d, next_free=%d\n",
-	//	m_used_list, m_files[m_used_list].next, m_free_list, m_files[m_free_list].next);
 	UINT obj_id = m_free_list;
 	CRefFile* obj = m_files + obj_id;
 	m_free_list = obj->next;
@@ -55,18 +53,12 @@ UINT CReferenceFs::get_file(void)
 	obj->next = m_used_list;
 	m_used_list = obj_id;
 
-	//wprintf_s(L"post get file: used_list=%d, next_used=%d, free_list=%d, next_free=%d\n",
-	//	m_used_list, m_files[m_used_list].next, m_free_list, m_files[m_free_list].next);
 	return obj_id;
 }
 
 void CReferenceFs::put_file(UINT index)
 {
 	UINT next = m_files[m_used_list].next;
-	//wprintf_s(L"pre put file: index=%d, used_list=%d, next_used=%d, free_list=%d, next_free=%d\n",
-	//	index, m_used_list, m_files[m_used_list].next, m_free_list, m_files[m_free_list].next);
-	//debug_out_used_files();
-
 	CRefFile& obj = m_files[index];
 	if (m_used_list == index)
 	{
@@ -81,18 +73,14 @@ void CReferenceFs::put_file(UINT index)
 		if (is_invalid(pre)) THROW_ERROR(ERR_APP, L"the ref file before %d is invalid", index);
 		m_files[pre].next = obj.next;
 	}
-	obj.fid = INVALID_BLK;
+	//obj.fid = INVALID_BLK;
 
-//	m_used_list = obj.next;
 	// 加入free list
+	memset(&obj, 0, sizeof(CRefFile));
 	obj.next = m_free_list;
+	obj.fid = INVALID_BLK;
 	m_free_list = index;
 	m_free_num++;
-
-	//wprintf_s(L"post put file, index=%d, next=%d, used_list=%d, used_nr=%d, free_list=%d, free_nr=%d\n", index, obj.next,
-	//	m_used_list, (MAX_FILE_NUM - m_free_num), m_free_list, m_free_num);
-	//debug_out_used_files();
-
 }
 
 void CReferenceFs::debug_out_used_files(void)
@@ -111,7 +99,6 @@ CReferenceFs::CRefFile * CReferenceFs::AddPath(const std::string & path, bool di
 {
 	if (m_free_num <= 0) return nullptr;
 	// find a free object;
-	UINT obj_id = get_file();
 //	debug_out_used_files();
 
 	// 查找父节点
@@ -121,11 +108,15 @@ CReferenceFs::CRefFile * CReferenceFs::AddPath(const std::string & path, bool di
 	else parent_fn = "\\";
 
 	UINT parent_id = FindFileIndex(parent_fn);
+	UINT obj_id = get_file();
 	if (parent_id > MAX_FILE_NUM )
 	{
 		LOG_ERROR(L"[err] the parent (%s) is not exist", parent_fn.c_str());
 		THROW_ERROR(ERR_APP, L"[err] the parent (%s) is not exist", parent_fn.c_str());
 		return nullptr;
+	}
+	if (parent_id == obj_id) {
+		THROW_ERROR(ERR_APP, L"[err] the parent (%s), id=%d is the same as current id=%d", parent_fn.c_str(), parent_id, obj_id);
 	}
 	CRefFile * parent = &m_files[parent_id];
 	if (!parent->isdir())
@@ -136,9 +127,6 @@ CReferenceFs::CRefFile * CReferenceFs::AddPath(const std::string & path, bool di
 	}
 	// 初始化file obj
 	m_files[obj_id].InitFile(parent_id, parent, path, dir, fid);
-	//wprintf_s(L"add file, index=%d, fid=%d, fn=%S, used_list=%d, used_nr=%d, free_list=%d, free_nr=%d\n", obj_id, fid, path.c_str(),
-	//	m_used_list, (MAX_FILE_NUM - m_free_num), m_free_list, m_free_num);
-	//debug_out_used_files();
 
 	// 添加到父节点
 	parent->m_children[parent->size] = obj_id;
@@ -246,7 +234,6 @@ bool CReferenceFs::IsExist(const std::string& path)
 
 void CReferenceFs::RemoveFile(const std::string & path)
 {
-//	LOG_DEBUG(L"remove dir/file %s", path.c_str());
 	UINT obj_id = FindFileIndex(path);
 	if (obj_id >= MAX_FILE_NUM) THROW_ERROR(ERR_APP, L"[err] file (%s) cannot find for remove", path.c_str());
 	CRefFile * obj = m_files + obj_id;
@@ -260,20 +247,50 @@ void CReferenceFs::RemoveFile(const std::string & path)
 
 	// 更新encode
 	parent->UpdateEncode(m_files);
-//	memset(obj, 0, sizeof(CRefFile));
 	_NID fid = obj->fid;
-//	obj->fid = INVALID_BLK;
-
 	// 移除used list
 	put_file(obj_id);
-	//wprintf_s(L"remove file, index=%d, fid=%d, fn=%S, used_list=%d, used_nr=%d, free_list=%d, free_nr=%d\n", 
-	//	obj_id, fid, path.c_str(),
-	//	m_used_list, (MAX_FILE_NUM - m_free_num), m_free_list, m_free_num);
-//	debug_out_used_files();
-
 }
 
+void CReferenceFs::MoveFile(const std::string& src, const std::string dst)
+{
+	UINT ii = m_used_list;
+	const char* _src = src.c_str();
+	const char* _dst = dst.c_str();
+	size_t src_len = src.size();
+	size_t dst_len = dst.size();
+	char temp[MAX_PATH_SIZE + 1];
+	CRefFile* tar_file = nullptr;
 
+	while (is_valid(ii))
+	{
+		CRefFile& file = m_files[ii];
+		if (strncmp(_src, file.m_fn, src.size()) == 0 && (file.m_fn[src_len]=='\\' || file.m_fn[src_len] ==0) )
+		{
+			if (file.m_fn[src_len] == 0)
+			{	// 找到文件
+				tar_file = &file;
+				file.m_fn[dst_len] = 0;
+			}
+			else {	// 对于目标目录的子节点，需要保存后缀，修改前缀
+				char* tar = file.m_fn + dst_len;
+				char* from = file.m_fn + src_len;
+				size_t buf_len = MAX_PATH_SIZE + 1 - dst_len;
+				strcpy_s(temp, from);
+				strcpy_s(tar, buf_len, temp);
+			}
+
+			memcpy_s(file.m_fn, MAX_PATH_SIZE, _dst, dst_len);
+		}
+		ii = file.next;
+	}
+	if (tar_file == nullptr) {
+		THROW_ERROR(ERR_APP, L"[err] move source file %S does not find in ref fs", _src);
+	}
+	CRefFile* parent = &m_files[tar_file->m_parent];
+	parent->m_write_count++;
+	parent->UpdateEncode(m_files);
+}
 
 size_t CReferenceFs::Encode(char* code, size_t buf_len) const
 {
@@ -340,19 +357,19 @@ void CReferenceFs::CRefFile::UpdateEncode(CRefFile* files)
 {
 	//检查是否是目录
 //	if (!isdir() ) THROW_ERROR(ERR_APP, L"[err] file cannot run encode");
+	char* ptr = m_encode;
 	if (!isdir())
 	{	// 构建文件的Encode
-		char* p = m_encode;
 		m_encode_size = 0;
 		if (m_is_open)
 		{
-			*p = '*';
-			p++;
+			*ptr = '*';
+			ptr++;
 			m_encode_size++;
 		}
-		if (m_write_count <= 2) *p = '0' + m_write_count;
-		else					*p = '2';
-		p++;
+		if (m_write_count <= 2) *ptr = '0' + m_write_count;
+		else					*ptr = '2';
+		ptr++;
 		m_encode_size++;
 	}
 	else
@@ -360,7 +377,7 @@ void CReferenceFs::CRefFile::UpdateEncode(CRefFile* files)
 
 		//对子节点排序
 		qsort_s(m_children, size, sizeof(_NID), CRefFile::CompareEncode, files);
-		char* ptr = m_encode;
+//		char* ptr = m_encode;
 #if ENCODE_TYPE==1
 	* ptr = '0';
 #else
@@ -383,10 +400,17 @@ void CReferenceFs::CRefFile::UpdateEncode(CRefFile* files)
 	memcpy_s(ptr, MAX_ENCODE_SIZE - m_encode_size, "011", 4);
 	m_encode_size += 3;
 #else
-		memcpy_s(ptr, MAX_ENCODE_SIZE - m_encode_size, "]", 2);
+//		memcpy_s(ptr, MAX_ENCODE_SIZE - m_encode_size, "]", 2);
+		* ptr = ']';
 		m_encode_size += 1;
+		ptr++;
 #endif
+		if (m_write_count <= 2) *ptr = '0' + m_write_count;
+		else					*ptr = '2';
+		ptr++;
+		m_encode_size++;
 	}
+
 	// 更新父节点的 Encode
 	if (m_parent > MAX_FILE_NUM) return;
 	CRefFile& parent = files[m_parent];

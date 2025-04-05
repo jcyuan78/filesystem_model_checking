@@ -325,9 +325,6 @@ public:
 	void SetBlockInfo(_NID nid, WORD offset, PHY_BLK phy_blk);
 
 	// 写入data block到segment, file_index 文件id, blk：文件中的相对block，temp温度
-	//void CheckGarbageCollection(CF2fsSimulator* fs)	{
-	//	if (m_free_nr < m_gc_lo) GarbageCollection(fs);
-	//}
 	// 将page写入磁盘
 	PHY_BLK WriteBlockToSeg(CPageInfo * page, bool force, bool by_gc=false);
 
@@ -348,9 +345,7 @@ public:
 protected:	// 临时措施，需要考虑如何处理GcPool。(1)将GC作为算法器放入segment management中，(2)提供获取GcPool的接口
 	SegmentInfo m_segments[MAIN_SEG_NR];
 protected:
-//	SEG_T m_cur_segs[BT_TEMP_NR];
 	CURSEG_INFO m_cur_segs[BT_TEMP_NR];
-	//SEG_T m_gc_lo, m_gc_hi;
 	// SIT entry的dirty标志，一个bit表示一个SIT entry。一个DWORD表示一个SIT block。
 	DWORD m_dirty_map[SIT_BLK_NR];
 
@@ -367,7 +362,7 @@ protected:
 	CKPT_BLOCK*		m_checkpoint;
 
 protected:
-	FsHealthInfo* m_health_info = nullptr;
+	//FsHealthInfo* m_health_info = nullptr;
 	struct DATA_PAGE_CACHE {
 		_NID nid;
 		UINT offset;

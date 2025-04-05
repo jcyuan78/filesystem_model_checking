@@ -1,4 +1,4 @@
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+ï»¿///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #include "pch.h"
 #include "../include/fs_simulator.h"
 
@@ -30,13 +30,11 @@ void CPageAllocator::Reset(void)
 
 void CPageAllocator::Init(size_t page_nr)
 {
-//	memset(m_pages, 0xFF, sizeof(m_pages));
-	// ¹¹½¨freeÁ´±í
+	// æž„å»ºfreeé“¾è¡¨
 	for (UINT ii = 0; ii < m_page_nr; ++ii)
 	{
 		m_pages[ii].free_link = ii + 1;
 		m_pages[ii].in_use = false;
-//		m_pages[ii].data.m_type = BLOCK_DATA::BLOCK_FREE;
 	}
 	m_pages[m_page_nr - 1].free_link = INVALID_BLK;
 	m_free_ptr = 0;
@@ -81,13 +79,13 @@ BLOCK_DATA* CPageAllocator::get_data(CPageInfo* page)
 void CPageInfo::Init()
 {
 	memset(this, 0xFF, sizeof(CPageInfo));
-	phy_blk = INVALID_BLK;	// pageËùÔÚÎïÀíÎ»ÖÃ
-	// ±ê¼ÇpageµÄÎÂ¶È£¬µ±page±»Ð´ÈëSSDÊ±¸üÐÂ¡£Õâ¸öÎÂ¶È²»ÊÇÊµ¼Ê·ÖÅäµ½ÎÂ¶È£¬ËùÓÐËã·¨ÏÂ¶¼ÏàÍ¬¡£½öÓÃÓÚÍ³¼Æ¡£
+	phy_blk = INVALID_BLK;	// pageæ‰€åœ¨ç‰©ç†ä½ç½®
+	// æ ‡è®°pageçš„æ¸©åº¦ï¼Œå½“pageè¢«å†™å…¥SSDæ—¶æ›´æ–°ã€‚è¿™ä¸ªæ¸©åº¦ä¸æ˜¯å®žé™…åˆ†é…åˆ°æ¸©åº¦ï¼Œæ‰€æœ‰ç®—æ³•ä¸‹éƒ½ç›¸åŒã€‚ä»…ç”¨äºŽç»Ÿè®¡ã€‚
 	ttemp = BT_TEMP_NR;
-	//ÔÚÎÄ¼þÖÐµÄÎ»ÖÃ
+	//åœ¨æ–‡ä»¶ä¸­çš„ä½ç½®
 	nid = INVALID_BLK;
 	offset = INVALID_BLK;
-	// Êý¾Ý(¶ÔÓÚinode »òÕß direct node)
+	// æ•°æ®(å¯¹äºŽinode æˆ–è€… direct node)
 	dirty = false;
 	in_use = true;
 //	host_write = 0;

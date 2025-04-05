@@ -25,15 +25,17 @@ enum ERROR_CODE
 {
 	ERR_OK = 0,
 	ERR_NO_OPERATION =1,	// 测试过程中，正常情况下，当前操作无法被执行。
-//	ERR_NO_SPACE=2,	// 由于资源不够放弃操作
 	ERR_NO_SPACE,		// GC时发现空间不够，无法回收更多segment
-//	ERR_NO_SPACE,
-//	ERR_NO_SPACE,	// 文件夹的dentry已经满了
 	ERR_MAX_OPEN_FILE,	// 打开的文件超过数量
 
-	ERR_GENERAL,
 
 	OK_ALREADY_EXIST,	// 文件或者目录已经存在，但是结果返回true
+	// storage error
+	ERR_GENERAL,
+	ERR_READ_NO_MAPPING_DATA,
+	ERR_PHYSICAL_ADD_NOMATCH,	
+	
+	// file system error
 
 	ERR_CREATE_EXIST,	// 对于已经存在的文件，重复创建。
 	ERR_CREATE,			// 文件或者目录不存在，但是创建失败
@@ -74,6 +76,7 @@ enum ERROR_CODE
 	ERR_DOUBLED_BLK,
 	ERR_INVALID_BLK,		// 不合法的physical block id
 
+
 	ERR_UNKNOWN,
 	ERR_ERROR_NR,
 };
@@ -106,40 +109,46 @@ struct FILE_DATA
 /// <summary>
 /// 描述文件系统的运行状态。通过特殊（$health）文件读取
 /// </summary>
-struct FsHealthInfo
-{
-	SEG_T m_seg_nr;	// 总的segment数量
-	PHY_BLK m_blk_nr;	// 总的block数量
-	LBLK_T m_logical_blk_nr;			// 逻辑块总是。makefs时申请的逻辑块数量
-	PHY_BLK m_free_blk;		// 空闲逻辑块数量。不是一个精确数值，初始值为允许的逻辑饱和度。当过量写的时候，可能导致负数。
-
-	LONG64 m_total_host_write;	// 以块为单位，host的写入总量。（快的大小由根据文件系统调整，一般为4KB）
-	LONG64 m_total_media_write;	// 写入介质的数据总量，以block为单位
-	//LONG64 m_media_write_node;
-	//LONG64 m_media_write_data;
-
-	LBLK_T m_logical_saturation;	// 逻辑饱和度。被写过的逻辑块数量，不包括metadata
-	PHY_BLK m_physical_saturation;	// 物理饱和度。有效的物理块数量，
-
-	WORD m_node_nr;		// nid, direct node的总数
-	WORD m_free_node_nr;
-//	UINT m_used_node;	// 被使用的node总数
-//	UINT m_file_num, m_dir_num;		// 文件数量和目录数量
-
-	// file system events
-	UINT sit_journal_overflow;
-	UINT nat_journal_overflow;
-	UINT gc_count;
-};
+//struct FsHealthInfo
+//{
+//	SEG_T m_seg_nr;	// 总的segment数量
+//	PHY_BLK m_blk_nr;	// 总的block数量
+//	LBLK_T m_logical_blk_nr;			// 逻辑块总是。makefs时申请的逻辑块数量
+//	PHY_BLK m_free_blk;		// 空闲逻辑块数量。不是一个精确数值，初始值为允许的逻辑饱和度。当过量写的时候，可能导致负数。
+//
+//	LONG64 m_total_host_write;	// 以块为单位，host的写入总量。（快的大小由根据文件系统调整，一般为4KB）
+//	LONG64 m_total_media_write;	// 写入介质的数据总量，以block为单位
+//
+//	LBLK_T m_logical_saturation;	// 逻辑饱和度。被写过的逻辑块数量，不包括metadata
+//	PHY_BLK m_physical_saturation;	// 物理饱和度。有效的物理块数量，
+//
+//	WORD m_node_nr;		// nid, direct node的总数
+//	WORD m_free_node_nr;
+//
+//	// file system events
+//	UINT sit_journal_overflow;
+//	UINT nat_journal_overflow;
+//	UINT gc_count;
+//};
 
 
 struct FS_INFO
 {
-	FSIZE total_seg, free_seg;
-	FSIZE total_blks;
-	FSIZE used_blks;	// 逻辑饱和度（有效block数量）
-	FSIZE free_blks;
-	FSIZE physical_blks;	// 物理饱和度
+	// 固定信息
+	FSIZE	main_seg_nr, main_blk_nr;
+	WORD	node_nr;		// nid, direct node的总数
+	UINT	page_nr;
+
+	// storage相关可变信息
+
+	// fs相关可变信息
+	FSIZE	used_blk, free_blk;	// 逻辑饱和度（有效block数量）
+	FSIZE	used_seg, free_seg;	// 物理饱和度
+	LONG64	host_write;	// 以块为单位，host的写入总量。（快的大小由根据文件系统调整，一般为4KB）
+	LONG64	media_write;	// 写入介质的数据总量，以block为单位
+	WORD	free_node;
+	UINT	gc_count;
+	UINT	free_page;
 
 //	UINT max_file_nr;	// 最大支持的文件数量
 	// 考虑到crash, 无法通过跟踪准确获取文件数量
@@ -147,13 +156,6 @@ struct FS_INFO
 
 //	LONG64 total_host_write;
 //	LONG64 total_media_write;
-
-//	UINT max_opened_file;	// 最大打开的文件数量
-
-	UINT total_page_nr;
-	UINT free_page_nr;
-//	UINT total_data_nr;
-//	UINT free_data_nr;
 
 };
 
@@ -203,16 +205,17 @@ public:
 	// delete 根据文件名删除文件。FileRemove()根据ID，删除文件相关内容，但是不删除path map
 	virtual void FileDelete(const std::string & fn) = 0;	
 	virtual ERROR_CODE DirDelete(const std::string& fn) = 0;
+	virtual ERROR_CODE FileMove(const std::string& src, const std::string& dst) = 0;
 	virtual void FileFlush(_NID fid) = 0;
 	// 文件能够支持的最大长度（block单位）
 	virtual DWORD MaxFileSize(void) const = 0;
-	virtual void GetFsInfo(FS_INFO& space_info) = 0;
 	
 	// 测试支持
 	// virtual bool CopyFrom(IFsSimulator* src) = 0;
 	virtual void Clone(IFsSimulator*& dst) = 0;
 	virtual void CopyFrom(const IFsSimulator* src) = 0;
-	virtual void GetHealthInfo(FsHealthInfo& info) const = 0;
+//	virtual void GetHealthInfo(FsHealthInfo& info) const = 0;
+	virtual void GetFsInfo(FS_INFO& space_info) = 0;
 	// 用于调试，不需要打开文件。size：文件大小。node block：包括inode在内，index block数量；data_blk：实际占用block数量
 	virtual void GetFileInfo(_NID fid, FSIZE& size, FSIZE& node_blk, FSIZE& data_blk) =0;
 

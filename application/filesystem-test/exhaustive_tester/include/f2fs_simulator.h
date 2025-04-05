@@ -12,15 +12,9 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // == 参数配置  ==
-
-
-
 #define ROOT_FID				(0)
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
-
 // 用于描述 inode中index table的映射关系
 class CIndexPath
 {
@@ -58,7 +52,7 @@ public:
 	PHY_BLK get_phy_blk(_NID nid);
 	void set_phy_blk(_NID nid, PHY_BLK phy_blk);
 	void f2fs_flush_nat_entries(CKPT_BLOCK & checkpoint);
-	void f2fs_out_nat_journal(/*NAT_JOURNAL_ENTRY* journal, UINT & journal_nr, */CPageInfo ** nat_pages, CKPT_BLOCK & checkpoint);
+	void f2fs_out_nat_journal(CPageInfo ** nat_pages, CKPT_BLOCK & checkpoint);
 	LBLK_T get_nat_next_block(UINT nn, CKPT_BLOCK& checkpoint);
 	LBLK_T get_nat_block(UINT nn, const CKPT_BLOCK& checkpoint);
 
@@ -133,6 +127,7 @@ public:
 	virtual void FileTruncate(_NID fid, FSIZE offset, FSIZE secs);
 	virtual void FileDelete(const std::string & fn);
 	virtual ERROR_CODE DirDelete(const std::string& fn);
+	virtual ERROR_CODE FileMove(const std::string& src, const std::string& dst);
 
 	virtual void FileFlush(_NID fid);
 	virtual void FileClose(_NID fid);
@@ -148,7 +143,7 @@ public:
 
 	//	virtual void SetLogFolder(const std::wstring& fn);
 	virtual void GetFsInfo(FS_INFO& space_info);
-	virtual void GetHealthInfo(FsHealthInfo& info) const;
+	//virtual void GetHealthInfo(FsHealthInfo& info) const;
 
 	// 对storage，用于storage相关测试
 	virtual UINT GetCacheNum(void) { return m_storage.GetCacheNum(); }
@@ -160,28 +155,10 @@ public:
 	virtual bool Reset(UINT rollback);
 	virtual ERROR_CODE fsck(bool fix);
 
-	// 以下接口用于测试。
-	//virtual void DumpSegments(const std::wstring& fn, bool sanity_check);
-	//virtual void DumpSegmentBlocks(const std::wstring& fn);
-	//virtual void DumpFileMap(FILE* out, _NID fid) { DumpFileMap_merge(out, fid); }
-
-	//virtual void DumpAllFileMap(const std::wstring& fn);
-	//virtual void DumpBlockWAF(const std::wstring& fn);
-	//virtual size_t DumpFileIndex(_NID index[], size_t buf_size, _NID fid);
-	//void DumpFileMap_no_merge(FILE* out, _NID fid);
-
-//	virtual void GetGcTrace(std::vector<GC_TRACE>& gc) { 
-//#ifdef GC_TRACE
-//		gc = m_segments.gc_trace; 
-//#endif
-//	};
 	// 通过flag，打开或者关闭对应的log内容，这些内容只保存在file system内部。
 	virtual void LogOption(FILE * out, DWORD flag);
 	// 通过dump相应的log到指定输出
 	virtual void DumpLog(FILE* out, const char* log_name);
-
-
-
 
 #ifdef ENABLE_FS_TRACE
 	void fs_trace(const char* op, _NID fid, DWORD start_blk, DWORD blk_nr);
@@ -193,8 +170,6 @@ protected:
 	void DumpCheckpoint(FILE * out, const CKPT_BLOCK& checkpoint);
 	void DumpNatPage(FILE* out);
 	void DumpFile(_NID fid);
-	//void DumpNat(FILE* out);
-
 
 // functions for fsck
 protected:
@@ -222,7 +197,7 @@ protected:
 	friend class CNodeAddressTable;
 
 	// 找到文件fn(全路径）的NID，parent返回NID所在父目录的inode的page
-	_NID FileOpenInternal(char* fn, CPageInfo* &parent);
+	_NID FileOpenInternal(const std::string & fn,  CPageInfo* &parent);
 	// 当unmount的时候，强制关闭所有文件
 	void ForceClose(OPENED_FILE* file);
 	// 在父目录中查找文件fn, 找到返回fid，找不到返回invalid_blk
@@ -232,6 +207,8 @@ protected:
 	OPENED_FILE* AddFileToOpenList(_NID fid, CPageInfo* page);
 
 	void InitOpenList(void);
+
+	ERROR_CODE SplitPath(char* path, char*& fn);
 
 	// 关闭打开的inode，释放被inode缓存的page。返回文件是否dirty
 	bool CloseInode(CPageInfo* &ipage);
@@ -266,7 +243,7 @@ protected:
 	// 将文件添加到parent中，parent:需要添加的目录文件的inode，nid：子文件的inode id
 	ERROR_CODE add_link(NODE_INFO* parent, const char* fn, _NID nid);
 	// 从parent中将fid移除
-	void unlink(_NID fid, CPageInfo* parent);
+	void unlink(_NID fid, const char * fn, CPageInfo* parent);
 
 	UINT GetChildNumber(NODE_INFO* inode);
 
@@ -320,8 +297,7 @@ protected:
 	CF2fsSegmentManager m_segments;
 	CNodeAddressTable	m_nat;
 	CStorage			m_storage;
-	FsHealthInfo		m_health_info;
-//	FS_INFO				m_fs_info;
+	FS_INFO				m_fs_info;
 
 protected:
 	// OS的数据缓存。m_pages模拟OS的页缓存，m_block_buf为page提供数据。由于文件数据不需要实际数据，可以省略。
@@ -354,6 +330,8 @@ protected:
 	bool m_log_fsck = false;
 	bool m_log_storage = false;
 	FILE* m_log_out = nullptr;
+
+	int m_health_ckpt;
 
 	UINT m_ref;	//引用计数
 };
