@@ -2,12 +2,10 @@
 
 
 #include <chrono>
-//#include <fstream>
 #include <iomanip>
 
 #include "FsSpecific.h"
 #include "Tester.h"
-//#include "../disk_wrapper_ioctl.h"
 #include <crashmonkey_comm.h>
 
 #include "DiskContents.h"
@@ -127,17 +125,12 @@ void Tester::set_device(const std::wstring device_path, IVirtualDisk * dev)
 {
 	// m_cow_brd应该已经在insert_cow_brd()中被设置
 	if (m_cow_brd == NULL)  THROW_ERROR(ERR_APP, L"raw device cannot be null");
-	//m_cow_brd = dev;
-	//m_cow_brd->AddRef();
 
 	// 从CCrashMonkeyCtrl获取raw device
 	m_cow_brd->IoCtrl(0, COW_BRD_GET_SNAPSHOT, &m_device_raw);
 	if (!m_device_raw) THROW_ERROR(ERR_APP, L"failed on getting raw device from crash monkey ctrl");
-	//m_device_raw = dev;
-	//m_device_raw->AddRef();
 
 	// 获取 snapshot device
-
 	m_cow_brd->IoCtrl(0, COW_BRD_GET_SNAPSHOT+1, &m_snapshot_dev);
 	if (!m_snapshot_dev) THROW_ERROR(ERR_APP, L"failed on getting snapshot[1] from crash monkey ctrl");
 
@@ -220,54 +213,60 @@ int Tester::mount_device(const wchar_t* dev_name, const wchar_t* opts, IVirtualD
 	LOG_NOTICE(L"mount device %s to %s, opts=%s", dev_name, MNT_MNT_POINT, opts);
 
 	JCASSERT(m_fs && dev);
-	bool br = m_fs->ConnectToDevice(dev);
-	if (!br)
-	{
-		LOG_ERROR(L"[err] failed on connecting device");
-		return MNT_MNT_ERR;
-	}
-	br = m_fs->Mount();
+	//bool br = m_fs->ConnectToDevice(dev);
+	//if (!br)
+	//{
+	//	LOG_ERROR(L"[err] failed on connecting device");
+	//	return MNT_MNT_ERR;
+	//}
+	bool br = m_fs->Mount(dev);
 	if (!br)
 	{
 		LOG_ERROR(L"[err] failed on moundting device");
 		return MNT_MNT_ERR;
 	}
-
-	disk_mounted = true;
+	m_disk_mounted = true;
 	return SUCCESS;
 }
 
 int Tester::umount_device()
 {
 	LOG_NOTICE(L"unmount device from %s", MNT_MNT_POINT);
-	//if (disk_mounted) {
-	//    if (umount(MNT_MNT_POINT) < 0) {
-	//        disk_mounted = true;
-	//        return MNT_UMNT_ERR;
-	//    }
-	//}
 	if (m_fs == NULL) return SUCCESS;
 	m_fs->Unmount();
-	m_fs->Disconnect();
-	disk_mounted = false;
+	//m_fs->Disconnect();
+	m_disk_mounted = false;
 	return SUCCESS;
 }
 
 int Tester::mount_snapshot()
 {
 	LOG_NOTICE(L"mount snapshot %s to %s", m_snapshot_path_.c_str(), MNT_MNT_POINT);
-	//if (mount(m_snapshot_path_.c_str(), MNT_MNT_POINT, fs_type.c_str(), 0, NULL) < 0) {
-	//    return MNT_MNT_ERR;
+	JCASSERT(m_fs && m_snapshot_dev);
+	//bool br = m_fs->ConnectToDevice(m_snapshot_dev);
+	//if (!br)
+	//{
+	//	LOG_ERROR(L"[err] failed on connecting device");
+	//	return MNT_MNT_ERR;
 	//}
+	bool br = m_fs->Mount(m_snapshot_dev);
+	if (!br)
+	{
+		LOG_ERROR(L"[err] failed on mounting device");
+		return MNT_MNT_ERR;
+	}
+	m_disk_mounted = true;
 	return SUCCESS;
 }
 
 int Tester::umount_snapshot()
 {
 	LOG_NOTICE(L"umount snapshot from %s", MNT_MNT_POINT);
-	//if (umount(MNT_MNT_POINT) < 0) {
-	//    return MNT_UMNT_ERR;
-	//}
+	if (m_fs == NULL) return SUCCESS;
+	m_fs->Unmount();
+	//m_fs->Disconnect();
+	m_disk_mounted = false;
+
 	return SUCCESS;
 }
 
@@ -277,6 +276,7 @@ int Tester::mapCheckpointToSnapshot(int checkpoint)
 	checkpointToSnapshot_[checkpoint] = m_snapshot_path_;
 	std::wostream& logfile = m_log_stream;
 	MESSAGE(L"Mapping " << m_snapshot_path_ << L" to checkpoint " << checkpoint << std::endl);
+	LOG_NOTICE(L"snapshot[%s] = checkpoint %d", m_snapshot_path_.c_str(), checkpoint);
 	return 0;
 }
 
@@ -293,13 +293,23 @@ int Tester::getNewDiskClone(int checkpoint)
 	m_snapshot_path_ = new_snapshot_path;
 	std::wstring command = fs_specific_ops_->GetNewUUIDCommand(new_snapshot_path);
 	LOG_NOTICE(L"invoke sys cmd: %s", command.c_str());
-	_wsystem(command.c_str());
+//	_wsystem(command.c_str());
+	//<YUAN> 执行linux命令 tune2fs -U random /dev/...
+	//	功能：调整文件系统的参数
+	JCASSERT(m_disk_mounted == false);
+	RELEASE(m_snapshot_dev);
+	m_cow_brd->IoCtrl(0, COW_BRD_GET_SNAPSHOT + (checkpoint + 2), &m_snapshot_dev);
+	if (!m_snapshot_dev) THROW_ERROR(ERR_APP, L"failed on getting snapshot[1] from crash monkey ctrl");
 	return 0;
 }
 
 void Tester::getCompleteRunDiskClone()
 {
 	m_snapshot_path_ = checkpointToSnapshot_[0];
+	JCASSERT(m_disk_mounted == false);
+	RELEASE(m_snapshot_dev);
+	m_cow_brd->IoCtrl(0, COW_BRD_GET_SNAPSHOT + 1, &m_snapshot_dev);
+	if (!m_snapshot_dev) THROW_ERROR(ERR_APP, L"failed on getting snapshot[1] from crash monkey ctrl");
 }
 
 int Tester::insert_cow_brd(IVirtualDisk* cow_brd)
@@ -559,14 +569,19 @@ void Tester::clear_wrapper_log()
 //int Tester::GetChangeData(const int fd)
 int Tester::GetChangeData(FILE * fd)
 {
+	LOG_STACK_TRACE();
+	int index = 0;
 	//<YUAN> <TODO>优化：由于在同一个进程中测试，change data不必通过文件传递
 	// Need to read a 64-bit value, switch it to big endian to figure out how much
 	// we need to read, read that new data amount, and add it all to a buffer.
+	m_log_stream << L"== load change date ==" << std::endl;
+	m_log_stream << std::setw(25) << L"type" << std::setw(25) << L"opt " << L"path" << std::endl;
 	while (true)
 	{       // Get the next DiskMod size.
+		LOG_DEBUG(L"read mod[%d]", index++);
 		uint64_t buf;
-//		const int read_res = read(fd, (void*)&buf, sizeof(uint64_t));
-		size_t read_res = fread(&buf, sizeof(uint64_t), 1, fd);
+		//<YUAN>fread函数返回的时读取的element个数，而不是总字节数。
+		size_t read_res = fread(&buf, 1, sizeof(uint64_t), fd);
 		if (read_res == 0) { break; }      // No more data to read.
 		else if (read_res != sizeof(uint64_t))
 		{
@@ -576,34 +591,30 @@ int Tester::GetChangeData(FILE * fd)
 		uint64_t next_chunk_size = be64toh(buf);
 
 		// Read the next DiskMod.
-		shared_ptr<wchar_t> data(new wchar_t[next_chunk_size], [](wchar_t* c) {delete[] c; });
-		memcpy(data.get(), (void*)&buf, sizeof(uint64_t));
+		shared_ptr<BYTE> data(new BYTE[next_chunk_size], [](BYTE* c) {delete[] c; });
+		memcpy_s(data.get(), next_chunk_size, (void*)&buf, sizeof(uint64_t));
 		unsigned long long int read_data = sizeof(uint64_t);
-		while (read_data < next_chunk_size)
-		{
-//			const int res = read(fd, data.get() + read_data, next_chunk_size - read_data);
-			size_t res = fread(data.get() + read_data, next_chunk_size - read_data, 1, fd);
-			if (res != (next_chunk_size - read_data) )
-			{        // We shouldn't find a size for a DiskMod without the rest of the DiskMod.
-				LOG_ERROR(L"[err] failed on reading change file, read=%d", res);
-				return -1;
-			}
-			read_data += res;
+
+		//<YUAN>fread函数以element size单位读取，返回读取的element个数，而不是总字节数。确保读取所要求的数量。否则返回为错误。
+		size_t res = fread(data.get() + read_data, 1, next_chunk_size - read_data, fd);
+		if (res != next_chunk_size - read_data)
+		{        // We shouldn't find a size for a DiskMod without the rest of the DiskMod.
+			LOG_ERROR(L"[err] failed on reading change file, read=%d", res);
+			return -1;
 		}
 
 		DiskMod mod;
-		const int res = DiskMod::Deserialize(data, mod);
-		if (res < 0) { return res; }
-		if (mod.mod_type == DiskMod::kCheckpointMod)
-		{      // We found a checkpoint, so switch to a new set of DiskMods.
-			mods_.push_back(vector<DiskMod>());
-		}
+		const int ir = DiskMod::Deserialize(data, mod);
+
+		m_log_stream << mod;
+
+		if (ir < 0) { return ir; }
+		// We found a checkpoint, so switch to a new set of DiskMods.
+		if (mod.mod_type == DiskMod::kCheckpointMod)	{		mods_.push_back(vector<DiskMod>());		}
 		else
 		{
-			if (mods_.empty())
-			{        // We're just starting, so give us a place to put the mods.
-				mods_.push_back(vector<DiskMod>());
-			}
+			// We're just starting, so give us a place to put the mods.
+			if (mods_.empty())			{ 				mods_.push_back(vector<DiskMod>());			}
 			// Just append this DiskMod to the end of the last set of DiskMods.
 			mods_.back().push_back(mod);
 		}
@@ -726,9 +737,9 @@ int Tester::format_drive(void)
 	//if (system(command.c_str()) != 0) {    return FMT_FMT_ERR;  }
 	LOG_NOTICE(L"[linux] system command: %s", command.c_str());
 	JCASSERT(m_fs && m_device_raw);
-	m_fs->ConnectToDevice(m_device_raw);
-	bool br = m_fs->MakeFileSystem(boost::numeric_cast<UINT32>(m_device_size), L"TEST");
-	m_fs->Disconnect();
+	//m_fs->ConnectToDevice(m_device_raw);
+	bool br = m_fs->MakeFileSystem(m_device_raw, boost::numeric_cast<UINT32>(m_device_size), L"TEST");
+	//m_fs->Disconnect();
 	if (!br)
 	{
 		LOG_ERROR(L"[err] failed on format device");
@@ -779,13 +790,30 @@ int Tester::get_test_running_status(void)
 	return (int)(exit_code);
 }
 
+int fs_testing::Tester::wait_test_complete(DWORD timeout)
+{
+	if (m_test_thread == NULL) THROW_ERROR(ERR_APP, L"test thread is not running");
+//	JCASSERT(m_test_thread);
+	DWORD ir = WaitForSingleObject(m_test_thread, timeout);
+	if (ir == WAIT_TIMEOUT) THROW_ERROR(ERR_APP, L"test thread timeout");
+	if (ir != 0) THROW_WIN32_ERROR(L"failed on waiting test thread, ir=0x%X", ir);
+	DWORD exit_code;
+	BOOL br = GetExitCodeThread(m_test_thread, &exit_code);
+	if (!br)    THROW_WIN32_ERROR(L"failed on getting thread exit code");
+	CloseHandle(m_test_thread);
+	m_test_thread = 0;
+
+	return (int)(exit_code);
+}
+
 DWORD __stdcall Tester::_start_async_test_run(LPVOID param)
 {
 	Tester* test = reinterpret_cast<Tester*>(param);
 	JCASSERT(test);
-	JCASSERT(test->m_test_change_fd);
+	//JCASSERT(test->m_test_change_fd);
+	//<YUAN> m_test_change_fd可以为0。为0时不保存log
 	int ir = test->test_run(test->m_test_change_fd, test->m_test_checkpoint);
-	fclose(test->m_test_change_fd);
+//	fclose(test->m_test_change_fd);
 	test->m_test_change_fd = NULL;
 	return ir;
 }
@@ -820,8 +848,7 @@ vector<milliseconds> Tester::test_fsck_and_user_test(IVirtualDisk * device,
 
 	// Only run fsck if we failed when mounting the file system above.
 	if (test_info.fs_test.GetError() & FileSystemTestResult::kKernelMount)
-	{
-		// Take the comamnd we are given and redirect stderr to stdout so we can pull it all out with popen below.
+	{	// Take the comamnd we are given and redirect stderr to stdout so we can pull it all out with popen below.
 		std::wstring command(fs_specific_ops_->GetFsckCommand(device_path) + L" 2>&1");
 		// Begin fsck timing.
 		time_point<steady_clock> fsck_start_time = steady_clock::now();
@@ -829,7 +856,7 @@ vector<milliseconds> Tester::test_fsck_and_user_test(IVirtualDisk * device,
 		// Use popen so that we can throw all the output from fsck into the log that we are keeping. This information
 		//  will go just before the summary of what went wrong in the test.
 		LOG_DEBUG(L"[linux] sys call: %s", command.c_str());
-		IFileSystem::FsCheckResult ir = m_fs->FileSystemCheck(false);
+		IFileSystem::FsCheckResult ir = m_fs->FileSystemCheck(device, false);
 #if 0
 		FILE* pipe = popen(command.c_str(), "r");
 		wchar_t tmp[128];
@@ -892,7 +919,7 @@ vector<milliseconds> Tester::test_fsck_and_user_test(IVirtualDisk * device,
 	time_point<steady_clock> test_case_start_time = steady_clock::now();
 	if (automate_check_test)
 	{
-		bool retVal = check_disk_and_snapshot_contents(m_snapshot_path_, last_checkpoint);
+		bool retVal = check_disk_and_snapshot_contents(m_snapshot_dev, m_snapshot_path_, last_checkpoint);
 		if (!retVal)	test_info.data_test.SetError(fs_testing::tests::DataTestResult::kAutoCheckFailed);
 	}
 	else
@@ -916,7 +943,6 @@ vector<milliseconds> Tester::test_fsck_and_user_test(IVirtualDisk * device,
 		if (umount_res < 0)
 		{
 			err = errno;
-//			usleep(500);
 			Sleep(500);
 		}
 	} while (umount_res < 0 && err == EBUSY);
@@ -925,7 +951,7 @@ vector<milliseconds> Tester::test_fsck_and_user_test(IVirtualDisk * device,
 	return res;
 }
 
-bool Tester::check_disk_and_snapshot_contents(std::wstring disk_path, int last_checkpoint)
+bool Tester::check_disk_and_snapshot_contents(IVirtualDisk * snapshot_dev, std::wstring disk_path, int last_checkpoint)
 {
 #if 1 // _TO_BE_IMPLEMENTED_
 	if (checkpointToSnapshot_.find(last_checkpoint) == checkpointToSnapshot_.end())
@@ -941,8 +967,23 @@ bool Tester::check_disk_and_snapshot_contents(std::wstring disk_path, int last_c
 	LOG_NOTICE(L"open diff_file: diff-at-check %s", std::to_wstring(last_checkpoint).c_str());
 
 	LOG_NOTICE(L"disk_path=%s, snapshot_path=%s, fs_type=%s", disk_path.c_str(), snapshot_path.c_str(), fs_type);
-	DiskContents disk1(disk_path, fs_type), disk2(snapshot_path, fs_type);
+
+	jcvos::auto_cif<IFileSystem> fs1;
+	m_fs->CreateObject(fs1);
+	DiskContents disk1(snapshot_dev, fs1.d_cast(), disk_path, fs_type);
+
+	jcvos::auto_cif<IFileSystem> fs2;
+	m_fs->CreateObject(fs2);
+	jcvos::auto_interface<IVirtualDisk> dev2;
+	m_cow_brd->IoCtrl(0, COW_BRD_GET_SNAPSHOT + last_checkpoint + 1, dev2);
+	DiskContents disk2(dev2, fs2.d_cast(), snapshot_path, fs_type);
+
+//	DiskContents disk1(disk_path, fs_type), disk2(snapshot_path, fs_type);
 	disk1.set_mount_point(L"/mnt/snapshot");
+#ifdef _DEBUG
+	m_log_stream << L"mods for check, mods[" << (last_checkpoint - 1) << L"]" << std::endl;
+	for (auto i : mods_.at(last_checkpoint - 1))	{	m_log_stream << i;	}
+#endif
 
 	assert(last_checkpoint < mods_.size() && (last_checkpoint > 0));
 	for (auto i : mods_.at(last_checkpoint - 1))
@@ -950,9 +991,11 @@ bool Tester::check_disk_and_snapshot_contents(std::wstring disk_path, int last_c
 		if (i.mod_type == DiskMod::kFsyncMod)
 		{
 			std::wstring path(i.path);
-			path.erase(0, 13);
+			//<YUAN> 原设计中删除path开头13个字符，应当时删除mount位置。按照windows，删除C:（如果存在的话）
+//			path.erase(0, 13);
+			if (path[1] == ':') path.erase(0, 2);
 			std::wcout << path << std::endl;
-			LOG_NOTICE(L"compare disk path %s to %s, path=%s", disk_path.c_str(), snapshot_path.c_str(), path.c_str());
+			LOG_NOTICE(L"mod type=kFsyncMod, compare file, path=%s", path.c_str());
 			bool ret = disk1.compare_entries_at_path(disk2, path, diff_file);
 			if (ret && (last_checkpoint == mods_.size() - 1))
 			{
@@ -966,6 +1009,7 @@ bool Tester::check_disk_and_snapshot_contents(std::wstring disk_path, int last_c
 		}
 		else if (i.mod_type == DiskMod::kSyncMod)
 		{
+			LOG_NOTICE(L"mod type=kSyncMode, compare full disk");
 			bool retVal = disk1.compare_disk_contents(disk2, diff_file);
 			if (retVal && (last_checkpoint == mods_.size() - 1))
 			{
@@ -980,8 +1024,12 @@ bool Tester::check_disk_and_snapshot_contents(std::wstring disk_path, int last_c
 		else if (i.mod_type == DiskMod::kDataMod || i.mod_type == DiskMod::kSyncFileRangeMod)
 		{
 			std::wstring path(i.path);
-			path.erase(0, 13);
-			bool retVal = disk1.compare_file_contents(disk2, path, i.file_mod_location, i.file_mod_len, diff_file);
+			if (path[1] == ':') path.erase(0, 2);
+			LOG_NOTICE(L"mod type=Data, compare file contents, path=%s, offset=%d, len=%d",
+				path.c_str(), i.m_file_mod_location, i.m_file_mod_len);
+
+			//path.erase(0, 13);
+			bool retVal = disk1.compare_file_contents(disk2, path, i.m_file_mod_location, i.m_file_mod_len, diff_file);
 			if (retVal && (last_checkpoint == mods_.size() - 1))
 			{
 				if (disk1.sanity_checks(diff_file) == false)

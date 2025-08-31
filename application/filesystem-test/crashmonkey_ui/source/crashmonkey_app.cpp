@@ -215,11 +215,9 @@ int CCrashMonkeyApp::Run(void)
     bool br = m_fs_factory->CreateFileSystem(filesystem, m_fs_name);
     if (!br | !filesystem) THROW_ERROR(ERR_APP, L"failed on creating file system %s", m_fs_name.c_str());
     JCASSERT(m_test_dev);
-//    filesystem->ConnectToDevice(m_test_dev);
 
     // 从raw disk获取snapshot
     jcvos::auto_interface<IVirtualDisk> snapshot;
-    //IVirtualDisk* snapshot = NULL;
     int ir = m_test_dev->IoCtrl(0, COW_BRD_GET_SNAPSHOT+1, snapshot);
     if (ir != SUCCESS || !snapshot) THROW_ERROR(ERR_APP, L"failed on getting snapshot device");
 
@@ -231,23 +229,11 @@ int CCrashMonkeyApp::Run(void)
     if (!wrapper_disk) THROW_ERROR(ERR_MEM, L"Failed on creating wrapper device");
     wrapper_disk->Initialize(snapshot);
 
-
     // This should be changed in the option is added to mount tests in other directories.
     //<YUAN> 由于后续需要format file system, 此处先不要mount
-    //filesystem->Mount();
     std::wstring mount_dir = L"/mnt/snapshot";
-    //if (setenv("MOUNT_FS", mount_dir.c_str(), 1) == -1) 
-    //{
-    //    std::cerr << "Error setting environment variable MOUNT_FS" << std::endl;
-    //}
 
     MESSAGE("========== PHASE 0: Setting up CrashMonkey basics ==========" << std::endl);
-    //if (test_case_idx == argc) 
-    //{
-    //    std::cerr << "Please give a .so test case to load" << std::endl;
-    //    return -1;
-    //}
-
     if (iterations < 0) 
     {
         std::cerr << "Please give a positive number of iterations to run" << std::endl;
@@ -281,15 +267,16 @@ int CCrashMonkeyApp::Run(void)
     test_harness.StartTestSuite();      // 准备一个测试结果的空间到 container
 
     MESSAGE("Inserting RAM disk module" << std::endl);
-    if (test_harness.insert_cow_brd(m_test_dev) != SUCCESS)       // 安装RAM DISK驱动（cow brd），并打开设备，句柄保存在Tester::cow_brd_fd
+    // 安装RAM DISK驱动（cow brd），并打开设备，句柄保存在Tester::cow_brd_fd
+    if (test_harness.insert_cow_brd(m_test_dev) != SUCCESS)       
     {
         std::cerr << "Error inserting RAM disk module" << std::endl;
         return -1;
     }
     test_harness.set_fs_type(fs_type);
-//    test_harness.set_device(L"/dev/ram0", raw_disk);
     test_harness.set_device(L"/dev/ram0", m_test_dev);
     size_t filesystem_size = m_disk_size;
+
     //<YUAN>: 获取文件系统所在分区的大小， 并写入环境变量
     /*
     FILE* input;
@@ -321,51 +308,32 @@ int CCrashMonkeyApp::Run(void)
     delete[] filesize_cstr;
     */
     
-    //if (setenv("FILESYS_SIZE", filesize.c_str(), 1) == -1) 
-    //{
-    //    std::cerr << "Error setting environment variable FILESYS_SIZE" << std::endl;
-    //}
-
     // Load the class being tested.
     std::cout   << "Loading test case" << std::endl;
-//    if (test_harness.test_load_class(argv[test_case_idx]) != SUCCESS) 
     if (test_harness.test_load_class(m_test_module.c_str(), m_test_case.c_str()) != SUCCESS) 
-    {
-        test_harness.cleanup_harness();
-        return -1;
-    }
+        THROW_ERROR(ERR_APP, L"failed on loading test class: %s", m_test_module.c_str());
 
     test_harness.test_init_values(mount_dir, m_test_dev_size, filesystem);
 
     // Load the permuter to use for the test.
     // TODO(ashmrtn): Consider making a line in the test file which specifies the permuter to use?
     MESSAGE("Loading permuter" << std::endl);
-    if (test_harness.permuter_load_class(permuter_module.c_str(), permuter_class.c_str()) != SUCCESS) 
-    {
-        test_harness.cleanup_harness();
-        return -1;
-    }
+    if (test_harness.permuter_load_class(permuter_module.c_str(), permuter_class.c_str()) != SUCCESS)
+        THROW_ERROR(ERR_APP, L"failed on loading permuter class: %s", permuter_module.c_str());
 
     // Update dirty_expire_time.
     MESSAGE(L"Updating dirty_expire_time_centisecs to " << dirty_expire_time_centisecs << std::endl);
     const wchar_t* old_expire_time = test_harness.update_dirty_expire_time(dirty_expire_time_centisecs.c_str());
-    if (old_expire_time == NULL) 
-    {
-        std::cerr << "Error updating dirty_expire_time_centisecs" << std::endl;
-        test_harness.cleanup_harness();
-        return -1;
-    }
-
+    if (old_expire_time == NULL) THROW_ERROR(ERR_APP, L"Error updating dirty_expire_time_centisecs");
 
     /*****************************************************************************
      * PHASE 1:
      * Setup the base image of the disk for snapshots later. This could happen in
      * one of several ways:
      * 1. The -r flag specifies that there are log files which contain the disk image. These will now be loaded from disk
-     * 2. The -b flag specifies that CrashMonkey is running as a "background"
-     *    process of sorts and should listen on its socket for commands from the
-     *    user telling it when to perform certain actions. The user is responsible
-     *    for running their own pre-test setup methods at the proper times
+     * 2. The -b flag specifies that CrashMonkey is running as a "background" process of sorts and should listen on its
+            socket for commands from the user telling it when to perform certain actions. The user is responsible
+            for running their own pre-test setup methods at the proper times
      * 3. CrashMonkey is running as a standalone program. It will run the pre-test
      *    setup methods defined in the test case static object it loaded
      ****************************************************************************/
@@ -377,32 +345,19 @@ int CCrashMonkeyApp::Run(void)
         /***************************************************************************
          * Setup for both background operation and standalone mode operation.
          **************************************************************************/
-        if (flags_dev.empty()) 
-        {
-            std::cerr   << "No device to copy flags from given" << std::endl;
-            return -1;
-        }
+        if (flags_dev.empty())  THROW_ERROR(ERR_APP, L"No device to copy flags from given");
 
         // Device flags only need set if we are logging requests.
         test_harness.set_flag_device(flags_dev);
 
         // Format test drive to desired type.
         MESSAGE(L"Formatting test drive" << std::endl);
-        if (test_harness.format_drive() != SUCCESS) 
-        {
-            std::cerr << "Error formatting test drive" << std::endl;
-            test_harness.cleanup_harness();
-            return -1;
-        }
+        if (test_harness.format_drive() != SUCCESS)    THROW_ERROR(ERR_APP, L"Error formatting test drive");
 
         // Mount test file system for pre-test setup.
         MESSAGE(L"Mounting test file system for pre-test setup" << std::endl);
-        if (test_harness.mount_device_raw(mount_opts.c_str()) != SUCCESS) 
-        {
-            std::cerr << "Error mounting test device" << std::endl;
-            test_harness.cleanup_harness();
-            return -1;
-        }
+        if (test_harness.mount_device_raw(mount_opts.c_str()) != SUCCESS)
+            THROW_ERROR(ERR_APP, L"Error mounting test device");
 
         // TODO(ashmrtn): Close startup socket fd here.
 
@@ -652,75 +607,75 @@ int CCrashMonkeyApp::Run(void)
             FILE * change_fd=0;
             if (checkpoint == 0)
             {
-                //change_fd = open(kChangePath, O_CREAT | O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR);
-                //if (change_fd < 0) { return change_fd; }
                 _wfopen_s(&change_fd, kChangePath, L"w+");
                 if (change_fd == NULL) THROW_ERROR(ERR_APP, L"[err] failed on opening file %s", kChangePath);
             }
-            //const int res = test_harness.test_run(change_fd, checkpoint);
-            //if (checkpoint == 0) { close(change_fd); }
-            //return res
             //<YUAN> checkpoint:告诉测试程序，需要测试到哪里，0表示测试全部。
             int res = test_harness.async_test_run(change_fd, checkpoint);
+            SocketError se = background_com->WaitingForClient();
             int exit_code;
-            do 
+            do
             {
-                SocketError se = background_com->WaitingForClient();
-                if (se == SocketError::kNone)
+                SocketMessage m;
+                se = background_com->TryForMessage(&m);
+                if (m.type == SocketMessage::kCheckpoint)
                 {
-                    SocketMessage m;
-                    se = background_com->TryForMessage(&m);
-                    if (m.type == SocketMessage::kCheckpoint)
+                    LOG_DEBUG(L"receive checkpoint");
+                    if (test_harness.CreateCheckpoint(m.string_value) == SUCCESS)
                     {
-                        if (test_harness.CreateCheckpoint(m.string_value) == SUCCESS)
-                        {
-                            LOG_DEBUG(L"reply for checkpoint");
-                            if (background_com->SendCommand(SocketMessage::kCheckpointDone) != SocketError::kNone)
-                                THROW_ERROR(ERR_APP, L"Error telling user done with checkpoint");
-                               //{
-                                //    // TODO(ashmrtn): Handle better.
-                                //    std::cerr << "Error telling user done with checkpoint" << std::endl;
-                                //    //delete background_com;
-                                //    test_harness.cleanup_harness();
-                                //    return -1;
-                                //}
-                        }
-                        else
-                        {
-                            LOG_DEBUG(L"reply for error of checkpoint");
-                            if (background_com->SendCommand(SocketMessage::kCheckpointFailed) != SocketError::kNone)
-                                    THROW_ERROR(ERR_APP, L"Error telling user checkpoint failed");
-                                //{
-                                //       // TODO(ashmrtn): Handle better.
-                                //        std::cerr << "Error telling user checkpoint failed" << std::endl;
-                                //        //delete background_com;
-                                //        test_harness.cleanup_harness();
-                                //        return -1;
-                                //}
-                        }
+                        LOG_DEBUG(L"reply for checkpoint");
+                        if (background_com->SendCommand(SocketMessage::kCheckpointDone) != SocketError::kNone)
+                            THROW_ERROR(ERR_APP, L"Error telling user done with checkpoint");
+                        //{
+                         //    // TODO(ashmrtn): Handle better.
+                         //    std::cerr << "Error telling user done with checkpoint" << std::endl;
+                         //    //delete background_com;
+                         //    test_harness.cleanup_harness();
+                         //    return -1;
+                         //}
                     }
                     else
                     {
-                        LOG_DEBUG(L"reply for invalid message");
-                        if (background_com->SendCommand(SocketMessage::kInvalidCommand) != SocketError::kNone)
-                                THROW_ERROR(ERR_APP, L"Error sending response to client");
-                            //{
-                            //        std::cerr << "Error sending response to client" << std::endl;
-                            //        //delete background_com;
-                            //        test_harness.cleanup_harness();
-                            //        return -1;
-                            //}
+                        LOG_DEBUG(L"reply for error of checkpoint");
+                        if (background_com->SendCommand(SocketMessage::kCheckpointFailed) != SocketError::kNone)
+                            THROW_ERROR(ERR_APP, L"Error telling user checkpoint failed");
+                        //{
+                        //       // TODO(ashmrtn): Handle better.
+                        //        std::cerr << "Error telling user checkpoint failed" << std::endl;
+                        //        //delete background_com;
+                        //        test_harness.cleanup_harness();
+                        //        return -1;
+                        //}
                     }
-                    se = background_com->TryForMessage(&m);
-                    background_com->DisconnectClient();
                 }
-                // waiting for disconnect
-                //<YUAN> waitpid：等待子进程结束或者其他信号。WNOHANG：表示如果没有子进程结束，则不等待立刻返回。
-                // 此处用于检测子进程是否已经结束。
-                exit_code = test_harness.get_test_running_status();
-            } while (exit_code == 259);     // STILL_ACTIVE
-//            } while (1);     // STILL_ACTIVE
+                else if (m.type == SocketMessage::kDisconnect)
+                {
+                    LOG_DEBUG(L"receive disconnect");
+                    break;
+                }
+                else
+                {
+                    LOG_DEBUG(L"reply for invalid message");
+                    if (background_com->SendCommand(SocketMessage::kInvalidCommand) != SocketError::kNone)
+                        THROW_ERROR(ERR_APP, L"Error sending response to client");
+                    //{
+                    //        std::cerr << "Error sending response to client" << std::endl;
+                    //        //delete background_com;
+                    //        test_harness.cleanup_harness();
+                    //        return -1;
+                    //}
+                }
+            // waiting for disconnect
+            //<YUAN> waitpid：等待子进程结束或者其他信号。WNOHANG：表示如果没有子进程结束，则不等待立刻返回。
+            // 此处用于检测子进程是否已经结束。
+            } while (1);
+
+            // 等待进程结束, 返回执行代码
+            exit_code = test_harness.wait_test_complete();
 //            exit_code = test_harness.get_test_running_status();
+
+            background_com->DisconnectClient();
+            if (checkpoint == 0 && change_fd!=0)           fclose(change_fd);
 
             // 调用GetThreadExitCode的错误处理已经在get_test_running_status中处理了；
             if (exit_code == 1) last_checkpoint = true;
@@ -755,21 +710,19 @@ int CCrashMonkeyApp::Run(void)
 
                 // Getting the tracking data
                 MESSAGE(L"Getting change data" << std::endl);
-//                const int change_fd = open(kChangePath, O_RDONLY);
                 FILE* change_fd = NULL;
                 _wfopen_s(&change_fd, kChangePath, L"r");
                 if (change_fd == NULL) THROW_ERROR(ERR_APP, L"Error reading change data");
-
-//                if (lseek(change_fd, 0, SEEK_SET) < 0) 
                 if (fseek(change_fd, 0, SEEK_SET) != 0)  THROW_ERROR(ERR_APP, L"Error reading change data");
-
                 if (test_harness.GetChangeData(change_fd) != SUCCESS)   THROW_ERROR(ERR_APP, 
                     L"failed on getting change data");
+                fclose(change_fd);
             }
                 
             if (m_automate_check_test) 
             {
                 // Map snapshot of the disk to the current checkpoint and unmount the clone
+                //<YUAN> 保存checkpoing (int)到snapshot (string, path)的映射
                 test_harness.mapCheckpointToSnapshot(checkpoint);
                 if (checkpoint != 0) 
                 {

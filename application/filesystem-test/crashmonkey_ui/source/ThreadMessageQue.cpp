@@ -31,7 +31,7 @@ int ServerSocket::Init(unsigned int queue_depth)
 {
     LOG_STACK_TRACE()
     m_server = CreateNamedPipe(m_pipe_name.c_str(), PIPE_ACCESS_DUPLEX,
-        PIPE_TYPE_BYTE | PIPE_NOWAIT, PIPE_UNLIMITED_INSTANCES, 256, 256, kNonBlockPollTimeout, NULL);
+        PIPE_TYPE_BYTE | PIPE_WAIT, PIPE_UNLIMITED_INSTANCES, 256, 256, kNonBlockPollTimeout, NULL);
     if (m_server == INVALID_HANDLE_VALUE || m_server == 0)
     {
         m_server = NULL;
@@ -129,14 +129,12 @@ SocketError ServerSocket::WaitForMessage(SocketMessage* m)
         return SocketError::kSyscall;
     }
     LOG_DEBUG(L"finished sending message");
-//    DisconnectNamedPipe(m_server);
     return SocketError::kNone;
 }
 
 SocketError ServerSocket::TryForMessage(SocketMessage* m) 
 {
     LOG_STACK_TRACE();
-
 #if 0
     // We're already connected to something.
     //if (m_client > 0) 
@@ -191,23 +189,12 @@ SocketError ServerSocket::TryForMessage(SocketMessage* m)
     CloseHandle(client);
     return SocketError::kNone;
 #else
-    //LOG_DEBUG(L"waiting connection");
-    //BOOL br = ConnectNamedPipe(m_server, NULL);
-    //LOG_DEBUG(L"got connection");
-    //if (br)    return SocketError::kNone;
-    //else
-    //{
-    //    LOG_WIN32_ERROR(L"[err] failed on waiting client");
-    //    return SocketError::kSyscall;
-    //}
-
     if (BaseSocket::ReadMessageFromSocket(m_server, m))
     {
         LOG_WIN32_ERROR(L"[err] failed on connecting name pipe");
         return SocketError::kSyscall;
     }
     LOG_DEBUG(L"finished sending message");
-    //DisconnectNamedPipe(m_server);
     return SocketError::kNone;
 #endif
 }
@@ -234,16 +221,10 @@ SocketError fs_testing::utils::communication::ServerSocket::WaitingForClient(voi
 
 void ServerSocket::CloseClient() 
 {
-    //if (m_client) CloseHandle(m_client);
-    //m_client = NULL;
-    //close(client_socket);
-    //client_socket = -1;
 }
 
 void ServerSocket::CloseServer() 
 {
-    //close(client_socket);
-    //client_socket = -1;
     CloseClient();
     if (m_server)
     {
@@ -251,6 +232,4 @@ void ServerSocket::CloseServer()
         CloseHandle(m_server);
     }
     m_server = NULL;
-    //close(server_socket);
-    //server_socket = -1;
 }

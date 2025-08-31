@@ -1,7 +1,8 @@
-﻿#include "pch.h"
+﻿///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#include "pch.h"
+
 #include "DiskContents.h"
 
-#include <boost/uuid/detail/md5.hpp>
 #include <boost/algorithm/hex.hpp>
 
 using std::endl;
@@ -16,9 +17,9 @@ using fs_testing::DiskContents;
 LOCAL_LOGGER_ENABLE(L"crashmonke.diskcotents", LOGGER_LEVEL_DEBUGINFO);
 
 
-fileAttributes::fileAttributes()
+fileAttributes::fileAttributes() : m_fs(NULL)
 {
-	md5sum = L"";
+	//md5sum = L"";
 	// Initialize dir_attr entries
 	//dir_attr.d_ino = -1;
 	//dir_attr.d_off = -1;
@@ -26,18 +27,21 @@ fileAttributes::fileAttributes()
 	//dir_attr.d_type = -1;
 	//dir_attr.d_name[0] = '\0';
 	// Initialize stat_attr entried
-	stat_attr.st_ino == -1;
-	stat_attr.st_mode = -1;
-	stat_attr.st_nlink = -1;
-	stat_attr.st_uid = -1;
-	stat_attr.st_gid = -1;
-	stat_attr.st_size = -1;
+	//stat_attr.st_ino == -1;
+	//stat_attr.st_mode = -1;
+	//stat_attr.st_nlink = -1;
+	//stat_attr.st_uid = -1;
+	//stat_attr.st_gid = -1;
+	//stat_attr.st_size = -1;
 	//stat_attr.st_blksize = -1;
 	//stat_attr.st_blocks = -1;
+	memset(&m_stat_attr, 0, sizeof(BY_HANDLE_FILE_INFORMATION));
 }
 
 fileAttributes::~fileAttributes()
 {
+	//if (m_file) m_file->CloseFile();
+	RELEASE(m_fs);
 }
 
 void fileAttributes::set_dir_attr(struct dirent* a)
@@ -50,37 +54,52 @@ void fileAttributes::set_dir_attr(struct dirent* a)
 	//dir_attr.d_name[sizeof(a->d_name) - 1] = '\0';
 }
 
-void fileAttributes::set_stat_attr(std::wstring path, bool islstat)
+//void fileAttributes::set_stat_attr(std::wstring path, bool islstat)
+//{
+//	if (islstat)
+//	{
+//		//lstat(path.c_str(), &stat_attr);
+//	}
+//	else
+//	{
+//		_wstat(path.c_str(), &stat_attr);
+//	}
+//	return;
+//}
+
+
+void fileAttributes::set_md5sum(void)
 {
-	if (islstat)
+	JCASSERT(m_fs);
+	jcvos::auto_interface<IFileInfo> ff;
+	bool br = m_fs->DokanCreateFile(ff, m_path, GENERIC_ALL, 0, IFileSystem::FS_OPEN_EXISTING, 0, 0, false);
+	if (!br || !ff)
 	{
-		//lstat(path.c_str(), &stat_attr);
+		LOG_ERROR(L"[err] Failed opening file %s", m_path.c_str());
+		return;
 	}
-	else
+
+	using boost::uuids::detail::md5;
+
+	md5 hash;
+
+	size_t file_size = MakeLongLong(m_stat_attr.nFileSizeLow, m_stat_attr.nFileSizeHigh);
+	const DWORD buf_size = 4 * 1024;
+	jcvos::auto_array<BYTE> buf(buf_size);
+	DWORD remain = boost::numeric_cast<DWORD>(file_size);
+	size_t offset = 0;
+	while (remain > 0)
 	{
-		_wstat(path.c_str(), &stat_attr);
+		DWORD rr = min(buf_size, remain);
+		DWORD read = 0;
+
+		ff->DokanReadFile(buf, rr, read, offset);
+		hash.process_bytes(buf.get_ptr(), read);
+		remain -= read;
+		offset += read;
 	}
-	return;
-}
-
-void fileAttributes::set_md5sum(std::wstring file_path)
-{
-	JCASSERT(0);
-	//<YUAN> 用boost计算md5
-#ifdef _TO_BE_IMPLEMENTED_
-
-
-	FILE* fp;
-	std::wstring command = L"md5sum " + file_path;
-	char md5[100];
-	fp = popen(command.c_str(), "r");
-	fscanf(fp, "%s", md5);
-	fclose(fp);
-	md5sum = std::wstring(md5);
-	boost::uuids::detail::md5 hash;
-
-//	hash.process_bytes();
-#endif // _TO_BE_IMPLEMENTED_
+	ff->CloseFile();
+	hash.get_digest(m_md5sum);
 }
 
 #ifdef _TO_BE_IMPLEMENTED_
@@ -95,36 +114,116 @@ bool fileAttributes::compare_dir_attr(struct dirent a)
 }
 #endif // _TO_BE_IMPLEMENTED_
 
-bool fileAttributes::compare_stat_attr(const struct _stat64i32& a)
-{
+//bool fileAttributes::compare_stat_attr(const struct _stat64i32& a)
+//{
+//	return ((stat_attr.st_ino == a.st_ino) &&
+//		(stat_attr.st_mode == a.st_mode) &&
+//		(stat_attr.st_nlink == a.st_nlink) &&
+//		(stat_attr.st_uid == a.st_uid) &&
+//		(stat_attr.st_gid == a.st_gid) &&
+//		// (stat_attr.st_rdev == a.st_rdev) &&
+//		// (stat_attr.st_dev == a.st_dev) &&
+//		(stat_attr.st_size == a.st_size) &&
+//		//(stat_attr.st_blksize == a.st_blksize) &&
+//		//(stat_attr.st_blocks == a.st_blocks));
+//		true);
+//}
 
-	return ((stat_attr.st_ino == a.st_ino) &&
-		(stat_attr.st_mode == a.st_mode) &&
-		(stat_attr.st_nlink == a.st_nlink) &&
-		(stat_attr.st_uid == a.st_uid) &&
-		(stat_attr.st_gid == a.st_gid) &&
-		// (stat_attr.st_rdev == a.st_rdev) &&
-		// (stat_attr.st_dev == a.st_dev) &&
-		(stat_attr.st_size == a.st_size) &&
-		//(stat_attr.st_blksize == a.st_blksize) &&
-		//(stat_attr.st_blocks == a.st_blocks));
-		true);
+bool fs_testing::fileAttributes::compare_stat_attr(const BY_HANDLE_FILE_INFORMATION& fa)
+{
+	bool res = true
+		&& (m_stat_attr.dwFileAttributes == fa.dwFileAttributes)
+		&& (m_stat_attr.nFileIndexHigh == fa.nFileIndexHigh)
+		&& (m_stat_attr.nFileIndexLow == fa.nFileIndexLow)
+		&& (m_stat_attr.nFileSizeHigh == fa.nFileSizeHigh)
+		&& (m_stat_attr.nFileSizeLow == fa.nFileSizeLow)
+		&& (m_stat_attr.nNumberOfLinks == fa.nNumberOfLinks);
+
+	return res;
 }
 
-bool fileAttributes::compare_md5sum(std::wstring a)
-{
-	return md5sum.compare(a);
-}
+//bool fileAttributes::compare_md5sum(const boost::uuids::detail::md5::digest_type& digest) const 
+//{
+//	return m_md5sum == digest;
+//}
 
 bool fileAttributes::is_regular_file()
 {
-	LOG_STACK_TRACE();
-	JCASSERT(0); return false;
-#ifdef _TO_BE_IMPLEMENTED_
-
-	return S_ISREG(stat_attr.st_mode);
-#endif
+	return !(m_stat_attr.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY);
 }
+
+bool fs_testing::fileAttributes::set_path(IFileSystem* fs, const std::wstring& path)
+{
+	JCASSERT(fs);
+	m_fs = fs;
+	m_fs->AddRef();
+	m_path = path;
+	jcvos::auto_interface<IFileInfo> ff;
+	bool br = fs->DokanCreateFile(ff, path, GENERIC_ALL, 0, IFileSystem::FS_OPEN_EXISTING, 0, 0, false);
+	if (!br || !ff)
+	{
+		LOG_ERROR(L"[err] Failed opening file %s", path.c_str());
+		return false;
+	}
+	if (!ff->GetFileInformation(&m_stat_attr))
+	{
+		LOG_ERROR(L"[err] Failed geting file info, %s", path.c_str());
+		return false;
+	}
+	//if (is_regular_file())		set_md5sum(ff);
+	ff->CloseFile();
+	return true;
+}
+
+bool fs_testing::fileAttributes::compare_content(fileAttributes& compare, size_t offset, size_t len)
+{
+	//JCASSERT(m_file);
+	DWORD read = 0;
+	jcvos::auto_array<BYTE> buf1(len);
+	jcvos::auto_interface<IFileInfo> f1;
+
+	bool br = m_fs->DokanCreateFile(f1, m_path, GENERIC_ALL, 0, IFileSystem::FS_OPEN_EXISTING, 0, 0, false);
+	if (!br || !f1)
+	{
+		LOG_ERROR(L"[err] Failed opening file %s", m_path.c_str());
+		return false;
+	}
+	br = f1->DokanReadFile(buf1, boost::numeric_cast<DWORD>(len), read, offset);
+	if (!br)
+	{
+		LOG_ERROR(L"[err] failed on reading source file");
+		return false;
+	}
+	f1->CloseFile();
+
+
+	jcvos::auto_interface<IFileInfo> f2;
+	jcvos::auto_array<BYTE> buf2(len);
+	br = compare.m_fs->DokanCreateFile(f2, m_path, GENERIC_ALL, 0, IFileSystem::FS_OPEN_EXISTING, 0, 0, false);
+	if (!br || !f2)
+	{
+		LOG_ERROR(L"[err] Failed opening file %s", m_path.c_str());
+		return false;
+	}
+	br = f2->DokanReadFile(buf2, boost::numeric_cast<DWORD>(len), read, offset);
+	if (!br)
+	{
+		LOG_ERROR(L"[err] failed on reading reference file");
+		return false;
+	}
+	f2->CloseFile();
+	return memcmp(buf1, buf2, len) == 0;
+}
+
+bool fs_testing::fileAttributes::compare_md5sum(fileAttributes& compare)
+{
+	//JCASSERT(m_file);
+	set_md5sum();
+	compare.set_md5sum();
+	return m_md5sum == compare.m_md5sum;
+}
+
+
 
 std::wofstream& operator<< (std::wofstream& os, fileAttributes& a)
 {
@@ -137,94 +236,68 @@ std::wofstream& operator<< (std::wofstream& os, fileAttributes& a)
 	//os << L"Type   : " << (a.dir_attr).d_type << endl;
 	// print stat_attr
 	os << L"---File Stat Atrributes---" << endl;
-	os << L"Inode     : " << (a.stat_attr).st_ino << endl;
-	os << L"TotalSize : " << (a.stat_attr).st_size << endl;
+	os << L"Inode     : " << MakeLongLong(a.m_stat_attr.nFileIndexLow, a.m_stat_attr.nFileIndexHigh) << endl;
+	os << L"TotalSize : " << MakeLongLong(a.m_stat_attr.nFileSizeLow, a.m_stat_attr.nFileSizeHigh) << endl;
 	//os << L"BlockSize : " << (a.stat_attr).st_blksize << endl;
 	//os << L"#Blocks   : " << (a.stat_attr).st_blocks << endl;
-	os << L"#HardLinks: " << (a.stat_attr).st_nlink << endl;
-	os << L"Mode      : " << (a.stat_attr).st_mode << endl;
-	os << L"User ID   : " << (a.stat_attr).st_uid << endl;
-	os << L"Group ID  : " << (a.stat_attr).st_gid << endl;
-	os << L"Device ID : " << (a.stat_attr).st_rdev << endl;
-	os << L"RootDev ID: " << (a.stat_attr).st_dev << endl;
+	os << L"#HardLinks: " << a.m_stat_attr.nNumberOfLinks << endl;
+	//os << L"Mode      : " << (a.stat_attr).st_mode << endl;
+	//os << L"User ID   : " << (a.stat_attr).st_uid << endl;
+	//os << L"Group ID  : " << (a.stat_attr).st_gid << endl;
+	//os << L"Device ID : " << (a.stat_attr).st_rdev << endl;
+	//os << L"RootDev ID: " << (a.stat_attr).st_dev << endl;
 	return os;
 }
 
-DiskContents::DiskContents(std::wstring path, std::wstring type)
+DiskContents::DiskContents(IVirtualDisk* dev, IFileSystem* fs, std::wstring path, std::wstring type)
 {
+	if (dev == NULL || fs == NULL) THROW_ERROR(ERR_APP, L"dev or fs cannot be null");
+	m_dev = dev;
+	m_dev->AddRef();
+	m_fs = fs;
+	m_fs->AddRef();
+
 	disk_path = path;
 	fs_type = type;
-	device_mounted = false;
+	m_device_mounted = false;
 }
 
 DiskContents::~DiskContents()
 {
+	if (m_device_mounted) m_fs->Unmount();
+	RELEASE(m_fs);
+	RELEASE(m_dev);
 }
 
 int DiskContents::mount_disk()
 {
-#if 1 //_TO_BE_IMPLEMENTED_
+	bool br = m_fs->Mount(m_dev);
+	if (!br)
+	{
+		LOG_ERROR(L"failed on mount filesystem");
+		return -1;
+	}
 
 	// Construct and set mount_point
 	mount_point = L"/mnt/";
 	mount_point += disk_path.substr(5);
 	LOG_DEBUG(L"mount point = %s", mount_point.c_str());
 	// Create the mount directory with read/write/search permissions for owner and group, and with read/search permissions for others.
-#if 0
-	int ret = mkdir(mount_point.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
-	if (ret == -1 && errno != EEXIST)
-	{
-		cout << "creating mountpoint failed" << endl;
-		return -1;
-	}
-#endif
 	LOG_DEBUG(L"[linux] make dir: %s", mount_point.c_str());
-
-	// Mount the disk
-#if 0
-	if (mount(disk_path.c_str(), mount_point.c_str(), fs_type.c_str(), MS_RDONLY, NULL) < 0)	{	return -1;	}
-	// sleep after mount
-	unsigned int to_sleep = 0;
-	do
-	{
-		to_sleep = sleep(to_sleep);
-	} while (to_sleep > 0);
-#endif
 	LOG_DEBUG(L"[linux] mount dev %s to dir %s, fs type = %s", disk_path.c_str(), mount_point.c_str(), fs_type.c_str());
-	device_mounted = true;
+	m_device_mounted = true;
 	return 0;
-#else
-	LOG_STACK_TRACE();
-	JCASSERT(0); return 0;
 
-#endif
 }
 
 int DiskContents::unmount_and_delete_mount_point()
 {
 	// umount till successful
-	int umount_res;
-	int err;
-	std::wstring command = L"umount ";
-	command += mount_point;
-	do
+	if (m_device_mounted)
 	{
-		LOG_NOTICE(L"[linux] system call: %s", command.c_str());
-		umount_res = _wsystem(command.c_str());
-		if (umount_res < 0)
-		{
-			err = errno;
-//			usleep(500);
-			Sleep(500);
-		}
-	} while (umount_res < 0 && err == EBUSY);
-
-	// Delete the mount directory
-	if (_wunlink(mount_point.c_str()) != 0)
-	{
-		return -1;
+		m_fs->Unmount();
+		m_device_mounted = false;
 	}
-	device_mounted = false;
 	return 0;
 }
 
@@ -235,18 +308,12 @@ void DiskContents::set_mount_point(std::wstring path)
 
 void DiskContents::get_contents(const wchar_t* path)
 {
-	LOG_STACK_TRACE();
-	JCASSERT(0); 
-
-#ifdef _TO_BE_IMPLEMENTED_
+#if 0
 
 	DIR* directory;
 	struct dirent* dir_entry;
 	// open both the directories
-	if (!(directory = opendir(path)))
-	{
-		return;
-	}
+	if (!(directory = opendir(path)))	{		return;	}
 	// get the contents in both the directories
 	if (!(dir_entry = readdir(directory)))
 	{
@@ -262,16 +329,10 @@ void DiskContents::get_contents(const wchar_t* path)
 		relative_path.erase(0, mount_point.length());
 		struct stat statbuf;
 		fileAttributes fa;
-		if (stat(current_path.c_str(), &statbuf) == -1)
-		{
-			continue;
-		}
+		if (stat(current_path.c_str(), &statbuf) == -1)		{			continue;		}
 		if (dir_entry->d_type == DT_DIR)
 		{
-			if ((strcmp(dir_entry->d_name, ".") == 0) || (strcmp(dir_entry->d_name, "..") == 0))
-			{
-				continue;
-			}
+			if ((strcmp(dir_entry->d_name, ".") == 0) || (strcmp(dir_entry->d_name, "..") == 0)){continue;	}
 			fa.set_dir_attr(dir_entry);
 			fa.set_stat_attr(current_path, false);
 			contents[relative_path] = fa;
@@ -282,10 +343,7 @@ void DiskContents::get_contents(const wchar_t* path)
 		{
 			// compare lstat outputs
 			struct stat lstatbuf;
-			if (lstat(current_path.c_str(), &lstatbuf) == -1)
-			{
-				continue;
-			}
+			if (lstat(current_path.c_str(), &lstatbuf) == -1)	{		continue;	}
 			fa.set_stat_attr(current_path, true);
 			contents[relative_path] = fa;
 		}
@@ -312,85 +370,102 @@ std::wstring DiskContents::get_mount_point()
 
 bool DiskContents::compare_disk_contents(DiskContents& compare_disk, std::wofstream& diff_file)
 {
+#if 1
 	bool retValue = true;
-
-	if (disk_path.compare(compare_disk.disk_path) == 0)
-	{
-		return retValue;
-	}
+	if (disk_path.compare(compare_disk.disk_path) == 0)	{	return retValue;	}
 
 	std::wstring base_path = L"/mnt/snapshot";
-	get_contents(base_path.c_str());
+
+	if (mount_disk() != 0)
+	{
+		LOG_ERROR(L"[err] failed on mounting test fs to drive: %s", disk_path.c_str());
+		return false;
+	}
+	std::vector<std::wstring> files_src;
+	fs_testing::utility::ListAllFiles(m_fs, L"\\", files_src);
+//	get_contents(base_path.c_str());
 
 	if (compare_disk.mount_disk() != 0)
 	{
-		std::wcout << L"Mounting " << compare_disk.disk_path << L" failed" << endl;
+		LOG_ERROR(L"[err] failed on mounting reference fs to drive: %s", compare_disk.disk_path.c_str());
+		//std::wcout << L"Mounting " << compare_disk.disk_path << L" failed" << endl;
+		return false;
 	}
+	std::vector<std::wstring> files_ref;
+	fs_testing::utility::ListAllFiles(compare_disk.m_fs, L"\\", files_ref);
 
-	compare_disk.get_contents(compare_disk.get_mount_point().c_str());
+//	compare_disk.get_contents(compare_disk.get_mount_point().c_str());
 
 	// Compare the size of contents
-	if (contents.size() != compare_disk.contents.size())
+//	if (contents.size() != compare_disk.contents.size())
+	if (files_src.size() != files_ref.size())
 	{
 		diff_file << "DIFF: Mismatch" << endl;
 		diff_file << "Unequal #entries in " << disk_path << ", " << compare_disk.disk_path;
 		diff_file << endl << endl;
 		diff_file << disk_path << " contains:" << endl;
-		for (auto& i : contents)
+		for (auto& i : files_src)
 		{
-			diff_file << i.first << endl;
+			diff_file << i << endl;
 		}
 		diff_file << endl;
 
 		diff_file << compare_disk.disk_path << " contains:" << endl;
-		for (auto& i : compare_disk.contents)
+		for (auto& i : files_ref)
 		{
-			diff_file << i.first << endl;
+			diff_file << i << endl;
 		}
 		diff_file << endl;
 		retValue = false;
 	}
 
 	// entry-wise comparision
-	for (auto& i : contents)
+	for (auto& i : files_src)
 	{
-		fileAttributes i_fa = i.second;
-		if (compare_disk.contents.find((i.first)) == compare_disk.contents.end())
+//		fileAttributes i_fa = i.second;
+		fileAttributes base_fa, compare_fa;
+		bool br = base_fa.set_path(m_fs, i);
+		br = compare_fa.set_path(compare_disk.m_fs, i);
+//		if (compare_disk.contents.find((i.first)) == compare_disk.contents.end())
+		if (!br)
 		{
-			diff_file << "DIFF: Missing " << i.first << endl;
+			diff_file << "DIFF: Missing " << i << endl;
 			diff_file << "Found in " << disk_path << " only" << endl;
-			diff_file << i_fa << endl << endl;
+			diff_file << base_fa <<endl << endl;
 			retValue = false;
 			continue;
 		}
-		fileAttributes j_fa = compare_disk.contents[(i.first)];
-		if (/*!(i_fa.compare_dir_attr(j_fa.dir_attr)) ||*/
-			!(i_fa.compare_stat_attr(j_fa.stat_attr)))
+		//fileAttributes j_fa = compare_disk.contents[(i.first)];
+		//if (/*!(i_fa.compare_dir_attr(j_fa.dir_attr)) ||*/
+		//	!(i_fa.compare_stat_attr(j_fa.stat_attr)))
+		if (base_fa.compare_stat_attr(compare_fa.m_stat_attr))
 		{
-			diff_file << "DIFF: Content Mismatch " << i.first << endl << endl;
+			diff_file << "DIFF: Content Mismatch " << i << endl << endl;
 			diff_file << disk_path << ":" << endl;
-			diff_file << i_fa << endl << endl;
+			diff_file << base_fa << endl << endl;
 			diff_file << compare_disk.disk_path << ":" << endl;
-			diff_file << j_fa << endl << endl;
+			diff_file << compare_fa << endl << endl;
 			retValue = false;
 			continue;
 		}
 		// compare user data if the entry corresponds to a regular files
-		if (i_fa.is_regular_file())
+		if (base_fa.is_regular_file())
 		{
 			// check md5sum of the file contents
-			if (i_fa.compare_md5sum(j_fa.md5sum) != 0)
+			//if (i_fa.compare_md5sum(j_fa.md5sum) != 0)
+			if (base_fa.compare_md5sum(compare_fa)!=0)
 			{
-				diff_file << "DIFF : Data Mismatch of " << (i.first) << endl;
-				diff_file << disk_path << " has md5sum " << i_fa.md5sum << endl;
-				diff_file << compare_disk.disk_path << " has md5sum " << j_fa.md5sum;
+				diff_file << "DIFF : Data Mismatch of " << (i) << endl;
+				diff_file << disk_path << " has md5sum " << base_fa.m_md5sum << endl;
+				diff_file << compare_disk.disk_path << " has md5sum " << compare_fa.m_md5sum;
 				diff_file << endl << endl;
 				retValue = false;
 			}
 		}
 	}
-	compare_disk.unmount_and_delete_mount_point();
+	//compare_disk.unmount_and_delete_mount_point();
 	return retValue;
+#endif
 }
 
 // TODO(P.S.) Cleanup the code and pull out redundant code into separate functions
@@ -398,88 +473,119 @@ bool DiskContents::compare_entries_at_path(DiskContents& compare_disk, std::wstr
 {
 	bool retValue = true;
 	if (disk_path.compare(compare_disk.disk_path) == 0) { return retValue; }
-	std::wstring base_path = L"/mnt/snapshot" + path;
-
-	if (compare_disk.mount_disk() != 0)
+	std::wstring base_path = path;
+	if (mount_disk() != 0)
 	{
-		std::wcout << L"Mounting " << compare_disk.disk_path << L" failed" << endl;
-	}
-
-	std::wstring compare_disk_mount_point(compare_disk.get_mount_point());
-	std::wstring compare_path = compare_disk_mount_point + path;
-	LOG_DEBUG(L"compare point=%s, compare path=%s", compare_disk_mount_point.c_str(), compare_path.c_str());
-
-	fileAttributes base_fa, compare_fa;
-	bool failed_stat = false;
-	struct _stat base_statbuf, compare_statbuf;
-#if 0
-	if (_wstat(base_path.c_str(), &base_statbuf) == -1)
-	{
-		diff_file << L"Failed stating the file " << base_path << endl;
-		failed_stat = true;
-	}
-	if (_wstat(compare_path.c_str(), &compare_statbuf) == -1)
-	{
-		diff_file << L"Failed stating the file " << compare_path << endl;
-		failed_stat = true;
-	}
-#endif
-	LOG_DEBUG(L"stat file: base=%s, compare=%s", base_path.c_str(), compare_path.c_str());
-
-	if (failed_stat)
-	{
-		compare_disk.unmount_and_delete_mount_point();
+		LOG_ERROR(L"[err] failed on mounting test fs to drive: %s", disk_path.c_str());
 		return false;
 	}
 
-#if 0
-	base_fa.set_stat_attr(base_path, false);
-	compare_fa.set_stat_attr(compare_path, false);
-	if (!(base_fa.compare_stat_attr(compare_fa.stat_attr)))
+	if (compare_disk.mount_disk() != 0)
+	{
+		LOG_ERROR(L"[err] failed on mounting reference fs to drive: %s", compare_disk.disk_path.c_str());
+		//std::wcout << L"Mounting " << compare_disk.disk_path << L" failed" << endl;
+		return false;
+	}
+
+	//<YUAN>虚拟文件系统没有mount点，使用相同的路径
+	std::wstring compare_path = base_path;
+
+	fileAttributes base_fa, compare_fa;
+	bool failed_stat = false;
+	bool br = false;
+#ifdef _DEBUG
+	std::wstring compare_disk_mount_point(compare_disk.get_mount_point());
+	LOG_DEBUG(L"compare point=%s, compare path=%s", compare_disk_mount_point.c_str(), compare_path.c_str());
+	std::vector<std::wstring> files;
+	fs_testing::utility::ListAllFiles(m_fs, L"\\", files);
+#endif
+
+	//jcvos::auto_interface<IFileInfo> base_dir;
+	//br = m_fs->DokanCreateFile(base_dir, base_path, GENERIC_ALL, 0, IFileSystem::FS_OPEN_EXISTING, 0, 0, false);
+	//if (!br || !base_dir)
+	//{
+	//	diff_file << L"Failed opening file " << base_path << std::endl;
+	//	return false;
+	//}
+	//if (!base_dir->GetFileInformation(&base_fa.m_stat_attr))
+	//{
+	//	diff_file << L"Failed stating the file " << base_path << std::endl;
+	//	return false;
+	//}
+	//if (base_fa.is_regular_file())		base_fa.set_md5sum(base_dir);
+	//base_dir->CloseFile();
+	br = base_fa.set_path(m_fs, base_path);
+	if (!br)
+	{
+		LOG_ERROR(L"[err] failed on getting file info on test fs");
+		return false;
+	}
+
+	//jcvos::auto_interface<IFileInfo> compare_dir;
+	//br = m_fs->DokanCreateFile(compare_dir, compare_path, GENERIC_ALL, 0, IFileSystem::FS_OPEN_EXISTING, 0, 0, false);
+	//if (!br || !base_dir)
+	//{
+	//	diff_file << L"Failed opening file " << compare_path << std::endl;
+	//	return false;
+	//}
+	//if (!compare_dir->GetFileInformation(&compare_fa.m_stat_attr))
+	//{
+	//	diff_file << L"Failed stating the file " << compare_path << std::endl;
+	//	return false;
+	//}
+	//if (compare_fa.is_regular_file()) compare_fa.set_md5sum(compare_dir);
+	//compare_dir->CloseFile();
+	br = compare_fa.set_path(compare_disk.m_fs, base_path);
+	if (!br)
+	{
+		LOG_ERROR(L"[err] failed on getting file info on reference fs");
+		return false;
+	}
+
+	LOG_DEBUG(L"stat file: base=%s, compare=%s", base_path.c_str(), compare_path.c_str());
+
+	if (!(base_fa.compare_stat_attr(compare_fa.m_stat_attr)))
 	{
 		diff_file << L"DIFF: Content Mismatch " << path << endl << endl;
 		diff_file << base_path << L":" << endl;
 		diff_file << base_fa << endl << endl;
 		diff_file << compare_path << ":" << endl;
 		diff_file << compare_fa << endl << endl;
-		compare_disk.unmount_and_delete_mount_point();
 		return false;
 	}
 
 	if (base_fa.is_regular_file())
 	{
-		base_fa.set_md5sum(base_path);
-		compare_fa.set_md5sum(compare_path);
-		if (base_fa.compare_md5sum(compare_fa.md5sum) != 0)
+		if (base_fa.compare_md5sum(compare_fa) != 0)
 		{
 			diff_file << L"DIFF : Data Mismatch of " << path << endl;
-			diff_file << base_path << L" has md5sum " << base_fa.md5sum << endl;
-			diff_file << compare_path << L" has md5sum " << compare_fa.md5sum;
+			diff_file << base_path << L" has md5sum " << base_fa.m_md5sum << endl;
+			diff_file << compare_path << L" has md5sum " << compare_fa.m_md5sum;
 			diff_file << endl << endl;
-			compare_disk.unmount_and_delete_mount_point();
 			return false;
 		}
 	}
-#endif
-	compare_disk.unmount_and_delete_mount_point();
 	return retValue;
 }
 
-// TODO[P.S]: Compare fixed sized segments of files,
-// to support comparing very large files.
+// TODO[P.S]: Compare fixed sized segments of files, to support comparing very large files.
 bool DiskContents::compare_file_contents(DiskContents& compare_disk, std::wstring path,
 	int offset, int length, std::wofstream& diff_file)
 {
 	bool retValue = true;
-	if (disk_path.compare(compare_disk.disk_path) == 0)
+	if (disk_path.compare(compare_disk.disk_path) == 0)	{		return retValue;	}
+
+	std::wstring base_path = path;
+	if (mount_disk() != 0)
 	{
-		return retValue;
+		LOG_ERROR(L"[err] failed on mounting test fs to drvie : %s", disk_path.c_str());
+		return false;
 	}
 
-	std::wstring base_path = L"/mnt/snapshot" + path;
 	if (compare_disk.mount_disk() != 0)
 	{
-		std::wcout << L"Mounting " << compare_disk.disk_path << L" failed" << endl;
+		LOG_ERROR(L"[err] failed on mounting reference fs to drvie : %s", compare_disk.disk_path.c_str());
+//		std::wcout << L"Mounting " << compare_disk.disk_path << L" failed" << endl;
 		return false;
 	}
 	std::wstring compare_disk_mount_point(compare_disk.get_mount_point());
@@ -487,91 +593,119 @@ bool DiskContents::compare_file_contents(DiskContents& compare_disk, std::wstrin
 
 	fileAttributes base_fa, compare_fa;
 	bool failed_stat = false;
-	struct _stat64i32 base_statbuf, compare_statbuf;
-	if (_wstat(base_path.c_str(), &base_statbuf) == -1)
+	bool br = base_fa.set_path(m_fs, base_path);
+	if (!br)
 	{
-		diff_file << "Failed stating the file " << base_path << endl;
-		failed_stat = true;
-	}
-	if (_wstat(compare_path.c_str(), &compare_statbuf) == -1)
-	{
-		diff_file << "Failed stating the file " << compare_path << endl;
-		failed_stat = true;
-	}
-
-	if (failed_stat)
-	{
-		compare_disk.unmount_and_delete_mount_point();
+		LOG_ERROR(L"[err] failed on getting file info on test fs");
 		return false;
 	}
 
-	std::ifstream f1(base_path, std::ios::binary);
-	std::ifstream f2(compare_path, std::ios::binary);
-
-	if (!f1 || !f2)
+	br = compare_fa.set_path(compare_disk.m_fs, base_path);
+	if (!br)
 	{
-		std::wcout << L"Error opening input file streams " << base_path << L" and ";
-		std::wcout << compare_path << endl;
-		compare_disk.unmount_and_delete_mount_point();
+		LOG_ERROR(L"[err] failed on getting file info on reference fs");
 		return false;
 	}
 
-	f1.seekg(offset, std::ifstream::beg);
-	f2.seekg(offset, std::ifstream::beg);
+	//struct _stat64i32 base_statbuf, compare_statbuf;
+	//if (_wstat(base_path.c_str(), &base_statbuf) == -1)
+	//{
+	//	diff_file << "Failed stating the file " << base_path << endl;
+	//	failed_stat = true;
+	//}
+	//if (_wstat(compare_path.c_str(), &compare_statbuf) == -1)
+	//{
+	//	diff_file << "Failed stating the file " << compare_path << endl;
+	//	failed_stat = true;
+	//}
 
-	char* buffer_f1 = new char[length + 1];
-	char* buffer_f2 = new char[length + 1];
+	//if (failed_stat)
+	//{
+	//	compare_disk.unmount_and_delete_mount_point();
+	//	return false;
+	//}
 
-	f1.read(buffer_f1, length);
-	f2.read(buffer_f2, length);
-	f1.close();
-	f2.close();
+	//std::ifstream f1(base_path, std::ios::binary);
+	//std::ifstream f2(compare_path, std::ios::binary);
 
-	buffer_f1[length] = '\0';
-	buffer_f2[length] = '\0';
+	//if (!f1 || !f2)
+	//{
+	//	std::wcout << L"Error opening input file streams " << base_path << L" and ";
+	//	std::wcout << compare_path << endl;
+	//	compare_disk.unmount_and_delete_mount_point();
+	//	return false;
+	//}
 
-	if (strcmp(buffer_f1, buffer_f2) == 0)
-	{
-		compare_disk.unmount_and_delete_mount_point();
-		return true;
-	}
+	//f1.seekg(offset, std::ifstream::beg);
+	//f2.seekg(offset, std::ifstream::beg);
+
+	//char* buffer_f1 = new char[length + 1];
+	//char* buffer_f2 = new char[length + 1];
+
+	//f1.read(buffer_f1, length);
+	//f2.read(buffer_f2, length);
+	//f1.close();
+	//f2.close();
+
+	//buffer_f1[length] = '\0';
+	//buffer_f2[length] = '\0';
+
+	//if (strcmp(buffer_f1, buffer_f2) == 0)
+	//{
+	//	compare_disk.unmount_and_delete_mount_point();
+	//	return true;
+	//}
+
+	if (base_fa.compare_content(compare_fa, offset, length)) return true;
 
 	diff_file << __func__ << " failed" << endl;
 	diff_file << "Content Mismatch of file " << path << " from ";
 	diff_file << offset << " of length " << length << endl;
-	diff_file << base_path << " has " << buffer_f1 << endl;
-	diff_file << compare_path << " has " << buffer_f2 << endl;
+	//diff_file << base_path << " has " << buffer_f1 << endl;
+	//diff_file << compare_path << " has " << buffer_f2 << endl;
 	compare_disk.unmount_and_delete_mount_point();
 	return false;
 }
 
-bool isEmptyDirOrFile(std::wstring path)
+bool DiskContents::isEmptyDirOrFile(std::wstring path)
 {
-	LOG_STACK_TRACE();
-	JCASSERT(0); return false;
-#ifdef _TO_BE_IMPLEMENTED_
 
-	DIR* directory = opendir(path.c_str());
-	if (directory == NULL)
-	{
-		return true;
-	}
+#if 1
+	//jcvos::auto_interface<IFileInfo> ff;
+	//bool br = m_fs->DokanCreateFile(ff, path, GENERIC_ALL, 0, IFileSystem::FS_OPEN_EXISTING, 0, 0, false);
+	//if (!br || !ff) return false;
+	//if (!ff->IsDirectory())
+	//{
+	//	ff->CloseFile();
+	//	return true;
+	//}
 
-	struct dirent* dir_entry;
-	int num_dir_entries = 0;
-	while (dir_entry = readdir(directory))
-	{
-		if (++num_dir_entries > 2)
-		{
-			break;
-		}
-	}
-	closedir(directory);
-	if (num_dir_entries <= 2)
-	{
-		return true;
-	}
-	return false;
+	std::vector<std::wstring> files;
+	fs_testing::utility::ListAllFiles(m_fs, path, files);
+	bool is_empty = (files.size() == 0);
+	return is_empty;
+
+	//DIR* directory = opendir(path.c_str());
+	//if (directory == NULL)
+	//{
+	//	return true;
+	//}
+
+	//struct dirent* dir_entry;
+	//int num_dir_entries = 0;
+	//while (dir_entry = readdir(directory))
+	//{
+	//	if (++num_dir_entries > 2)
+	//	{
+	//		break;
+	//	}
+	//}
+	//closedir(directory);
+	//if (num_dir_entries <= 2)
+	//{
+	//	return true;
+	//}
+	//return false;
 #endif
 }
 
@@ -594,31 +728,17 @@ bool isFile(std::wstring path)
 
 bool DiskContents::deleteFiles(std::wstring path, std::wofstream& diff_file)
 {
-	LOG_STACK_TRACE();
-	JCASSERT(0); return false;
-#ifdef _TO_BE_IMPLEMENTED_
 
-	if (path.empty())
-	{
-		return true;
-	}
+	if (path.empty())	{		return true;	}
 
 	if (isEmptyDirOrFile(path) == true)
 	{
-		if (path.compare(L"/mnt/snapshot") == 0)
-		{
-			return true;
-		}
-		if (isFile(path) == true)
-		{
-			return (_wunlink(path.c_str()) == 0);
-		}
-		else
-		{
-			return (rmdir(path.c_str()) == 0);
-		}
+		if (path.compare(L"\\") == 0)		{			return true;		}
+		//if (isFile(path) == true)	{	return (_wunlink(path.c_str()) == 0);	}
+		//else		{			return (rmdir(path.c_str()) == 0);		}
 	}
 
+#if 0
 	DIR* directory = opendir(path.c_str());
 	if (directory == NULL)
 	{
@@ -658,30 +778,46 @@ bool DiskContents::deleteFiles(std::wstring path, std::wofstream& diff_file)
 		}
 	}
 	closedir(directory);
-	return true;
 #endif
+	return true;
 }
 
 bool DiskContents::makeFiles(std::wstring base_path, std::wofstream& diff_file)
 {
-	LOG_STACK_TRACE();
-	JCASSERT(0); return false;
-#ifdef _TO_BE_IMPLEMENTED_
+#if 1
+	std::vector<std::wstring> files;
+	fs_testing::utility::ListAllFiles(m_fs, L"\\", files);
 
-	get_contents(base_path.c_str());
-	for (auto& i : contents)
+//	get_contents(base_path.c_str());
+	for (auto& i : files)
 	{
-		if (S_ISDIR((i.second).stat_attr.st_mode))
+		fileAttributes fa;
+		fa.set_path(m_fs, i);
+//		if (S_ISDIR((i.second).stat_attr.st_mode))
+		if (!fa.is_regular_file())
 		{
-			std::wstring filepath = base_path + i.first + "/" + "_dummy";
-			int fd = open(filepath.c_str(), O_CREAT | O_RDWR);
-			if (fd < 0)
+			std::wstring filepath = base_path + i + L"/" + L"_dummy";
+			LOG_NOTICE(L"create file %s under %s", filepath.c_str(), i.c_str());
+
+			std::wstring path = i + L"\\_dummy";
+			jcvos::auto_interface<IFileInfo> ff;
+			bool br = m_fs->DokanCreateFile(ff, path, GENERIC_ALL, 0, IFileSystem::FS_CREATE_NEW, 0, 0, false);
+			if (!br || !ff)
 			{
 				diff_file << "Couldn't create file " << filepath << endl;
-				cout << "Couldn't create file " << filepath << endl;
+				LOG_ERROR(L"[err] Couldn't create file %s ", path.c_str());
 				return false;
 			}
-			close(fd);
+			ff->CloseFile();
+
+			//int fd = open(filepath.c_str(), O_CREAT | O_RDWR);
+			//if (fd < 0)
+			//{
+			//	diff_file << "Couldn't create file " << filepath << endl;
+			//	cout << "Couldn't create file " << filepath << endl;
+			//	return false;
+			//}
+			//close(fd);
 		}
 	}
 	return true;
@@ -691,7 +827,9 @@ bool DiskContents::makeFiles(std::wstring base_path, std::wofstream& diff_file)
 bool DiskContents::sanity_checks(std::wofstream& diff_file)
 {
 	cout << __func__ << endl;
-	std::wstring base_path = L"/mnt/snapshot";
+
+//	std::wstring base_path = L"/mnt/snapshot";
+	std::wstring base_path = L"\\";
 	if (!makeFiles(base_path, diff_file))
 	{
 		cout << "Failed: Couldn't create files in all directories" << endl;
@@ -711,4 +849,3 @@ bool DiskContents::sanity_checks(std::wofstream& diff_file)
 }
 
 
-//} // namespace fs_testing

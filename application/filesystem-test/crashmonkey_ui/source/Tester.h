@@ -106,11 +106,13 @@ namespace fs_testing
 		int test_run(FILE * change_fd, const int checkpoint);
 		int async_test_run(FILE * chage_fd, const int checkpoint);
 		int get_test_running_status(void);
+		int wait_test_complete(DWORD timeout= INFINITE);
 		HANDLE GetTestThread(void) const { return m_test_thread; }
 
 	protected:
 		static DWORD WINAPI _start_async_test_run(LPVOID param);
 		HANDLE m_test_thread;
+//		DWORD m_exit_code;		// 缓存exit code。当线程结束时，读取exit code保存于此，
 		FILE* m_test_change_fd;
 		int m_test_checkpoint;
 
@@ -205,7 +207,7 @@ namespace fs_testing
 		//	原设计中cow_brd_fd指向/dev/cow_ram0，目前设计中改为m_device_raw;
 		IVirtualDisk* m_cow_brd = nullptr;
 
-		bool disk_mounted = false;
+		bool m_disk_mounted = false;
 		//        int ioctl_fd = -1;              // disk wrape的设备号
 //		IVirtualDisk* m_ioctl_dev = nullptr;
 		CWrapperDisk* m_ioctl_dev = nullptr;
@@ -233,14 +235,14 @@ namespace fs_testing
 			/*const std::wstring device_path, */const unsigned int last_checkpoint,
 			SingleTestInfo& test_info, bool automate_check_test);
 
-		bool check_disk_and_snapshot_contents(std::wstring disk_path, int last_checkpoint);
+		bool check_disk_and_snapshot_contents(IVirtualDisk * snapshot, std::wstring disk_path, int last_checkpoint);
 
 		std::vector<TestSuiteResult> test_results_;
 		std::chrono::milliseconds timing_stats[NUM_TIME] = { std::chrono::milliseconds(0) };
 
 		std::map<int, std::wstring> checkpointToSnapshot_;
 
-		std::wstring m_snapshot_path_;    //<YUAN> 原设计中，snapshot_path_指向设备的路径，更改为虚拟设备
+		std::wstring m_snapshot_path_;    //<YUAN> 原设计中，snapshot_path_指向设备的路径，更改为虚拟设备，可废除
 		IVirtualDisk* m_snapshot_dev = nullptr;
 
 	protected:
