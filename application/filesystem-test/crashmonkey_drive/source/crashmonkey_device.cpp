@@ -57,29 +57,33 @@ bool CCrashMonkeyFactory::CreateVirtualDisk(IVirtualDisk*& dev, const boost::pro
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // == Crash Monkey Device
 
-CCrashMonkeyCtrl::CCrashMonkeyCtrl(void)
+CCrashMonkeyCtrl::CCrashMonkeyCtrl(void) : m_raw_disk(NULL)
 {
 }
 
 CCrashMonkeyCtrl::~CCrashMonkeyCtrl(void)
 {
-	if (m_disk)
+	//if (m_disk)
+	//{
+	//	for (int ii = 0; ii <= m_snapshot_num; ++ii) RELEASE(m_disk[ii]);
+	//	delete[] m_disk;
+	//}
+	for (auto it = m_disks.begin(); it != m_disks.end(); it++)
 	{
-		for (int ii = 0; ii <= m_snapshot_num; ++ii) RELEASE(m_disk[ii]);
-		delete[] m_disk;
+		if (*it) (*it)->Release();
 	}
 }
 
 bool CCrashMonkeyCtrl::ReadSectors(void* buf, size_t lba, size_t secs)
 {
-	JCASSERT(m_disk && m_disk[0]);
-	return m_disk[0]->ReadSectors(buf, lba, secs);
+	JCASSERT(m_disks[0]);
+	return m_disks[0]->ReadSectors(buf, lba, secs);
 }
 
 bool CCrashMonkeyCtrl::WriteSectors(void* buf, size_t lba, size_t secs)
 {
-	JCASSERT(m_disk && m_disk[0]);
-	return m_disk[0]->WriteSectors(buf, lba, secs);
+	JCASSERT(m_disks[0]);
+	return m_disks[0]->WriteSectors(buf, lba, secs);
 }
 
 int CCrashMonkeyCtrl::IoCtrl(int mode, UINT cmd, void* arg)
@@ -89,37 +93,24 @@ int CCrashMonkeyCtrl::IoCtrl(int mode, UINT cmd, void* arg)
 	if ((cmd & 0xFF00) == COW_BRD_GET_SNAPSHOT)
 	{
 		int disk_id = cmd & 0xFF;
-		if (disk_id > m_snapshot_num) THROW_ERROR(ERR_APP, L"disk id (%d) overflow. disk_num = %d", m_snapshot_num+1);
+		if (disk_id >= m_disks.size())
+		{
+			size_t cur_size = m_disks.size();
+			m_disks.resize(disk_id + 1);
+			for (size_t ii = cur_size; ii <= disk_id; ++ii) m_disks[ii] = NULL;
+			CRamDisk * disk = jcvos::CDynamicInstance<CRamDisk>::Create();
+			if (disk == NULL) THROW_ERROR(ERR_MEM, L"failed on creating ram disk[0]");
+			disk->Initialize(m_sector_size, m_secs, disk_id, m_raw_disk);
+			m_disks[disk_id] = disk;
+		}
+		//if (disk_id > m_snapshot_num) THROW_ERROR(ERR_APP, L"disk id (%d) overflow. disk_num = %d", m_snapshot_num+1);
 		IVirtualDisk** snapshot = reinterpret_cast<IVirtualDisk**>(arg);
-		*snapshot = static_cast<IVirtualDisk*>(m_disk[disk_id]);
+		*snapshot = static_cast<IVirtualDisk*>(m_disks[disk_id]);
 		if (*snapshot) (*snapshot)->AddRef();
 	}
 	else
 	{
-		return m_disk[0]->IoCtrl(mode, cmd, arg);
-		//switch (cmd)
-		//{
-		//case COW_BRD_SNAPSHOT:			return m_disk[0]->IoCtrl(mode, cmd, arg);
-		//	//if (m_brd_device.is_snapshot)	return -ENOTTY;
-		//	//m_brd_device.is_writable = false;
-		//	break;
-		//case COW_BRD_UNSNAPSHOT:		return m_disk[0]->IoCtrl(mode, cmd, arg);
-		//	//if (m_brd_device.is_snapshot)	return -ENOTTY;
-		//	//m_brd_device.is_writable = true;
-		//	break;
-		//case COW_BRD_RESTORE_SNAPSHOT:	return m_disk[0]->IoCtrl(mode, cmd, arg);
-		//	//if (!m_brd_device.is_snapshot)	return -ENOTTY;
-		//	//brd_free_pages(brd);
-		//	break;
-		//case COW_BRD_WIPE:				return m_disk[0]->IoCtrl(mode, cmd, arg);
-		//	//if (m_brd_device.is_snapshot)	return -ENOTTY;
-		//	// Assumes no snapshots are being used right now.
-		//	//brd_free_pages(brd);
-		//	break;
-
-		//default:
-		//	error = -ENOTTY;
-		//}
+		return m_disks[0]->IoCtrl(mode, cmd, arg);
 	}
 	return error;
 }
@@ -128,18 +119,25 @@ void CCrashMonkeyCtrl::Initialize(void)
 {
 	if (m_secs == 0) THROW_ERROR(ERR_APP, L"wrong capacity, %zd secs", m_secs);
 	// create sub disk
-	m_disk = new CRamDisk*[m_snapshot_num + 1];
-	memset(m_disk, 0, sizeof(CRamDisk*) * (m_snapshot_num + 1));
-	// create the first disk (ram disk)
-	for (int ii = 0; ii <= m_snapshot_num; ++ii)
-	{
-		m_disk[ii] = jcvos::CDynamicInstance<CRamDisk>::Create();
-		JCASSERT(m_disk[ii]);
-		// index=0为raw disk，其他均为raw disk的snapshot
-		CRamDisk* raw = NULL;
-		if (ii != 0) raw = m_disk[0];
-		m_disk[ii]->Initialize(m_sector_size, m_secs, ii, raw);
-	}
+	if (m_raw_disk) THROW_ERROR(ERR_APP, L"the drive has been initialized");
+	CRamDisk * disk = jcvos::CDynamicInstance<CRamDisk>::Create();
+	if (disk == NULL) THROW_ERROR(ERR_MEM, L"failed on creating ram disk[0]");
+	disk->Initialize(m_sector_size, m_secs, 0, NULL);
+	m_disks.push_back(disk);
+	m_raw_disk = disk;
+
+	//m_disk = new CRamDisk*[m_snapshot_num + 1];
+	//memset(m_disk, 0, sizeof(CRamDisk*) * (m_snapshot_num + 1));
+	//// create the first disk (ram disk)
+	//for (int ii = 0; ii <= m_snapshot_num; ++ii)
+	//{
+	//	m_disk[ii] = jcvos::CDynamicInstance<CRamDisk>::Create();
+	//	JCASSERT(m_disk[ii]);
+	//	// index=0为raw disk，其他均为raw disk的snapshot
+	//	CRamDisk* raw = NULL;
+	//	if (ii != 0) raw = m_disk[0];
+	//	m_disk[ii]->Initialize(m_sector_size, m_secs, ii, raw);
+	//}
 }
 
 

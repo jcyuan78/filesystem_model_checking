@@ -2,27 +2,20 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include <ifilesystem.h>
+#include <vector>
 
-/*
- * Each block ramdisk device has a radix_tree brd_pages of pages that stores
- * the pages containing the block device's contents. A brd page's ->index is
- * its offset in PAGE_SIZE units. This is similar to, but in no way connected
- * with, the kernel's pagecache or buffer cache (which sit above our block
- * device).
- */
+///<summary>
+// Each block ramdisk device has a radix_tree brd_pages of pages that stores the pages containing the block device's
+//	contents. A brd page's ->index is its offset in PAGE_SIZE units. This is similar to, but in no way connected with, 
+//	the kernel's pagecache or buffer cache (which sit above our block device).
+///</summary>
 struct brd_device
 {
 	int   brd_number;
 	struct brd_device* parent_brd;
-
 	// Denotes whether or not a cow_ram is writable and snapshots are active.
 	bool  is_writable;
 	bool  is_snapshot;
-
-	//struct request_queue* brd_queue;
-	//struct gendisk* brd_disk;
-	//struct list_head  brd_list;
-
 	/*
 	 * Backing store of pages and lock to protect it. This is the contents
 	 * of the block device.
@@ -123,14 +116,12 @@ protected:
 protected:
 	size_t m_sector_size = 512;
 	size_t m_secs = 0;
-//	size_t m_size = 0;		// capacity in byte
-//	BYTE* m_ram_disk = NULL;
 
-	CRamDisk* *m_disk = NULL;
+	//<YUAN>由于每个checkpoint需要一个snapshot，snapshot需要动态管理
+	std::vector<CRamDisk*> m_disks;
+	//CRamDisk* *m_disk = NULL;
 	int m_snapshot_num = 0;
-//	int m_dev_number;
-
-//	brd_device m_brd_device;
+	CRamDisk* m_raw_disk;	// m_raw_disk只是m_disks[0]的缓存，不需计数。
 };
 
 
