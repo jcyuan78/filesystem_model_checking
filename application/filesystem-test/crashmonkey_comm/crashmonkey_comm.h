@@ -8,5 +8,6 @@
 #include "include/DiskMod.h"
 #include "include/itester_factory.h"
 #include "include/ClientCommandSender.h"
+#include "include/utility.h"
 
 #pragma comment(lib, "crashmonkey_comm.lib")

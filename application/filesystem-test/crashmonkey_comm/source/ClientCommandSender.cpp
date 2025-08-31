@@ -57,10 +57,10 @@ SocketError ClientSocket::SendCommand(SocketMessage::CmCommand c)
     SocketMessage m;
     m.type = c;
     m.size = 0;
-    return SendMessage(m);
+    return SendPipeMessage(m);
 }
 
-SocketError ClientSocket::SendMessage(SocketMessage& m)
+SocketError ClientSocket::SendPipeMessage(SocketMessage& m)
 {
     if (m_client == NULL)    {        return SocketError::kNotConnected;    }
     if (BaseSocket::WriteMessageToSocket(m_client, m) < 0)    {        return SocketError::kSyscall;    }
@@ -75,10 +75,21 @@ SocketError ClientSocket::WaitForMessage(SocketMessage* m)
 
 void ClientSocket::CloseClient()
 {
-    //close(socket_fd);
-    //socket_fd = -1;
     if (m_client) CloseHandle(m_client);
     m_client = NULL;
+}
+
+SocketError fs_testing::utils::communication::ClientSocket::Disconnect(void)
+{
+    LOG_STACK_TRACE();
+    SocketError err = SendCommand(SocketMessage::kDisconnect);
+    if (err != SocketError::kNone)
+    {
+        LOG_ERROR(L"failed sending disconnect command");
+        return err;
+    }
+    return SocketError::kNone;
+    CloseClient();
 }
 
 
@@ -102,7 +113,7 @@ int ClientCommandSender::Run()
     msg.type = send_command;
     msg.string_value = m_msg;
     msg.size = boost::numeric_cast<unsigned int>(m_msg.size() * sizeof(wchar_t));
-    if (conn.SendMessage(msg) != SocketError::kNone) return -2;
+    if (conn.SendPipeMessage(msg) != SocketError::kNone) return -2;
 
 	SocketMessage ret;
     LOG_NOTICE(L"waiting for reply message...");
@@ -116,7 +127,7 @@ using fs_testing::utils::communication::ClientCommandSender;
 using fs_testing::utils::communication::kSocketNameOutbound;
 using fs_testing::utils::communication::SocketMessage;
 
-int fs_testing::user_tools::api::Checkpoint(const wchar_t* cmt)
+int fs_testing::user_tools::api::_Checkpoint(const wchar_t* cmt)
 {
     ClientCommandSender c(fs_testing::utils::communication::kSocketNameOutbound, SocketMessage::kCheckpoint,
         SocketMessage::kCheckpointDone, cmt);

@@ -21,9 +21,10 @@ namespace fs_testing {
 				~ClientSocket();
 				int Init();
 				SocketError SendCommand(SocketMessage::CmCommand c);
-				SocketError SendMessage(SocketMessage& m);
+				SocketError SendPipeMessage(SocketMessage& m);
 				SocketError WaitForMessage(SocketMessage* m);
 				void CloseClient();
+				SocketError Disconnect(void);
 			private:
 				HANDLE m_client;
 				const std::wstring m_pipe_name;
@@ -52,7 +53,7 @@ namespace fs_testing {
 	namespace user_tools {
 		namespace api {
 			//<YUAN>参数中增加一个附加信息cmt，用于调试时核对checkpoint的位置
-			int Checkpoint(const wchar_t* cmt = NULL);
+			int _Checkpoint(const wchar_t* cmt = NULL);
 
 		} // fs_testing
 	} // user_tools

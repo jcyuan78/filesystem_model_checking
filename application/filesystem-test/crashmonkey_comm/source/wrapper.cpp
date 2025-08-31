@@ -398,8 +398,8 @@ bool RecordCmFsOps::CmPwrite(IFileInfo * fd, const void* buf, const size_t count
 	{
 		// Copy over as much data as was written and see what the new file size is.
 		// This will determine how we set the type of the DiskMod.
-		mod.file_mod_location = offset;
-		mod.file_mod_len = written;
+		mod.m_file_mod_location = offset;
+		mod.m_file_mod_len = written;
 //		mod.path = m_fd_map.at(fd);
 		mod.path = fd->GetFileName();
 		//res = fns_->FnStat(fd_map_.at(fd), &mod.post_mod_stats);
@@ -414,8 +414,8 @@ bool RecordCmFsOps::CmPwrite(IFileInfo * fd, const void* buf, const size_t count
 
 		if (written > 0)
 		{
-			mod.file_mod_data.reset(new wchar_t[written], [](wchar_t* c) {delete[] c; });
-			memcpy(mod.file_mod_data.get(), buf, written);
+			mod.file_mod_data.reset(new BYTE[written], [](BYTE* c) {delete[] c; });
+			memcpy_s(mod.file_mod_data.get(), written, buf, written);
 		}
 	}
 
@@ -744,46 +744,46 @@ int RecordCmFsOps::CmSyncFileRange(const int fd, size_t offset, size_t nbytes,
 
 int RecordCmFsOps::CmCheckpoint(const wchar_t* msg)
 {
-	//const int res = fns_->CmCheckpoint();
-	//if (res < 0)
-	//{
-	//	return res;
-	//}
-	Checkpoint(msg);
-
 	DiskMod mod;
 	mod.mod_type = DiskMod::kCheckpointMod;
 	mod.mod_opts = DiskMod::kNoneOpt;
 	mods_.push_back(mod);
-
 	return 0;
 }
 
-int RecordCmFsOps::WriteWhole(FILE * fd, const unsigned long long size, shared_ptr<wchar_t> data)
+int RecordCmFsOps::WriteWhole(FILE * fd, const unsigned long long size, shared_ptr<BYTE> data)
 {
 	unsigned long long written = 0;
-	while (written < size)
-	{
-		size_t ir = fwrite(data.get() + written, size-written, 1, fd);
-//		const int res = write(fd, data.get() + written, size - written);
-		if (ir <= 0) return -1;
-		written += ir;
-	}
-
+	//<YUAN> fwrite以element size为单位写入，确保写入完成
+	size_t ir = fwrite(data.get() + written, size-written, 1, fd);
+	if (ir != 1) return -1;
+//
+//	while (written < size)
+//	{
+//		size_t ir = fwrite(data.get() + written, size-written, 1, fd);
+////		const int res = write(fd, data.get() + written, size - written);
+//		if (ir <= 0) return -1;
+//		written += ir;
+//	}
 	return 0;
 }
 
 int RecordCmFsOps::Serialize(FILE* fd)
 {
+#ifdef _DEBUG
+	int index = 0;
+	LOG_DEBUG(L"Serialize ops, size=%d", mods_.size());
+#endif
 	for (auto& mod : mods_)
 	{
+		LOG_DEBUG(L"serialize #%d", index);
 		unsigned long long size;
-		shared_ptr<wchar_t> serial_mod = DiskMod::Serialize(mod, &size);
+		shared_ptr<BYTE> serial_mod = mod.Serialize(/*mod,*/ &size);
 		if (serial_mod == nullptr)	{	return -1;	}
 
 		const int res = WriteWhole(fd, size, serial_mod);
-		if (res < 0)	{	return -1;
-		}
+		if (res < 0)	{	return -1;		}
+		index++;
 	}
 
 	return 0;
@@ -928,7 +928,7 @@ int PassthroughCmFsOps::CmSyncFileRange(IFileInfo* fd, size_t offset, size_t nby
 
 int PassthroughCmFsOps::CmCheckpoint(const wchar_t* msg)
 {
-	return Checkpoint(msg);
+	return 0;
 }
 
 //} // api

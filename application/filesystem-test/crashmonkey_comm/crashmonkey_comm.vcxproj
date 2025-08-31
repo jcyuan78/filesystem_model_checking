@@ -27,6 +27,7 @@
     <ClInclude Include="include\itester_factory.h" />
     <ClInclude Include="include\socket-base.h" />
     <ClInclude Include="include\SocketUtils.h" />
+    <ClInclude Include="include\utility.h" />
     <ClInclude Include="include\wrapper.h" />
     <ClInclude Include="source\framework.h" />
     <ClInclude Include="source\pch.h" />
@@ -43,6 +44,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='DEBUG_DYNAMIC|x64'">Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="source\socket-base.cpp" />
+    <ClCompile Include="source\utility.cpp" />
     <ClCompile Include="source\wrapper.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
@@ -57,14 +59,14 @@
     <VcpkgConfiguration>Debug</VcpkgConfiguration>
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|Win32'" Label="Configuration">
     <VcpkgConfiguration>Release</VcpkgConfiguration>
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -72,14 +74,14 @@
     <VcpkgConfiguration>Debug</VcpkgConfiguration>
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RELEASE_DYNAMIC|x64'" Label="Configuration">
     <VcpkgConfiguration>Release</VcpkgConfiguration>
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>

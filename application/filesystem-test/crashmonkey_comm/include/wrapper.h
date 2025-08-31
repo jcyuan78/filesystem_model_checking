@@ -239,7 +239,7 @@ namespace fs_testing {
 
 				// Write data out to the given file descriptor. Automatically retires until all the requested data is
 				//	written.
-				int WriteWhole(FILE * fd, const unsigned long long size, std::shared_ptr<wchar_t> data);
+				int WriteWhole(FILE * fd, const unsigned long long size, std::shared_ptr<BYTE> data);
 			};
 		} // api
 	} // user_tools

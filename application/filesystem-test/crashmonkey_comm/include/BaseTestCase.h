@@ -8,6 +8,7 @@
 #include "DataTestResult.h"
 #include "itester_factory.h"
 #include "wrapper.h"
+#include "ClientCommandSender.h"
 
 namespace fs_testing 
 {
@@ -28,20 +29,23 @@ namespace fs_testing
         public:
             typedef ITestCaseFactory Factory;
         public:
-            BaseTestCase(void) : m_fs(NULL) {}
-            virtual ~BaseTestCase() { RELEASE(m_fs); }
+            BaseTestCase(void) : m_fs(NULL), m_client(NULL) {}
+            virtual ~BaseTestCase() { RELEASE(m_fs); delete m_client; }
             virtual int setup() = 0;
             virtual int run(const int checkpoint) = 0;
             virtual int check_test(unsigned int last_checkpoint, DataTestResult *test_result) = 0;
             virtual int init_values(std::wstring mount_dir, size_t filesys_size, IFileSystem * fs);
 
             int Run(FILE * change_fd, const int checkpoint);
+        protected:
+            int Checkpoint(const wchar_t* cmt);
+
 
         protected:
-//            std::wstring mnt_dir_;
             IFileSystem* m_fs;
             size_t filesys_size_;
             fs_testing::user_tools::api::CmFsOps *cm_;
+            utils::communication::ClientSocket * m_client;
         };
 
         typedef BaseTestCase *test_create_t();

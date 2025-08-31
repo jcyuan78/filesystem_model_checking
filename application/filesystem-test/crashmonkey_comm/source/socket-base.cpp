@@ -11,12 +11,14 @@ using fs_testing::utils::communication::SocketError;
 
 int BaseSocket::ReadMessageFromSocket(HANDLE socket, SocketMessage* m)
 {
+//    LOG_STACK_TRACE();
     // What sort of message are we dealing with and how big is it?
     // TODO(ashmrtn): Improve error checking/recoverability.
     int res = ReadIntFromSocket(socket, (int*)&m->type);
     if (res < 0)    {        return res;    }
     res = ReadIntFromSocket(socket, (int*)&m->size);
     if (res < 0)    {        return res;    }
+    LOG_DEBUG(L"read message=%d, size=%d", m->type,m->size);
 
     switch (m->type)
     {      // These messges should contain no extra data.
@@ -32,11 +34,12 @@ int BaseSocket::ReadMessageFromSocket(HANDLE socket, SocketMessage* m)
     case SocketMessage::kRunTestsDone:
     case SocketMessage::kCheckpointDone:
     case SocketMessage::kCheckpointFailed:
+    case SocketMessage::kDisconnect:
         // Somebody sent us extra data anyway. Gobble it up and throw it away.
         if (m->size != 0)        {            res = GobbleData(socket, m->size);        }
         break;
     case SocketMessage::kCheckpoint:        // 需要接受附加信息
-        if (m->size > 0) ReadStringFromSocket(socket, m->size, m->string_value);
+        if (m->size > 0)        ReadStringFromSocket(socket, m->size, m->string_value);
         break;
     default:        res = -1;
     }
@@ -51,8 +54,7 @@ int BaseSocket::WriteMessageToSocket(HANDLE socket, SocketMessage& m)
     if (res < 0)    return res;
 
     switch (m.type)
-    {
-        // These messges should contain no extra data.
+    {        // These messges should contain no extra data.
     case SocketMessage::kHarnessError:
     case SocketMessage::kInvalidCommand:
     case SocketMessage::kPrepare:
@@ -68,18 +70,20 @@ int BaseSocket::WriteMessageToSocket(HANDLE socket, SocketMessage& m)
     case SocketMessage::kDisconnect:
         // By default, always send the proper size of the message and no other, extra data.
         res = WriteIntToSocket(socket, 0);
-        if (res < 0)      {            return res;        }
+        if (res < 0)        {            return res;        }
         break;
     case SocketMessage::kCheckpoint:    // 发送附加信息
-        if (m.size > 0) WriteStringToSocket(socket, m.string_value);
+        if (m.size > 0)     WriteStringToSocket(socket, m.string_value);
         break;
     default:        res = -1;
     }
+    LOG_DEBUG(L"sent messagey=%d, size=%d", m.type, m.size);
     return res;
 };
 
 int BaseSocket::GobbleData(HANDLE socket, unsigned int len)
 {
+    LOG_STACK_TRACE();
     int bytes_read = 0;
     jcvos::auto_array<BYTE> tmp(len);
     do
@@ -94,7 +98,7 @@ int BaseSocket::GobbleData(HANDLE socket, unsigned int len)
 
 int BaseSocket::ReadIntFromSocket(HANDLE socket, int* data)
 {
-    LOG_STACK_TRACE(L"socket=%lld", socket);
+//    LOG_STACK_TRACE(L"socket=%lld", socket);
     int bytes_read = 0;
     int32_t d;
     BYTE* buf = (BYTE*)&d;

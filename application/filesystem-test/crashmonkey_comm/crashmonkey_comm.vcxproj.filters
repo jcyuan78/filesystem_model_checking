@@ -48,6 +48,9 @@
     <ClInclude Include="include\ClientCommandSender.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="include\utility.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="source\pch.cpp">
@@ -69,6 +72,9 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="source\ClientCommandSender.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="source\utility.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>
