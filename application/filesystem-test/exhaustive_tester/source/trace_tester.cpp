@@ -90,7 +90,7 @@ ERROR_CODE CExTraceTester::RunTest(void)
 	IFsSimulator* fs = nullptr;
 	m_fs_factory->Clone(fs);
 	CFsState * cur_state = m_states.get();
-	cur_state->Initialize("\\", fs);
+	cur_state->Initialize(fs);
 //	m_cur_state->m_ref = 1;
 
 //	CFsState& state = *m_cur_state;
@@ -104,7 +104,8 @@ ERROR_CODE CExTraceTester::RunTest(void)
 		std::wstring str_op;
 		jcvos::Utf8ToUnicode(str_op, prop_op.get<std::string>("op_name"));
 		op.op_code = StringToOpId(str_op);
-		op.file_path = prop_op.get<std::string>("path", "");
+		const std::string & path1 = prop_op.get<std::string>("path", "");
+		strcpy_s(op.file_path, path1.c_str());
 		if (op.op_code == OP_FILE_OVERWRITE || op.op_code == OP_FILE_WRITE)
 		{
 			op.offset = prop_op.get<FSIZE>("offset");
@@ -116,7 +117,8 @@ ERROR_CODE CExTraceTester::RunTest(void)
 		}
 		else if (op.op_code == OP_MOVE)
 		{
-			op.dst = prop_op.get<std::string>("dst");
+			const std::string & path2 = prop_op.get<std::string>("dst");
+			strcpy_s(op.dst, path2.c_str());
 		}
 
 		printf_s("[setp]=%06d, ", step);
@@ -130,43 +132,43 @@ ERROR_CODE CExTraceTester::RunTest(void)
 			{
 			case OP_CODE::OP_NOP:			break;
 			case OP_CODE::OP_FILE_CREATE:
-				printf_s("[CreateFile] %s\n", op.file_path.c_str());
+				printf_s("[CreateFile] %s\n", op.file_path);
 				ir = TestCreateFile(next_state, op.file_path);
 				next_state->m_real_fs->DumpLog(stdout, "");
 				break;
 			case OP_CODE::OP_DIR_CREATE:
-				printf_s("[CreateDir] %s\n", op.file_path.c_str());
+				printf_s("[CreateDir] %s\n", op.file_path);
 				ir = TestCreateDir(next_state, op.file_path);
 				next_state->m_real_fs->DumpLog(stdout, "");
 				break;
 			case OP_CODE::OP_FILE_DELETE:
-				printf_s("[DeleteFile] %s\n", op.file_path.c_str());
+				printf_s("[DeleteFile] %s\n", op.file_path);
 				ir = TestDeleteFile(next_state, op.file_path);
 				break;
 			case OP_CODE::OP_DIR_DELETE:
-				printf_s("[DeleteDir] %s\n", op.file_path.c_str());
+				printf_s("[DeleteDir] %s\n", op.file_path);
 				ir = TestDeleteDir(next_state, op.file_path);
 				break;
 			case OP_CODE::OP_MOVE:			
-				printf_s("[MoveFile] %s to %s\n", op.file_path.c_str(), op.dst.c_str());
+				printf_s("[MoveFile] %s to %s\n", op.file_path, op.dst);
 				ir = TestMoveFile(next_state, op.file_path, op.dst);
 				break;
 			case OP_CODE::OP_FILE_WRITE: {
 				CReferenceFs::CRefFile* ref_file = next_state->m_ref_fs.FindFile(op.file_path);
 				_NID fid = ref_file->get_fid();
-				printf_s("[WriteFile] %s, fid=%d, offset=%d, len=%d\n", op.file_path.c_str(), fid, op.offset, op.length);
+				printf_s("[WriteFile] %s, fid=%d, offset=%d, len=%d\n", op.file_path, fid, op.offset, op.length);
 				ir = TestWriteFileV2(next_state, fid, op.offset, op.length, op.file_path);
 				next_state->m_real_fs->DumpLog(stdout, "sit");
 				break; }
 			case OP_CODE::OP_FILE_OPEN:
-				printf_s("[OpenFile] %s\n", op.file_path.c_str());
+				printf_s("[OpenFile] %s\n", op.file_path);
 				ir = TestOpenFile(next_state, op.file_path);
 				break;
 
 			case OP_CODE::OP_FILE_CLOSE: {
 				CReferenceFs::CRefFile* ref_file = next_state->m_ref_fs.FindFile(op.file_path);
 				_NID fid = ref_file->get_fid();
-				printf_s("[CloseFile] %s, fid=%d\n", op.file_path.c_str(), fid);
+				printf_s("[CloseFile] %s, fid=%d\n", op.file_path, fid);
 				ir = TestCloseFile(next_state, fid, op.file_path);
 				break; }
 
@@ -219,7 +221,7 @@ ERROR_CODE CExTraceTester::RunTest(void)
 void CExTester::TraceTestVerify(IFsSimulator* fs, const std::string& fn)
 {
 	_NID fid = INVALID_BLK;
-	ERROR_CODE err = fs->FileOpen(fid, fn);
+	ERROR_CODE err = fs->FileOpen(fid, fn.c_str());
 	if (err == ERR_MAX_OPEN_FILE) return;
 
 	FSIZE file_size = fs->GetFileSize(fid);

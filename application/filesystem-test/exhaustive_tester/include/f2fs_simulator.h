@@ -117,21 +117,21 @@ protected:
 
 public:
 	virtual bool Initialzie(const boost::property_tree::wptree& config, const std::wstring & log_path);
-	virtual ERROR_CODE  FileCreate(_NID & fid, const std::string& fn);
-	virtual ERROR_CODE  DirCreate(_NID & fid, const std::string& fn);
+	virtual ERROR_CODE  FileCreate(_NID & fid, const char* fn);
+	virtual ERROR_CODE  DirCreate(_NID & fid, const char* fn);
 
 	virtual void SetFileSize(_NID fid, FSIZE secs) {}
 	virtual FSIZE FileWrite(_NID fid, FSIZE offset, FSIZE len);
 	virtual size_t FileRead(FILE_DATA blks[], _NID fid, FSIZE offset, FSIZE secs);
 	// 可以truncate部分文件
 	virtual void FileTruncate(_NID fid, FSIZE offset, FSIZE secs);
-	virtual void FileDelete(const std::string & fn);
-	virtual ERROR_CODE DirDelete(const std::string& fn);
-	virtual ERROR_CODE FileMove(const std::string& src, const std::string& dst);
+	virtual void FileDelete(const char* fn);
+	virtual ERROR_CODE DirDelete(const char* fn);
+	virtual ERROR_CODE FileMove(const char* src, const char* dst);
 
 	virtual void FileFlush(_NID fid);
 	virtual void FileClose(_NID fid);
-	virtual ERROR_CODE  FileOpen(_NID & fid, const std::string& fn, bool delete_on_close = false);
+	virtual ERROR_CODE  FileOpen(_NID & fid, const char* fn, bool delete_on_close = false);
 
 	virtual FSIZE GetFileSize(_NID fid);
 	// 用于调试，不需要打开文件。size：文件大小。node block：包括inode在内，index block数量；data_blk：实际占用block数量
@@ -196,8 +196,8 @@ protected:
 	friend class CPageAllocator;
 	friend class CNodeAddressTable;
 
-	// 找到文件fn(全路径）的NID，parent返回NID所在父目录的inode的page
-	_NID FileOpenInternal(const std::string & fn,  CPageInfo* &parent);
+	// 找到文件fn(全路径）的NID，parent返回NID所在父目录的inode的page。返回字符串中的文件名称（去除目录）
+	_NID FileOpenInternal(char* fn,  CPageInfo* &parent, char* &file_name);
 	// 当unmount的时候，强制关闭所有文件
 	void ForceClose(OPENED_FILE* file);
 	// 在父目录中查找文件fn, 找到返回fid，找不到返回invalid_blk
@@ -238,7 +238,7 @@ protected:
 	}
 
 	// == dir 相关函数
-	ERROR_CODE InternalCreatreFile(CPageInfo * &page, _NID & fid, const std::string& fn, bool is_dir);
+	ERROR_CODE InternalCreatreFile(CPageInfo * &page, _NID & fid, char* fn, bool is_dir);
 
 	// 将文件添加到parent中，parent:需要添加的目录文件的inode，nid：子文件的inode id
 	ERROR_CODE add_link(NODE_INFO* parent, const char* fn, _NID nid);

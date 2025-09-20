@@ -40,7 +40,7 @@ void CF2fsSegmentManager::CopyFrom(const CF2fsSegmentManager& src/*, CF2fsSimula
 	memcpy_s(m_cur_segs, sizeof(m_cur_segs), src.m_cur_segs, sizeof(m_cur_segs) );
 	memcpy_s(m_dirty_map, sizeof(m_dirty_map), src.m_dirty_map, sizeof(m_dirty_map));
 	m_free_nr = src.m_free_nr;
-	m_free_tail = src.m_free_tail;
+	//m_free_tail = src.m_free_tail;
 	m_free_head = src.m_free_head;
 	m_used_blk_nr = src.m_used_blk_nr;
 	memset(&m_data_cache, 0xFF, sizeof(m_data_cache));
@@ -52,7 +52,8 @@ void CF2fsSegmentManager::Reset(void)
 	memset(m_dirty_map, 0, sizeof(m_dirty_map));
 	memset(m_cur_segs, 0xFF, sizeof(m_cur_segs) );
 	m_free_nr = 0;
-	m_free_head = m_free_tail = INVALID_BLK;
+	m_free_head = INVALID_BLK;
+//	m_free_tail = INVALID_BLK;
 	memset(&m_data_cache, 0xFF, sizeof(m_data_cache));
 }
 
@@ -251,33 +252,12 @@ bool CF2fsSegmentManager::Load(CKPT_BLOCK& checkpoint)
 	return true;
 }
 
-void CF2fsSegmentManager::build_free_link(void)
-{
-	m_free_tail = INVALID_BLK, m_free_head = INVALID_BLK;
-	m_free_nr = 0;
-	m_used_blk_nr = 0;
 
-	for (SEG_T ii = 0; ii < MAIN_SEG_NR; ++ii)
-	{	// 对于mount或者初始化，只要valid block number ==0即使这个segment没有被清除，也可作为free segment使用。
-		SegmentInfo & seg  = m_segments[ii];
-		m_used_blk_nr += seg.valid_blk_nr;
-		if (seg.valid_blk_nr == 0 && m_cur_segs[seg.seg_temp].seg_no != ii)
-		{
-			seg.seg_temp = BT_TEMP_NR;
-			free_en_queue(ii);
-		}
-		else
-		{	// free_next指针指向下一个free的segment，INVALID_BLK被使用。
-			seg.free_next = INVALID_BLK;
-		}
-	}
-	LOG_DEBUG_(1, L"[free_seg]:build free_nr=%d, tail=%d, head=%d", m_free_nr, m_free_tail, m_free_head);
-}
 
 // 查找一个空的segment
 SEG_T CF2fsSegmentManager::AllocSegment(BLK_TEMP temp, bool by_gc, bool force)
 {
-	if (m_free_nr == 0 || is_invalid(m_free_head)|| is_invalid(m_free_tail) )
+	if (m_free_nr == 0 || is_invalid(m_free_head) /*|| is_invalid(m_free_tail)*/ )
 	{
 		THROW_ERROR(ERR_USER, L"no engouh empty segment");
 		return INVALID_BLK;
@@ -297,14 +277,12 @@ SEG_T CF2fsSegmentManager::AllocSegment(BLK_TEMP temp, bool by_gc, bool force)
 	}
 	// de-queue
 	SEG_T new_seg = free_de_queue();
-	LOG_DEBUG_(1, L"[free_seg]:allocate, seg=%d, free_nr=%d, tail=%d, head=%d", new_seg, m_free_nr, m_free_tail, m_free_head);
+//	LOG_DEBUG_(1, L"[free_seg]:allocate, seg=%d, free_nr=%d, tail=%d, head=%d", new_seg, m_free_nr, m_free_tail, m_free_head);
 
 	// Initial Segment
 	SegmentInfo& seg = m_segments[new_seg];
 	seg.valid_blk_nr = 0;
 	seg.seg_temp = temp;
-//	seg.cur_blk = 0;
-//	memset(seg.valid_bmp, 0, sizeof(SegmentInfo::valid_bmp));
 	seg.valid_bmp = 0;
 	memset(seg.nids, 0xFF, sizeof(SegmentInfo::nids));
 	memset(seg.offset, 0xFF, sizeof(SegmentInfo::offset));
@@ -320,48 +298,77 @@ void CF2fsSegmentManager::FreeSegment(SEG_T seg_id)
 	seg.seg_temp = BT_TEMP_NR;
 	// en-queue
 	free_en_queue(seg_id);
-	LOG_DEBUG_(1, L"[free_seg]:free, seg=%d, free_nr=%d, tail=%d, head=%d", seg_id, m_free_nr, m_free_tail, m_free_head);
-//	seg.cur_blk = 0;
+//	LOG_DEBUG_(1, L"[free_seg]:free, seg=%d, free_nr=%d, tail=%d, head=%d", seg_id, m_free_nr, m_free_tail, m_free_head);
 	// 将seg放入free list中；
 	set_dirty(seg_id);
 }
 
 void CF2fsSegmentManager::free_en_queue(SEG_T ii)
 {
-	if (is_valid(m_free_head)) {
-		// 原来队列不空
-		m_segments[ii].free_next = m_segments[m_free_head].free_next;
-		m_segments[m_free_head].free_next = ii;
-		m_free_head = ii;
-	}
-	else {	// 原来队列为空
-		JCASSERT(is_invalid(m_free_tail));
-		m_segments[ii].free_next = ii;
-		m_free_head = ii;
-		m_free_tail = ii;
-	}
+	//if (is_valid(m_free_head)) {
+	//	// 原来队列不空
+	//	m_segments[ii].free_next = m_segments[m_free_head].free_next;
+	//	m_segments[m_free_head].free_next = ii;
+	//	m_free_head = ii;
+	//}
+	//else {	// 原来队列为空
+	//	JCASSERT(is_invalid(m_free_tail));
+	//	m_segments[ii].free_next = ii;
+	//	m_free_head = ii;
+	//	m_free_tail = ii;
+	//}
+	m_segments[ii].free_next = m_free_head;
+	m_free_head = ii;
 	m_free_nr++;
 }
 
 SEG_T CF2fsSegmentManager::free_de_queue(void)
 {
-	if (is_invalid(m_free_head) || is_invalid(m_free_tail)) {
-		THROW_ERROR(ERR_APP, L"free que is empty, free_nr=%d, tail=%d, head=%d", m_free_nr, m_free_tail, m_free_head);
+	//if (is_invalid(m_free_head) || is_invalid(m_free_tail)) {
+	//	THROW_ERROR(ERR_APP, L"free que is empty, free_nr=%d, tail=%d, head=%d", m_free_nr, m_free_tail, m_free_head);
+	//}
+	//SEG_T new_seg = m_free_tail;
+	//if (m_free_tail == m_free_head) {
+	//	m_free_tail = INVALID_BLK;
+	//	m_free_head = INVALID_BLK;
+	//}
+	//else {
+	//	m_free_tail = m_segments[new_seg].free_next;
+	//	m_segments[m_free_head].free_next = m_free_tail;
+	//}
+	if (is_invalid(m_free_head)) {
+		THROW_ERROR(ERR_APP, L"free que is empty, free_nr=%d, head=%d", m_free_nr, m_free_head);
 	}
-	SEG_T new_seg = m_free_tail;
-	if (m_free_tail == m_free_head) {
-		m_free_tail = INVALID_BLK;
-		m_free_head = INVALID_BLK;
-	}
-	else {
-		m_free_tail = m_segments[new_seg].free_next;
-		m_segments[m_free_head].free_next = m_free_tail;
-	}
+	SEG_T new_seg = m_free_head;
+	m_free_head = m_segments[new_seg].free_next;
 	m_segments[new_seg].free_next = INVALID_BLK;
 	m_free_nr--;
 	return new_seg;
 }
 
+void CF2fsSegmentManager::build_free_link(void)
+{
+//	m_free_tail = INVALID_BLK;
+	m_free_head = INVALID_BLK;
+	m_free_nr = 0;
+	m_used_blk_nr = 0;
+
+	for (SEG_T ii = 0; ii < MAIN_SEG_NR; ++ii)
+	{	// 对于mount或者初始化，只要valid block number ==0即使这个segment没有被清除，也可作为free segment使用。
+		SegmentInfo& seg = m_segments[ii];
+		m_used_blk_nr += seg.valid_blk_nr;
+		if (seg.valid_blk_nr == 0 && m_cur_segs[seg.seg_temp].seg_no != ii)
+		{
+			seg.seg_temp = BT_TEMP_NR;
+			free_en_queue(ii);
+		}
+		else
+		{	// free_next指针指向下一个free的segment，INVALID_BLK被使用。
+			seg.free_next = INVALID_BLK;
+		}
+	}
+//	LOG_DEBUG_(1, L"[free_seg]:build free_nr=%d, tail=%d, head=%d", m_free_nr, m_free_tail, m_free_head);
+}
 
 
 void CF2fsSegmentManager::GetBlockInfo(_NID& nid, WORD& offset, PHY_BLK phy_blk)

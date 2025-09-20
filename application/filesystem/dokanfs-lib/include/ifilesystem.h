@@ -205,6 +205,10 @@ public:
 		FSCK_USAGE_OR_SYNTAX_ERROR = 1 << 4,
 		FSCK_USER_CANCELLED = 1 << 5,
 		FSCK_SHARED_LIB_ERROR = 1 << 7,
+
+		FSCK_CHECK_FIZED = 1<<8,
+		FSCK_CKECK_FAILED = 1<<9,
+		FSCK_CKECK_UNFIXED = 1<<10,
 	};
 	enum FsCreateDisposition
 	{

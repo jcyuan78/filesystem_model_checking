@@ -128,7 +128,7 @@ int CExhaustiveTesterApp::Run(void)
 	else if (m_test_type == L"trace")
 	{
 		tester = new CExTraceTester;
-		default_config = "config-statistic.xml";
+		default_config = "config-exhaus.xml";
 	}
 	else
 	{

@@ -22,6 +22,8 @@
 //#define THREAD_POOL
 //#define STATE_MANAGER_THREAD_SAFE
 
+#define USE_HEAP
+
 
 class CFsState
 {
@@ -38,7 +40,7 @@ public:
 	ERROR_CODE		m_result = ERR_OK;
 // 测试参数
 	UINT			m_unsafe_mount_cnt;
-	std::wstring* m_err_msg = nullptr;
+	std::string*	m_err_msg = nullptr;
 
 protected:
 	UINT			m_ref=1;			// (被参考的子节)引用计数。
@@ -46,9 +48,9 @@ protected:
 
 public:
 	void add_ref() {	InterlockedIncrement(&m_ref);	}
-	void Initialize(const std::string& root_path, IFsSimulator * fs)
+	void Initialize(/*const std::string& root_path,*/ IFsSimulator * fs)
 	{
-		m_ref_fs.Initialize(root_path);
+		m_ref_fs.Initialize();
 		m_real_fs = fs;
 	}
 	void OutputState(FILE* log_file);
@@ -56,10 +58,10 @@ public:
 	void DuplicateFrom(CFsState* src_state);
 	// 仅复制ref fs, real fs共用一个实体。
 	void DuplicateWithoutFs(CFsState* src_state);
-	void SetErrorMessage(const std::wstring& msg)
+	void SetErrorMessage(const std::string& msg)
 	{
-		if (m_err_msg == nullptr) m_err_msg = new std::wstring;
-		*m_err_msg = msg;
+		if (m_err_msg == nullptr) m_err_msg = new std::string;
+		(*m_err_msg) = msg;
 	}
 };
 
@@ -202,24 +204,22 @@ protected:
 		return tester->FsOperator_Queue();
 	}
 	DWORD FsOperator_Queue(void);
-	ERROR_CODE TestCreateFile(CFsState* cur_state, const std::string& path);
-	ERROR_CODE TestCreateDir (CFsState* cur_state, const std::string& path);
-//	ERROR_CODE TestWriteFile(CFsState * cur_state, const std::string& path, FSIZE offset, FSIZE len);
-	ERROR_CODE TestWriteFileV2(CFsState * cur_state, _NID fid, FSIZE offset, FSIZE len, const std::string &path);
-	ERROR_CODE TestOpenFile(CFsState* cur_state, const std::string& path);
-	ERROR_CODE TestCloseFile(CFsState* cur_state, _NID fid, const std::string & path);
-	ERROR_CODE TestDeleteFile(CFsState* cur_state, const std::string& path);
-	ERROR_CODE TestDeleteDir(CFsState* cur_state, const std::string& path);
+
+	ERROR_CODE TestCreateFile(CFsState* cur_state, const char * path);
+	ERROR_CODE TestCreateDir (CFsState* cur_state, const char* path);
+	ERROR_CODE TestWriteFileV2(CFsState * cur_state, _NID fid, FSIZE offset, FSIZE len, const char* path);
+	ERROR_CODE TestOpenFile(CFsState* cur_state, const char* path);
+	ERROR_CODE TestCloseFile(CFsState* cur_state, _NID fid, const char* path);
+	ERROR_CODE TestDeleteFile(CFsState* cur_state, const char* path);
+	ERROR_CODE TestDeleteDir(CFsState* cur_state, const char* path);
 	ERROR_CODE TestMount(CFsState * cur_state, bool debug=false);
 	ERROR_CODE TestPowerOutage(CFsState* cur_state, UINT rollback, bool debug= false);
-	ERROR_CODE TestMoveFile(CFsState* cur_state, const std::string& src, const std::string dst);
-
-	//int TestMove(CFsState* state, CReferenceFs& ref, const std::wstring& path_src, const std::wstring& path_dst);
+	ERROR_CODE TestMoveFile(CFsState* cur_state, const char* src, const char* dst);
 
 	ERROR_CODE VerifyForPower(CFsState* cur_state, bool debug = false);
 	ERROR_CODE Verify(CFsState* cur_state, bool debug = false);
 
-	ERROR_CODE VerifyState(CReferenceFs& ref_fs, IFsSimulator* real_fs, bool debug = false);
+	ERROR_CODE VerifyState(CReferenceFs& ref_fs, IFsSimulator* real_fs, char * err_msg, bool debug = false);
 
 	// 针对每个子项，枚举所有可能的操作。
 	//bool EnumerateOp(CFsState * cur_state, std::list<CFsState*>::iterator & insert);
@@ -274,6 +274,8 @@ protected:
 	bool m_check_power_loss;				
 	bool m_stop_on_error= false;
 	bool m_skip_check_file_data = false;
+
+	size_t m_closed_size = 0;				// 当不适用heap时，累加closed数量
 
 	std::vector<OP_CODE> m_file_op_set;		// 对于文件，允许的操作
 	std::vector<OP_CODE> m_dir_op_set;		// 对于目录，允许的操作
@@ -426,9 +428,9 @@ template <size_t N> void Op2String(char(&str)[N], TRACE_ENTRY& op)
 		sprintf_s(str_param, "rollback=%d", op.rollback);
 	}
 	else if (op.op_code == OP_CODE::OP_MOVE) {
-		sprintf_s(str_param, "dst=%s", op.dst.c_str());
+		sprintf_s(str_param, "dst=%s", op.dst);
 	}
-	sprintf_s(str, "op:(%d) [%s], path=%s, param: %s", op.op_sn, OpName(op.op_code), op.file_path.c_str(), str_param);
+	sprintf_s(str, "op:(%d) [%s], path=%s, param: %s", op.op_sn, OpName(op.op_code), op.file_path, str_param);
 }
 
 // len: fn缓存长度。返回fn长度
@@ -437,9 +439,9 @@ const char* OpName(OP_CODE op_code);
 
 TRACE_ENTRY* op_index(std::vector<TRACE_ENTRY>& ops, size_t& index);
 
-void AddOp(TRACE_ENTRY* ops, size_t op_size, size_t& index, OP_CODE op_code, const std::string& file_path);
+void AddOp(TRACE_ENTRY* ops, size_t op_size, size_t& index, OP_CODE op_code, const char* file_path);
 
-void AddOp(TRACE_ENTRY* ops, size_t op_size, size_t& index, OP_CODE op_code, const std::string& file_path,
+void AddOp(TRACE_ENTRY* ops, size_t op_size, size_t& index, OP_CODE op_code, const char* file_path,
 	UINT fid, FSIZE offset, FSIZE length);
 
 void AddOp(TRACE_ENTRY* ops, size_t op_size, size_t& index, OP_CODE op_code);

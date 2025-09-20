@@ -12,8 +12,8 @@ struct F2FS_FSCK {
 
 	DWORD main_area_map[SEG_NUM * BLOCK_PER_SEG / 32+1];
 	DWORD sit_area_map[SEG_NUM * BLOCK_PER_SEG / 32+1];
-	DWORD nat_area_map[NODE_NR / 32];
-	DWORD node_map[NODE_NR / 32];
+	DWORD nat_area_map[NODE_NR / 32+1];
+	DWORD node_map[NODE_NR / 32+1];
 	char path[MAX_PATH_SIZE];			// 用于跟踪目前检查的文件名
 	char* path_ptr;						// 指向path的末尾
 

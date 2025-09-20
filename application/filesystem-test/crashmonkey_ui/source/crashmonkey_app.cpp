@@ -111,7 +111,7 @@ bool CCrashMonkeyApp::LoadConfig(void)
     m_dev_name = device_pt.get<std::wstring>(L"name");
     fs_lib = device_pt.get<std::wstring>(L"lib");
     LoadFactory(m_dev_factory, fs_lib);
-    m_dev_factory->CreateVirtualDisk(m_test_dev, device_pt, true);
+    m_dev_factory->CreateVirtualDisk(m_test_dev, m_dev_name, device_pt, true);
     
     m_test_module = pt.get<std::wstring>(L"config.testcase.lib");
     m_test_case = pt.get<std::wstring>(L"config.testcase.name");

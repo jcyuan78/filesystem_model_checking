@@ -36,6 +36,7 @@ const char* BLK_TEMP_NAME[] = { "COLD_DATA", "COLD_NODE", "WARM_DATA", "WARM_NOD
 CF2fsSimulator::CF2fsSimulator(void)
 	:m_segments(this), m_storage(this), m_pages(this), m_nat(this)
 {
+//	printf_s("END_META_BLK=%d, MAIN_SEG_OFFSET=%d, BLOCK_PER_SEG=%d\n", END_META_BLK, MAIN_SEG_OFFSET, BLOCK_PER_SEG);
 	JCASSERT(END_META_BLK < (MAIN_SEG_OFFSET * BLOCK_PER_SEG))
 	m_ref = 1;
 }
@@ -554,8 +555,6 @@ void CF2fsSimulator::unlink(_NID fid, const char * fn, CPageInfo * parent_page)
 	// find the slot of the fn
 	WORD hash = FileNameHash(fn);
 	WORD fn_len = (WORD)(strlen(fn));
-//	_NID fid = INVALID_BLK;
-
 
 	// 抽象的 dir file 结构：以2^level的数量，在每层中存放dentry block。每个block属于一个hash slot。
 // 逐层查找文件 （f2fs :: __f2fs_find_entry() )
@@ -579,15 +578,12 @@ void CF2fsSimulator::unlink(_NID fid, const char * fn, CPageInfo * parent_page)
 			DENTRY_BLOCK& entries = block->dentry;
 
 			// 沿着bitmap查找
-//			int index = 0;
 			for (int index = 0; index < DENTRY_PER_BLOCK; ++index)
 			{
 				if (is_invalid(entries.dentries[index].ino) || entries.dentries[index].hash != hash) continue;
 				char* ff = entries.filenames[index];
 				if (entries.dentries[index].name_len == fn_len && memcmp(ff, fn, fn_len) == 0)
 				{
-//					fid = entries.dentries[index].ino;
-//					break;
 					_NID ff = entries.dentries[index].ino;
 					if (ff == fid)
 					{	// found slot to remove;
@@ -615,11 +611,6 @@ void CF2fsSimulator::unlink(_NID fid, const char * fn, CPageInfo * parent_page)
 				m_pages.free(page);
 				break;
 			}
-			//if (is_valid(fid))
-			//{
-			//	m_pages.free(page);
-			//	break;
-			//}
 		}
 		blk_index += blk_num;
 		blk_num *= 2;
@@ -699,12 +690,12 @@ UINT CF2fsSimulator::GetChildNumber(NODE_INFO* inode)
 }
 
 
-ERROR_CODE CF2fsSimulator::InternalCreatreFile(CPageInfo*& file_page, _NID & fid, const std::string& fn, bool is_dir)
+ERROR_CODE CF2fsSimulator::InternalCreatreFile(CPageInfo*& file_page, _NID & fid, char* full_path, bool is_dir)
 {
 	// 根据路径找到父节点
 	fid = INVALID_BLK;
-	char full_path[MAX_PATH_SIZE+1];
-	strcpy_s(full_path, fn.c_str());
+	//char full_path[MAX_PATH_SIZE+1];
+	//strcpy_s(full_path, fn.c_str());
 
 	//char * ptr = strrchr(full_path, '\\');
 	//if (ptr == nullptr || *ptr == 0) {
@@ -713,10 +704,11 @@ ERROR_CODE CF2fsSimulator::InternalCreatreFile(CPageInfo*& file_page, _NID & fid
 	//*ptr = 0;
 	char* file_name = nullptr;
 	ERROR_CODE ir = SplitPath(full_path, file_name);
-	if (ir != ERR_OK) return ir;
-
+	//if (ir != ERR_OK) return ir;
+//	ERROR_CODE ir = ERR_OK;
 	CPageInfo* page = nullptr; 
-	_NID parent_fid = FileOpenInternal(full_path, page);	// 返回需要添加的父目录的nid，parent_page是祖父目录的page
+	char* _ff;
+	_NID parent_fid = FileOpenInternal(full_path, page, _ff);	// 返回需要添加的父目录的nid，parent_page是祖父目录的page
 	CloseInode(page);
 	if (is_invalid(parent_fid))
 	{
@@ -727,10 +719,9 @@ ERROR_CODE CF2fsSimulator::InternalCreatreFile(CPageInfo*& file_page, _NID & fid
 	CPageInfo* parent_page = nullptr;
 	NODE_INFO & parent = ReadNode(parent_fid, parent_page);
 	// 检查 fn 不在 parent目录中
-	//char* name = ptr + 1;
 	if (is_valid(FindFile(parent, file_name)))
 	{
-		LOG_WARNING(L"[warning] file %S is already exist", fn.c_str());
+		LOG_WARNING(L"[warning] file %S is already exist", full_path);
 		return ERR_CREATE_EXIST;
 	}
 
@@ -746,7 +737,6 @@ ERROR_CODE CF2fsSimulator::InternalCreatreFile(CPageInfo*& file_page, _NID & fid
 	}
 	fid = inode_block->node.m_nid;
 
-		
 	// 添加到父节点dentry中
 	ir = add_link(&parent, file_name, fid);
 	if (ir != ERR_OK) {
@@ -763,7 +753,7 @@ ERROR_CODE CF2fsSimulator::InternalCreatreFile(CPageInfo*& file_page, _NID & fid
 	// 更新inode
 	PHY_BLK phy_blk = UpdateInode(file_page, "CREATE");
 	if (is_invalid(phy_blk)) {
-		LOG_ERROR(L"[err] no enough segment during creating %S, fid=%d", fn.c_str(), fid);
+		LOG_ERROR(L"[err] no enough segment during creating %S, fid=%d", full_path, fid);
 		CloseInode(parent_page);
 		m_pages.free(file_page);
 		m_nat.put_node(fid);
@@ -778,22 +768,25 @@ ERROR_CODE CF2fsSimulator::InternalCreatreFile(CPageInfo*& file_page, _NID & fid
 
 	ir = sync_fs();
 	if (ir != ERR_OK) {
-		LOG_ERROR(L"[err] failed on sync_fs() code=%d, when creating %S", ir, fn.c_str());
+		LOG_ERROR(L"[err] failed on sync_fs() code=%d, when creating %S", ir, full_path);
 	}
 
 	return ir;
 }
 
-ERROR_CODE CF2fsSimulator::FileCreate(_NID & fid, const std::string& fn)
+ERROR_CODE CF2fsSimulator::FileCreate(_NID & fid, const char* fn)
 {
-	LOG_STACK_TRACE_EX(L"path=%S", fn.c_str());
+	char full_path[MAX_PATH_SIZE + 1];
+	strcpy_s(full_path, fn);
+
+	LOG_STACK_TRACE_EX(L"path=%S", fn);
 	if (m_open_nr >= MAX_OPEN_FILE) {
 		fid = INVALID_BLK;
 		return ERR_MAX_OPEN_FILE;
 	}
 
 	CPageInfo* page = nullptr; 
-	ERROR_CODE ir = InternalCreatreFile(page, fid, fn, false);
+	ERROR_CODE ir = InternalCreatreFile(page, fid, full_path, false);
 	if (ir != ERR_OK) {
 		fid = INVALID_BLK;
 		return ir;
@@ -807,10 +800,13 @@ ERROR_CODE CF2fsSimulator::FileCreate(_NID & fid, const std::string& fn)
 	return ERR_OK;
 }
 
-ERROR_CODE CF2fsSimulator::DirCreate(_NID & fid, const std::string& fn)
+ERROR_CODE CF2fsSimulator::DirCreate(_NID & fid, const char* fn)
 {
+	char full_path[MAX_PATH_SIZE + 1];
+	strcpy_s(full_path, fn);
+
 	CPageInfo* page = nullptr; // m_pages.allocate_index(true);
-	ERROR_CODE ir = InternalCreatreFile(page, fid, fn, true);
+	ERROR_CODE ir = InternalCreatreFile(page, fid, full_path, true);
 	if (ir != ERR_OK) {
 		fid = INVALID_BLK;
 		return ir;
@@ -845,14 +841,15 @@ OPENED_FILE* CF2fsSimulator::AddFileToOpenList(_NID fid, CPageInfo* page)
 	return m_open_files + index;
 }
 
-ERROR_CODE CF2fsSimulator::FileOpen(_NID &fid, const std::string& fn, bool delete_on_close)
+ERROR_CODE CF2fsSimulator::FileOpen(_NID &fid, const char* fn, bool delete_on_close)
 {
 	fid = INVALID_BLK;
-	//char full_path[MAX_PATH_SIZE + 1];
-	//strcpy_s(full_path, fn.c_str());
+	char full_path[MAX_PATH_SIZE + 1];
+	strcpy_s(full_path, fn);
 
 	CPageInfo* page = nullptr; // m_pages.allocate_index(true);
-	fid = FileOpenInternal(fn, page);
+	char* file_name = nullptr;
+	fid = FileOpenInternal(full_path, page, file_name);
 	CloseInode(page);
 	if (is_invalid(fid))	{	return ERR_OPEN_FILE; }
 	page = nullptr;
@@ -868,7 +865,6 @@ ERROR_CODE CF2fsSimulator::FileOpen(_NID &fid, const std::string& fn, bool delet
 	else
 	{
 		if (m_open_nr >= MAX_OPEN_FILE) {
-//			THROW_FS_ERROR(ERR_MAX_OPEN_FILE, L"oped file reached max (%d)", m_open_nr);
 			fid = INVALID_BLK;
 			return ERR_MAX_OPEN_FILE;
 		}
@@ -1183,11 +1179,8 @@ void CF2fsSimulator::save_checkpoint(int ckpt_id)
 }
 
 
-_NID CF2fsSimulator::FileOpenInternal(const std::string & _fn, CPageInfo* &parent_inode)
+_NID CF2fsSimulator::FileOpenInternal(char* fn, CPageInfo* &parent_inode, char* &file_name)
 {
-	char fn[MAX_PATH_SIZE + 1];
-	strcpy_s(fn, _fn.c_str());
-
 	JCASSERT(parent_inode == nullptr);
 	NODE_INFO& root = ReadNode(ROOT_FID, parent_inode);		// 打开root文件
 	NODE_INFO* parent_node = &root;
@@ -1206,6 +1199,7 @@ _NID CF2fsSimulator::FileOpenInternal(const std::string & _fn, CPageInfo* &paren
 			LOG_ERROR(L"[err] cannot find %S in %S", dir, fn);
 			return INVALID_BLK;
 		}
+		file_name = dir;
 		dir = strtok_s(nullptr, "\\", &next);
 		if (dir == nullptr || *dir == 0) break;
 		// 关闭已经打开的node
@@ -1532,27 +1526,33 @@ void CF2fsSimulator::FileTruncate(_NID fid, FSIZE offset, FSIZE len)
 	}
 }
 
-void CF2fsSimulator::FileDelete(const std::string& fn)
+void CF2fsSimulator::FileDelete(const char* fn)
 {
 	// Delete 分两步操作：（1）unlink，将文件的inode从dentry中删除，inode的link减1。（2）remove inode，将inode删除
 	// unlink
+
+	char full_path[MAX_PATH_SIZE + 1];
+	strcpy_s(full_path, fn);
+
 	CPageInfo* parent_page = nullptr;
-	_NID fid = FileOpenInternal(fn, parent_page);
+	char* file_name=nullptr;
+	_NID fid = FileOpenInternal(full_path, parent_page, file_name);
 	if (is_invalid(fid))
 	{
 		CloseInode(parent_page);
-		THROW_FS_ERROR(ERR_DELETE_FILE, L"[err] file %S is not existing", fn.c_str());
+		THROW_FS_ERROR(ERR_DELETE_FILE, L"[err] file %S is not existing", fn);
 	}
 	// find opne file
 	CPageInfo* ipage = nullptr;
 	NODE_INFO* inode = nullptr;
 	inode = &ReadNode(fid, ipage);
 
-	char path[MAX_PATH_SIZE + 1];
-	strcpy_s(path, fn.c_str());
-	char* file_name;
-	SplitPath(path, file_name);
-
+//	strcpy_s(full_path, fn);
+//	char* file_name;
+//	SplitPath(full_path, file_name);
+	if (file_name == nullptr) {
+		THROW_ERROR(ERR_APP, L"[err] wrong file name in the path=%S", fn);
+	}
 	unlink(fid, file_name, parent_page);
 	inode->inode.nlink--;
 	CloseInode(ipage);
@@ -1562,14 +1562,18 @@ void CF2fsSimulator::FileDelete(const std::string& fn)
 	// <TODO> 对于目录，删除其所有子目录
 }
 
-ERROR_CODE CF2fsSimulator::DirDelete(const std::string& fn)
+ERROR_CODE CF2fsSimulator::DirDelete(const char* fn)
 {
+	char full_path[MAX_PATH_SIZE + 1];
+	strcpy_s(full_path, fn);
+
 	CPageInfo* parent_page = nullptr;
-	_NID fid = FileOpenInternal(fn, parent_page);
+	char* file_name = nullptr;
+	_NID fid = FileOpenInternal(full_path, parent_page, file_name);
 	if (is_invalid(fid))
 	{
 		CloseInode(parent_page);
-		THROW_FS_ERROR(ERR_DELETE_DIR, L"[err] dir %S is not existing", fn.c_str());
+		THROW_FS_ERROR(ERR_DELETE_DIR, L"[err] dir %S is not existing", fn);
 	}
 
 	CPageInfo* ipage = nullptr;
@@ -1584,10 +1588,13 @@ ERROR_CODE CF2fsSimulator::DirDelete(const std::string& fn)
 		return ERR_NON_EMPTY;
 	}
 
-	char path[MAX_PATH_SIZE + 1];
-	strcpy_s(path, fn.c_str());
-	char* file_name;
-	SplitPath(path, file_name);
+//	char path[MAX_PATH_SIZE + 1];
+	//strcpy_s(full_path, fn);
+	//char* file_name;
+	//SplitPath(full_path, file_name);
+	if (file_name == nullptr) {
+		THROW_ERROR(ERR_APP, L"[err] wrong file name in the path=%S", fn);
+	}
 
 	unlink(fid, file_name, parent_page);
 	inode->inode.nlink--;
@@ -1596,31 +1603,36 @@ ERROR_CODE CF2fsSimulator::DirDelete(const std::string& fn)
 	return ERR_OK;
 }
 
-ERROR_CODE CF2fsSimulator::FileMove(const std::string& src, const std::string& dst)
+ERROR_CODE CF2fsSimulator::FileMove(const char* src, const char* dst)
 {
+	char src_path[MAX_PATH_SIZE + 1];
+	strcpy_s(src_path, src);
+
 	// 找到找到源文件的inode
 //	if (src == dst) return ERR_OK;
 	CPageInfo* parent_page = nullptr;
-	_NID src_fid = FileOpenInternal(src, parent_page);
+	char* src_file_name = nullptr;
+	_NID src_fid = FileOpenInternal(src_path, parent_page, src_file_name);
 //	CloseInode(parent_page);
 	if (is_invalid(src_fid)) {
-		LOG_ERROR(L"[err] source file %S is not exist", src.c_str());
+		LOG_ERROR(L"[err] source file %S is not exist", src);
 		return ERR_PARENT_NOT_EXIST;
 	}
 
 	// 找到目标文件的parent
 	char dst_path[MAX_PATH_SIZE + 1];
-	strcpy_s(dst_path, dst.c_str());
+	strcpy_s(dst_path, dst);
 
 	char* dst_fn = nullptr;
 	ERROR_CODE ir = SplitPath(dst_path, dst_fn);
 	if (ir != ERR_OK) {
 		CloseInode(parent_page);
-		LOG_ERROR(L"[err] wrong dst name, %S", dst.c_str());
+		LOG_ERROR(L"[err] wrong dst name, %S", dst);
 		return ir;
 	}
 	CPageInfo* dst_parent_page = nullptr;
-	_NID dst_parent_fid = FileOpenInternal(dst_path, dst_parent_page);
+	char* dumy;
+	_NID dst_parent_fid = FileOpenInternal(dst_path, dst_parent_page, dumy);
 	CloseInode(dst_parent_page);
 	if (is_invalid(dst_parent_fid))
 	{
@@ -1633,7 +1645,7 @@ ERROR_CODE CF2fsSimulator::FileMove(const std::string& src, const std::string& d
 	NODE_INFO& dst_parent_node = ReadNode(dst_parent_fid, dst_parent_node_page);
 	if (is_valid(FindFile(dst_parent_node, dst_fn)))
 	{
-		LOG_ERROR(L"[err] dst file %S is exist", dst.c_str());
+		LOG_ERROR(L"[err] dst file %S is exist", dst);
 		CloseInode(parent_page);
 //		CloseInode(dst_parent_node_page);
 		return ERR_CREATE_EXIST;
@@ -1647,12 +1659,15 @@ ERROR_CODE CF2fsSimulator::FileMove(const std::string& src, const std::string& d
 //		CloseInode(dst_parent_node_page);
 		return ir;
 	}
-	char path[MAX_PATH_SIZE + 1];
-	strcpy_s(path, src.c_str());
-	char* file_name;
-	SplitPath(path, file_name);
+	//char path[MAX_PATH_SIZE + 1];
+//	strcpy_s(src_path, src);
+//	char* file_name;
+//	SplitPath(src_path, file_name);
 	// unlink原来的文件
-	unlink(src_fid, file_name, parent_page);
+	if (src_file_name == nullptr) {
+		THROW_ERROR(ERR_APP, L"[err] wrong file name in the path=%S", src);
+	}
+	unlink(src_fid, src_file_name, parent_page);
 	CloseInode(parent_page);
 //	CloseInode(dst_parent_node_page);
 	return ERR_OK;

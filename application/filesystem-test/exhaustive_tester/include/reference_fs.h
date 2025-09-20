@@ -9,7 +9,7 @@ typedef WORD _NID;
 
 
 #define	MAX_DEPTH		(500)
-#define MAX_PATH_SIZE	(255)
+#define MAX_PATH_SIZE	(127)
 #define MAX_FILE_NUM	(256)
 #define MAX_CHILD_NUM	(64)
 
@@ -34,8 +34,10 @@ enum OP_CODE
 struct TRACE_ENTRY
 {
 	OP_CODE op_code = OP_CODE::OP_NOP;
-	std::string file_path;
-	std::string dst;
+//	std::string file_path;
+//	std::string dst;
+	char file_path[MAX_PATH_SIZE + 1];
+	char dst[MAX_PATH_SIZE + 1];
 	_NID fid;				// 对于已经打开的文件，传递文件号
 	UINT op_sn;
 	union {
@@ -58,9 +60,6 @@ struct TRACE_ENTRY
 			WORD trace_id;
 			WORD test_cycle;
 		};
-		//struct {
-		//	std::string dst;
-		//};
 	};
 };
 
@@ -92,7 +91,7 @@ public:
 		friend class CReferenceFs;
 
 	public:
-		void InitFile(UINT parent_id, CRefFile * parent, const std::string& path, bool isdir, _NID fid);
+		void InitFile(UINT parent_id, CRefFile * parent, const char* path, bool isdir, _NID fid);
 		void RemoveChild(_NID fid);
 		void UpdateEncode(CRefFile* files);
 		static int CompareEncode(void*, const void* e1, const void* e2);
@@ -106,16 +105,18 @@ public:
 		inline UINT child_num(void) const { return size; }
 		inline _NID get_fid(void) const { return fid; }
 		inline bool is_open(void) const { return m_is_open; }
+		const char* get_path(void) const { return m_fn; }
 	};
 
 public:
-	void Initialize(const std::string & root_path = "\\");
+	void Initialize(void);
 	void CopyFrom(const CReferenceFs & src);
-	bool IsExist(const std::string & path);		// 判断路径是否存在
-	CRefFile * AddPath(const std::string & path, bool dir, _NID fid);		// 添加一个路径
+	bool IsExist(const char* path);		// 判断路径是否存在
+	CRefFile * FindFile(const char* path);
+
+	CRefFile * AddPath(const char* path, bool dir, _NID fid);		// 添加一个路径
 	void GetFileInfo(const CRefFile & file, DWORD & checksum, FSIZE &len) const;
-	void GetFilePath(const CRefFile& file, std::string & path) const;
-	void UpdateFile(const std::string & path, DWORD checksum, size_t len);
+	void UpdateFile(const char* path, DWORD checksum, size_t len);
 	void UpdateFile(CRefFile & file, DWORD checksum, size_t len);
 	int GetDirDepth(const CRefFile& dir) const {
 		return dir.m_depth;
@@ -129,9 +130,8 @@ public:
 	void Demount(void);
 
 	inline bool IsDir(const CRefFile& file) const { return file.isdir(); }
-	CRefFile * FindFile(const std::string & path);
-	void RemoveFile(const std::string & path);
-	void MoveFile(const std::string& src, const std::string dst);
+	void RemoveFile(const char* path);
+	void MoveFile(const char* src, const char* dst);
 
 	// 对树进行同构编码，用于判断树的同构性
 #if 0
@@ -147,9 +147,10 @@ public:
 #else
 	size_t Encode(char* code, size_t buf_len) const;
 #endif
+	void GetFilePath(const CRefFile& file, std::string & path) const;
 
 protected:
-	UINT FindFileIndex(const std::string & path);
+	UINT FindFileIndex(const char* path);
 
 public:
 	class CONST_ITERATOR

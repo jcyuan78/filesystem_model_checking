@@ -8,7 +8,6 @@
 struct StorageDataBase
 {
 	void AddRef(void) { InterlockedIncrement(&m_ref); }
-	void Release(void);
 
 	BLOCK_DATA data;
 	StorageDataBase* pre_ver=nullptr;		// 相同数据的前一个版本
@@ -16,12 +15,30 @@ struct StorageDataBase
 	long m_ref=1;
 	// for debug
 	LBLK_T lba;		// 对应的lba. (-1)表示其他数据。
+
+protected:
+	void Release(void);
 };
 
 class StorageDataManager
 {
 public:
+	StorageDataManager(void);
+	~StorageDataManager(void);
 
+public:
+	StorageDataBase* get(void);
+	void put(StorageDataBase* sdata);
+
+protected:
+	void AllocateBuffer(size_t nr);
+	void Reclaim(StorageDataBase* sdata);
+	void Clear(void);
+protected:
+	std::list<StorageDataBase*> m_buffers;
+	size_t m_free_nr;
+	StorageDataBase* m_free_list;
+	CRITICAL_SECTION m_lock;
 };
 
 class CStorage
@@ -44,10 +61,6 @@ public:
 	void DumpStorage(FILE* out);
 
 protected:
-	void cache_enque(LBLK_T lba, LBLK_T cache_index);						// 节点插入cache
-	void cache_deque(LBLK_T cache_index);		// cache index的节点移出
-
-protected:
 	StorageDataBase *m_data[TOTAL_BLOCK_NR];
 	CPageAllocator* m_pages;
 	// 用cache模拟断电过程。cache 是一个循环队列，所有写入都会首先被写入cache中。当cache满时，队尾的内容会被写入磁盘。
@@ -62,5 +75,7 @@ protected:
 	UINT m_begin_cache_nr;
 	StorageDataBase* m_begin_cache;
 	const CStorage* m_parent;
+
+	StorageDataManager* m_data_manager;
 };
 

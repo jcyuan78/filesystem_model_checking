@@ -8,6 +8,12 @@ LOCAL_LOGGER_ENABLE(L"simulator.storage", LOGGER_LEVEL_DEBUGINFO);
 
 LOG_CLASS_SIZE(StorageDataBase);
 
+#define STORAGE_DATA_ALLOCATE_SIZE	(4096)
+
+StorageDataManager sdata_manager;
+
+#define USING_MANAGER
+
 
 void StorageDataBase::Release(void) {
 	long ref = InterlockedDecrement(&m_ref);
@@ -22,18 +28,13 @@ void StorageDataBase::Release(void) {
 			pre = cur->pre_ver;
 			delete cur;
 		}
-		//LOG_DEBUG(L"delete StorageDataBase, ptr=%p", this);
-		//if (pre_ver)
-		//{
-		//	LOG_DEBUG_(1, L"[storage] release storage data, lba=%d, ptr=%p, ref=%d", pre_ver->lba, pre_ver, pre_ver->m_ref);
-		//	pre_ver->Release();
-		//}
 		delete this;
 	}
 }
 
 CStorage::CStorage(CF2fsSimulator* fs)
 {
+	m_data_manager = &sdata_manager;
 	m_pages = & fs->m_pages;
 }
 
@@ -44,7 +45,11 @@ CStorage::~CStorage()
 		if (m_data[ii]) {
 			LOG_DEBUG_(1, L"[storage] release storage data, storage=%p, lba=%d, ptr=%p, ref=%d", 
 				this, m_data[ii]->lba, m_data[ii], m_data[ii]->m_ref);
+#ifdef USING_MANAGER
+			m_data_manager->put(m_data[ii]);
+#else
 			m_data[ii]->Release();
+#endif
 		}
 	}
 }
@@ -64,16 +69,18 @@ void CStorage::Initialize(void)
 void CStorage::CopyFrom(const CStorage* src)
 {
 	//先清除原有记录
-#if 1
 	for (LBLK_T ii = 0; ii < TOTAL_BLOCK_NR; ++ii)
 	{
 		if (m_data[ii]) {
 			LOG_DEBUG_(1, L"[storage] release storage data, storage=%p lba=%d, ptr=%p, ref=%d", 
 				this, m_data[ii]->lba, m_data[ii], m_data[ii]->m_ref);
+#ifdef USING_MANAGER
+			m_data_manager->put(m_data[ii]);
+#else
 			m_data[ii]->Release();
+#endif
 		}
 	}
-#endif
 	//复制新的数据
 	memcpy_s(m_data, sizeof(m_data), src->m_data, sizeof(m_data));
 	for (LBLK_T ii = 0; ii < TOTAL_BLOCK_NR; ++ii)
@@ -137,31 +144,18 @@ void CStorage::DumpStorage(FILE* out)
 	if (is_valid(end)) fprintf_s(out, "\t Write: start_lba=%d, count=%d\n", end, count);
 }
 
-void CStorage::cache_deque(LBLK_T cache_index)
-{
-	JCASSERT(0);
-}
-
-void CStorage::cache_enque(LBLK_T lba, LBLK_T cache_index)
-{
-	JCASSERT(0);
-}
-
-
 void CStorage::BlockWrite(LBLK_T lba, CPageInfo* page)
 {
 	JCASSERT(page);
 	JCASSERT(lba < TOTAL_BLOCK_NR);
+#ifdef USING_MANAGER
+	StorageDataBase* data = m_data_manager->get();
+#else
 	StorageDataBase* data = new StorageDataBase;
+#endif
 	data->lba = lba;
 	BLOCK_DATA* block = m_pages->get_data(page);	JCASSERT(block);
 	memcpy_s(&data->data, sizeof(BLOCK_DATA), block, sizeof(BLOCK_DATA));
-
-
-//	InterlockedExchangePointer((PVOID*)(&data->pre_ver), m_data[lba]);
-//	InterlockedExchangePointer((PVOID*)(&m_data[lba]), data);
-//	InterlockedExchangePointer((PVOID*)(&data->pre_write), m_cache_tail);
-//	InterlockedExchangePointer((PVOID*)(&m_cache_tail), data);
 
 	data->pre_ver = m_data[lba];
 	m_data[lba] = data;
@@ -238,12 +232,10 @@ void CStorage::Rollback(LBLK_T nr)
 	for (int ii = 0; ii < nr; ++ii)
 	{
 		StorageDataBase* data = m_cache_tail;
-//		InterlockedExchangePointer((PVOID*)(&m_cache_tail), m_cache_tail->pre_write);
 		m_cache_tail = data->pre_write;	
 		m_cache_nr--;
-		if (m_parent) {
-//			JCASSERT(m_cache_nr >= m_parent->m_begin_cache_nr);
-		}
+		//if (m_parent) {
+		//}
 		if (m_cache_nr < m_begin_cache_nr) m_begin_cache_nr = m_cache_nr;
 		LBLK_T lba = data->lba;
 		if (is_invalid(lba)) {
@@ -254,17 +246,107 @@ void CStorage::Rollback(LBLK_T nr)
 			if (lba >= TOTAL_BLOCK_NR) {
 				THROW_FS_ERROR(ERR_PHYSICAL_ADD_NOMATCH, L"lba (%d) in cache is invalid", lba);
 			}
-//			InterlockedExchangePointer((PVOID*)(&m_data[lba]), data->pre_ver);
 			m_data[lba] = data->pre_ver;
 			if (m_data[lba]) m_data[lba]->AddRef();
 			LOG_DEBUG_(1, L"[storage] release storage data, storage=%p, lba=%d, ptr=%p, ref=%d, pre_ptr=%p, pre_ref=%d", 
 				this, lba, data, data->m_ref, m_data[lba], m_data[lba]?m_data[lba]->m_ref:0);
+#ifdef USING_MANAGER
+			m_data_manager->put(data);
+#else
 			data->Release();
+#endif
 		}
 	}
 }
 
+/// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// == Sorage Data Manager
 
+StorageDataManager::StorageDataManager(void)
+{
+	InitializeCriticalSection(&m_lock);
+	m_free_nr = 0;
+	m_free_list = nullptr;
+}
+
+StorageDataManager::~StorageDataManager(void)
+{
+	Clear();
+}
+
+StorageDataBase* StorageDataManager::get(void)
+{
+	EnterCriticalSection(&m_lock);
+	if (m_free_nr == 0) AllocateBuffer(STORAGE_DATA_ALLOCATE_SIZE);
+	StorageDataBase* sdata = m_free_list;
+	m_free_list = m_free_list->pre_ver;
+	m_free_nr--;
+	LeaveCriticalSection(&m_lock);
+
+	sdata->m_ref = 1;
+	sdata->pre_ver = nullptr;
+
+	return sdata;
+}
+
+void StorageDataManager::put(StorageDataBase* sdata)
+{
+	long ref = InterlockedDecrement(&sdata->m_ref);
+	if (ref == 0) {
+		// 为避免递给深度太大，采用循环
+		StorageDataBase* pre = sdata->pre_ver;
+		while (pre)
+		{
+			long rr = InterlockedDecrement(&pre->m_ref);
+			if (rr != 0) break;
+			StorageDataBase* cur = pre;
+			pre = cur->pre_ver;
+			//回收cur
+			Reclaim(cur);
+//			delete cur;
+		}
+//		delete this;
+		Reclaim(sdata);
+	}
+}
+
+void StorageDataManager::AllocateBuffer(size_t nr)
+{
+	StorageDataBase* ss = new StorageDataBase[STORAGE_DATA_ALLOCATE_SIZE];
+	memset(ss, 0, sizeof(StorageDataBase));
+	int ii = 0;
+	for (ii = 0; ii < STORAGE_DATA_ALLOCATE_SIZE-1; ++ii)
+	{
+		ss[ii].pre_ver = ss + ii + 1;
+		ss[ii].lba = INVALID_BLK;
+	}
+	ss[ii].pre_ver = m_free_list;
+	ss[ii].lba = INVALID_BLK;
+	m_free_list = ss;
+	m_buffers.push_back(ss);
+	m_free_nr += STORAGE_DATA_ALLOCATE_SIZE;
+}
+
+void StorageDataManager::Reclaim(StorageDataBase* sdata)
+{
+	sdata->lba = INVALID_BLK;
+	sdata->pre_write = nullptr;
+	EnterCriticalSection(&m_lock);
+	sdata->pre_ver = m_free_list;
+	m_free_list = sdata;
+	m_free_nr++;
+	LeaveCriticalSection(&m_lock);
+}
+
+void StorageDataManager::Clear(void)
+{
+	for (auto it = m_buffers.begin(); it != m_buffers.end(); ++it)
+	{
+		StorageDataBase* sdata = *it;
+		delete[] sdata;
+	}
+	DeleteCriticalSection(&m_lock);
+}
 
 
 /// <summary>
@@ -332,11 +414,28 @@ CFsException::CFsException(ERROR_CODE code, const wchar_t* func, int line, const
 	: jcvos::CJCException(L"", jcvos::CJCException::ERR_APP, (UINT)code)
 {
 	wchar_t str[EXCEPTION_BUF + 2];
+//	size_t len = wcslen(msg) * 4 + 64;
+//	wchar_t* str = new wchar_t[len];
+
 	int ptr = swprintf_s(str, L"[Exception] <%s:%d> err=%d (%s)", func, line, code, ErrCodeToString(code));
 	va_list argptr;
 	va_start(argptr, msg);
 	vswprintf_s(str + ptr, EXCEPTION_BUF - ptr, msg, argptr);
 	m_err_msg = str;
+//	delete[] str;
+}
+
+CFsException::CFsException(ERROR_CODE code, const wchar_t* func, int line, size_t buf_size, const wchar_t* msg, ...)
+	: jcvos::CJCException(L"", jcvos::CJCException::ERR_APP, (UINT)code)
+{
+	wchar_t* str = new wchar_t[buf_size];
+
+	int ptr = swprintf_s(str, buf_size, L"[Exception] <%s:%d> err=%d (%s)", func, line, code, ErrCodeToString(code));
+	va_list argptr;
+	va_start(argptr, msg);
+	vswprintf_s(str + ptr, buf_size - ptr, msg, argptr);
+	m_err_msg = str;
+	delete[] str;
 }
 
 ERROR_CODE CFsException::get_error_code(void) const

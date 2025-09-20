@@ -16,11 +16,11 @@ LOCAL_LOGGER_ENABLE(L"ref_fs", LOGGER_LEVEL_DEBUGINFO);
 //== Reference file system ==
 
 
-void CReferenceFs::Initialize(const std::string & root_path)
+void CReferenceFs::Initialize(void)
 {
 	memset(m_files, 0, sizeof(m_files));
 	// add root
-	m_files[0].InitFile(-1, nullptr, root_path, true, 0);
+	m_files[0].InitFile(-1, nullptr, "\\", true, 0);
 	m_files[0].next = INVALID_BLK;
 	m_used_list = 0;
 
@@ -95,34 +95,39 @@ void CReferenceFs::debug_out_used_files(void)
 	}
 }
 
-CReferenceFs::CRefFile * CReferenceFs::AddPath(const std::string & path, bool dir, _NID fid )
+CReferenceFs::CRefFile * CReferenceFs::AddPath(const char* path, bool dir, _NID fid )
 {
 	if (m_free_num <= 0) return nullptr;
 	// find a free object;
 //	debug_out_used_files();
 
 	// 查找父节点
-	size_t pos = path.find_last_of("\\");
-	std::string parent_fn;
-	if (pos >0 ) parent_fn =std::string(path.c_str(), pos);
-	else parent_fn = "\\";
+	char parent_fn[MAX_PATH_SIZE + 1];
+	strcpy_s(parent_fn, path);
+	char* pos = strrchr(parent_fn, '\\');
+//	size_t pos = path.find_last_of("\\");
+//	std::string parent_fn;
+	if (pos == nullptr) THROW_ERROR(ERR_APP, L"[err] Wrong path: %S", path);
+	if (pos > parent_fn)	{	*pos = 0;	}
+	else { pos[1] = 0; }
+//	else parent_fn = "\\";
 
 	UINT parent_id = FindFileIndex(parent_fn);
 	UINT obj_id = get_file();
 	if (parent_id > MAX_FILE_NUM )
 	{
-		LOG_ERROR(L"[err] the parent (%s) is not exist", parent_fn.c_str());
-		THROW_ERROR(ERR_APP, L"[err] the parent (%s) is not exist", parent_fn.c_str());
+		LOG_ERROR(L"[err] the parent (%s) is not exist", parent_fn);
+		THROW_ERROR(ERR_APP, L"[err] the parent (%s) is not exist", parent_fn);
 		return nullptr;
 	}
 	if (parent_id == obj_id) {
-		THROW_ERROR(ERR_APP, L"[err] the parent (%s), id=%d is the same as current id=%d", parent_fn.c_str(), parent_id, obj_id);
+		THROW_ERROR(ERR_APP, L"[err] the parent (%s), id=%d is the same as current id=%d", parent_fn, parent_id, obj_id);
 	}
 	CRefFile * parent = &m_files[parent_id];
 	if (!parent->isdir())
 	{
-		LOG_ERROR(L"[err] the parent (%s) is not a dir!", parent_fn.c_str());
-		THROW_ERROR(ERR_APP, L"[err] the parent (%s) is not a dir!", parent_fn.c_str() );
+		LOG_ERROR(L"[err] the parent (%s) is not a dir!", parent_fn);
+		THROW_ERROR(ERR_APP, L"[err] the parent (%s) is not a dir!", parent_fn );
 		return nullptr;
 	}
 	// 初始化file obj
@@ -130,13 +135,9 @@ CReferenceFs::CRefFile * CReferenceFs::AddPath(const std::string & path, bool di
 
 	// 添加到父节点
 	parent->m_children[parent->size] = obj_id;
-//	m_files[obj_id].pos = parent->size;
 	parent->size++;
 	if (dir) m_dir_num++;
 	else m_file_num++;
-
-//	LOG_DEBUG(L"this = 0x%08p", this);
-//	m_ref.insert(std::make_pair(path, obj_id));
 
 	// 更新encode
 	parent->UpdateEncode(m_files);
@@ -154,7 +155,7 @@ void CReferenceFs::GetFilePath(const CRefFile & file, std::string & path) const
 	path = file.m_fn;
 }
 
-void CReferenceFs::UpdateFile(const std::string & path, DWORD checksum, size_t len)
+void CReferenceFs::UpdateFile(const char* path, DWORD checksum, size_t len)
 {
 	CRefFile * pp = FindFile(path);
 	if (pp == nullptr || pp->isdir() )
@@ -207,35 +208,36 @@ void CReferenceFs::Demount(void)
 	m_opened = 0;
 }
 
-UINT CReferenceFs::FindFileIndex(const std::string& path)
+UINT CReferenceFs::FindFileIndex(const char* path)
 {
 	UINT ii = m_used_list;
 	while (is_valid(ii))
 	{
 		CRefFile& file = m_files[ii];
-		if (path == file.m_fn) { return ii; }
+		if (strcmp(path, file.m_fn) == 0){ return ii; }
+//		if (path == file.m_fn) { return ii; }
 		ii = file.next;
 	}
 	return ii;
 }
 
-CReferenceFs::CRefFile * CReferenceFs::FindFile(const std::string & path)
+CReferenceFs::CRefFile * CReferenceFs::FindFile(const char* path)
 {
 	UINT ii = FindFileIndex(path);
 	if (is_invalid(ii)) return nullptr;
 	return m_files + ii;
 }
 
-bool CReferenceFs::IsExist(const std::string& path)
+bool CReferenceFs::IsExist(const char* path)
 {
 	UINT ii = FindFileIndex(path);
 	return is_valid(ii);
 }
 
-void CReferenceFs::RemoveFile(const std::string & path)
+void CReferenceFs::RemoveFile(const char* path)
 {
 	UINT obj_id = FindFileIndex(path);
-	if (obj_id >= MAX_FILE_NUM) THROW_ERROR(ERR_APP, L"[err] file (%s) cannot find for remove", path.c_str());
+	if (obj_id >= MAX_FILE_NUM) THROW_ERROR(ERR_APP, L"[err] file (%s) cannot find for remove", path);
 	CRefFile * obj = m_files + obj_id;
 	bool isdir = obj->isdir();
 
@@ -252,20 +254,20 @@ void CReferenceFs::RemoveFile(const std::string & path)
 	put_file(obj_id);
 }
 
-void CReferenceFs::MoveFile(const std::string& src, const std::string dst)
+void CReferenceFs::MoveFile(const char* src, const char* dst)
 {
 	UINT ii = m_used_list;
-	const char* _src = src.c_str();
-	const char* _dst = dst.c_str();
-	size_t src_len = src.size();
-	size_t dst_len = dst.size();
+	//const char* _src = src.c_str();
+	//const char* _dst = dst.c_str();
+	size_t src_len = strlen(src);
+	size_t dst_len = strlen(dst);
 	char temp[MAX_PATH_SIZE + 1];
 	CRefFile* tar_file = nullptr;
 
 	while (is_valid(ii))
 	{
 		CRefFile& file = m_files[ii];
-		if (strncmp(_src, file.m_fn, src.size()) == 0 && (file.m_fn[src_len]=='\\' || file.m_fn[src_len] ==0) )
+		if (strncmp(src, file.m_fn, src_len) == 0 && (file.m_fn[src_len]=='\\' || file.m_fn[src_len] ==0) )
 		{
 			if (file.m_fn[src_len] == 0)
 			{	// 找到文件
@@ -280,12 +282,12 @@ void CReferenceFs::MoveFile(const std::string& src, const std::string dst)
 				strcpy_s(tar, buf_len, temp);
 			}
 
-			memcpy_s(file.m_fn, MAX_PATH_SIZE, _dst, dst_len);
+			memcpy_s(file.m_fn, MAX_PATH_SIZE, dst, dst_len);
 		}
 		ii = file.next;
 	}
 	if (tar_file == nullptr) {
-		THROW_ERROR(ERR_APP, L"[err] move source file %S does not find in ref fs", _src);
+		THROW_ERROR(ERR_APP, L"[err] move source file %S does not find in ref fs", src);
 	}
 	CRefFile* parent = &m_files[tar_file->m_parent];
 	parent->m_write_count++;
@@ -316,11 +318,11 @@ size_t CReferenceFs::Encode(char* code, size_t buf_len) const
 
 #define ENCODE_TYPE 2
 
-void CReferenceFs::CRefFile::InitFile(UINT parent_id, CRefFile * parent, const std::string& path, bool isdir, _NID _fid)
+void CReferenceFs::CRefFile::InitFile(UINT parent_id, CRefFile * parent, const char* path, bool isdir, _NID _fid)
 {
 	m_parent = parent_id;
 	this->fid = _fid;
-	strcpy_s(m_fn, path.c_str());
+	strcpy_s(m_fn, path);
 	size = 0;
 	m_is_open = false;
 	m_is_dir = isdir;

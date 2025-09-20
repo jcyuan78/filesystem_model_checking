@@ -381,8 +381,9 @@ bool DiskContents::compare_disk_contents(DiskContents& compare_disk, std::wofstr
 		LOG_ERROR(L"[err] failed on mounting test fs to drive: %s", disk_path.c_str());
 		return false;
 	}
-	std::vector<std::wstring> files_src;
-	fs_testing::utility::ListAllFiles(m_fs, L"\\", files_src);
+	std::vector<std::wstring> files_src; 
+	JCASSERT(0);	//<TODO> implement ListAllFiles
+//	fs_testing::utility::ListAllFiles(m_fs, L"\\", files_src);
 //	get_contents(base_path.c_str());
 
 	if (compare_disk.mount_disk() != 0)
@@ -392,8 +393,7 @@ bool DiskContents::compare_disk_contents(DiskContents& compare_disk, std::wofstr
 		return false;
 	}
 	std::vector<std::wstring> files_ref;
-	fs_testing::utility::ListAllFiles(compare_disk.m_fs, L"\\", files_ref);
-
+//	fs_testing::utility::ListAllFiles(compare_disk.m_fs, L"\\", files_ref);
 //	compare_disk.get_contents(compare_disk.get_mount_point().c_str());
 
 	// Compare the size of contents
@@ -497,7 +497,8 @@ bool DiskContents::compare_entries_at_path(DiskContents& compare_disk, std::wstr
 	std::wstring compare_disk_mount_point(compare_disk.get_mount_point());
 	LOG_DEBUG(L"compare point=%s, compare path=%s", compare_disk_mount_point.c_str(), compare_path.c_str());
 	std::vector<std::wstring> files;
-	fs_testing::utility::ListAllFiles(m_fs, L"\\", files);
+	JCASSERT(0) //<TODO>
+//	fs_testing::utility::ListAllFiles(m_fs, L"\\", files);
 #endif
 
 	//jcvos::auto_interface<IFileInfo> base_dir;
@@ -681,7 +682,8 @@ bool DiskContents::isEmptyDirOrFile(std::wstring path)
 	//}
 
 	std::vector<std::wstring> files;
-	fs_testing::utility::ListAllFiles(m_fs, path, files);
+	JCASSERT(0);	//<TODO>
+//	fs_testing::utility::ListAllFiles(m_fs, path, files);
 	bool is_empty = (files.size() == 0);
 	return is_empty;
 
@@ -786,7 +788,8 @@ bool DiskContents::makeFiles(std::wstring base_path, std::wofstream& diff_file)
 {
 #if 1
 	std::vector<std::wstring> files;
-	fs_testing::utility::ListAllFiles(m_fs, L"\\", files);
+	JCASSERT(0); // <TODO>
+//	fs_testing::utility::ListAllFiles(m_fs, L"\\", files);
 
 //	get_contents(base_path.c_str());
 	for (auto& i : files)

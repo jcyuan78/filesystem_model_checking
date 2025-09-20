@@ -351,7 +351,7 @@ protected:
 
 protected:
 	// free
-	SEG_T m_free_tail, m_free_head, m_free_nr; // head指向链表最后，用于en-queue; tail指向链表头，用于de-queue
+	SEG_T /*m_free_tail,*/ m_free_head, m_free_nr; // head指向链表最后，用于en-queue; tail指向链表头，用于de-queue
 	PHY_BLK	m_used_blk_nr;
 
 protected:

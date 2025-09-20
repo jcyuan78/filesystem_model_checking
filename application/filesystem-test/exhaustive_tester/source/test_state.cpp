@@ -215,7 +215,6 @@ bool CStateHeap::CheckAndInsert(const CFsState* state)
 	bool exist = false;	// 存在相同节点，且深度小于当前深度
 	if (it != m_fs_state.end())
 	{
-//		LOG_DEBUG(L"current depth=%d", it->second);
 		if (it->second <= state->m_depth) exist = true;
 		else {// 替换
 			it->second = state->m_depth;
@@ -228,8 +227,5 @@ bool CStateHeap::CheckAndInsert(const CFsState* state)
 		JCASSERT(res.second);
 		exist = false;
 	}
-
-	//bool exist = (it != m_fs_state.end());
-	//LOG_DEBUG(L"fs encode=%S, exist=%d", encode.code, exist);
 	return exist;
 }

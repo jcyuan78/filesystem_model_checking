@@ -19,8 +19,6 @@ inline bool is_valid(const T val) { return val != (T)(-1); }
 template <typename T>
 inline bool is_invalid(const T val) { return val == (T)(-1); }
 
-
-
 enum ERROR_CODE
 {
 	ERR_OK = 0,
@@ -106,32 +104,6 @@ struct FILE_DATA
 	UINT	ver;
 };
 
-/// <summary>
-/// 描述文件系统的运行状态。通过特殊（$health）文件读取
-/// </summary>
-//struct FsHealthInfo
-//{
-//	SEG_T m_seg_nr;	// 总的segment数量
-//	PHY_BLK m_blk_nr;	// 总的block数量
-//	LBLK_T m_logical_blk_nr;			// 逻辑块总是。makefs时申请的逻辑块数量
-//	PHY_BLK m_free_blk;		// 空闲逻辑块数量。不是一个精确数值，初始值为允许的逻辑饱和度。当过量写的时候，可能导致负数。
-//
-//	LONG64 m_total_host_write;	// 以块为单位，host的写入总量。（快的大小由根据文件系统调整，一般为4KB）
-//	LONG64 m_total_media_write;	// 写入介质的数据总量，以block为单位
-//
-//	LBLK_T m_logical_saturation;	// 逻辑饱和度。被写过的逻辑块数量，不包括metadata
-//	PHY_BLK m_physical_saturation;	// 物理饱和度。有效的物理块数量，
-//
-//	WORD m_node_nr;		// nid, direct node的总数
-//	WORD m_free_node_nr;
-//
-//	// file system events
-//	UINT sit_journal_overflow;
-//	UINT nat_journal_overflow;
-//	UINT gc_count;
-//};
-
-
 struct FS_INFO
 {
 	// 固定信息
@@ -150,13 +122,7 @@ struct FS_INFO
 	UINT	gc_count;
 	UINT	free_page;
 
-//	UINT max_file_nr;	// 最大支持的文件数量
 	// 考虑到crash, 无法通过跟踪准确获取文件数量
-	//	UINT dir_nr, file_nr;		// 目录数量和文件数量
-
-//	LONG64 total_host_write;
-//	LONG64 total_media_write;
-
 };
 
 struct GC_TRACE
@@ -190,9 +156,9 @@ public:
 
 
 	// 文件系统基本操作
-	virtual ERROR_CODE  FileCreate(_NID & fid, const std::string& fn) = 0;
-	virtual ERROR_CODE  DirCreate(_NID & fid, const std::string& fn) = 0;
-	virtual ERROR_CODE  FileOpen(_NID & fid, const std::string& fn, bool delete_on_close = false) = 0;
+	virtual ERROR_CODE  FileCreate(_NID & fid, const char* fn) = 0;
+	virtual ERROR_CODE  DirCreate(_NID & fid, const char* fn) = 0;
+	virtual ERROR_CODE  FileOpen(_NID & fid, const char* fn, bool delete_on_close = false) = 0;
 	virtual void FileClose(_NID fid) = 0;
 	// 设置和获取文件大小，以sector为单位。
 	virtual void SetFileSize(_NID fid, FSIZE secs) = 0;
@@ -203,9 +169,9 @@ public:
 	virtual size_t FileRead(FILE_DATA blks[], _NID fid, FSIZE offset, FSIZE secs) = 0;
 	virtual void FileTruncate(_NID fid, FSIZE offset, FSIZE secs) = 0;
 	// delete 根据文件名删除文件。FileRemove()根据ID，删除文件相关内容，但是不删除path map
-	virtual void FileDelete(const std::string & fn) = 0;	
-	virtual ERROR_CODE DirDelete(const std::string& fn) = 0;
-	virtual ERROR_CODE FileMove(const std::string& src, const std::string& dst) = 0;
+	virtual void FileDelete(const char* fn) = 0;	
+	virtual ERROR_CODE DirDelete(const char* fn) = 0;
+	virtual ERROR_CODE FileMove(const char* src, const char* dst) = 0;
 	virtual void FileFlush(_NID fid) = 0;
 	// 文件能够支持的最大长度（block单位）
 	virtual DWORD MaxFileSize(void) const = 0;
@@ -242,6 +208,8 @@ class CFsException : public jcvos::CJCException
 {
 public:
 	CFsException(ERROR_CODE code, const wchar_t * func, int line, const wchar_t* msg, ...);
+	CFsException(ERROR_CODE code, const wchar_t* func, int line, size_t buf_size, const wchar_t* msg, ...);
+
 	ERROR_CODE get_error_code(void) const;
 	static const wchar_t* ErrCodeToString(ERROR_CODE code);
 };

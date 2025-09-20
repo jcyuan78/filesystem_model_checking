@@ -243,7 +243,12 @@ ERROR_CODE CExTester::EnumerateOp_Thread_V2(TRACE_ENTRY* ops, size_t op_size, CF
 			}
 		}
 		else {
+#ifdef USE_HEAP
 			if (m_closed.CheckAndInsert(state)) {
+#else
+			m_closed_size++;
+			if (0) {
+#endif
 				LOG_DEBUG(L"put state=%p due to duplicated state", state);
 				m_states.put(state);
 			}
@@ -432,9 +437,14 @@ VOID CExTester::FsOperator_Callback(WORK_CONTEXT* context)
 		if (context->state->m_depth < tester->m_error_list[ir])
 		{
 			InterlockedExchange(&tester->m_error_list[ir], context->state->m_depth);
-			char str[512];
-			sprintf_s(str, "[depth=%d], %s", context->state->m_depth, err_msg.c_str());
-			tester->OutputTrace_Thread(context->state, ir, str, (DWORD)(ir), TRACE_REF_FS | TRACE_REAL_FS | TRACE_FILES | TRACE_JSON);
+//			char str[512];
+//			sprintf_s(str, "[depth=%d], %s", context->state->m_depth, err_msg.c_str());
+			char str[32];
+			sprintf_s(str, "[depth=%d],", context->state->m_depth);
+			std::string ss = str;
+			ss += err_msg;
+
+			tester->OutputTrace_Thread(context->state, ir, ss, (DWORD)(ir), TRACE_REF_FS | TRACE_REAL_FS | TRACE_FILES | TRACE_JSON);
 		}
 	}
 	context->result = ir;
@@ -576,8 +586,8 @@ bool CExTester::OutputTrace(FILE* fp, const std::string& json_fn, CFsState* stat
 		}
 		char str[256];
 		Op2String(str, state->m_op);
-		fprintf_s(fp, "\t%s, result=%d (%S) %S\n", str, state->m_result, CFsException::ErrCodeToString(state->m_result),
-			state->m_err_msg ? state->m_err_msg->c_str():L"");
+		fprintf_s(fp, "\t%s, result=%d (%S) %s\n", str, state->m_result, CFsException::ErrCodeToString(state->m_result),
+			state->m_err_msg ? state->m_err_msg->c_str():"");
 		if (option & TRACE_JSON)	stack.push_front(state);
 		state = state->m_parent;
 	}

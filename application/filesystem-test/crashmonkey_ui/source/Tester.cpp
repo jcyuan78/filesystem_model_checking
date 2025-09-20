@@ -856,7 +856,8 @@ vector<milliseconds> Tester::test_fsck_and_user_test(IVirtualDisk * device,
 		// Use popen so that we can throw all the output from fsck into the log that we are keeping. This information
 		//  will go just before the summary of what went wrong in the test.
 		LOG_DEBUG(L"[linux] sys call: %s", command.c_str());
-		IFileSystem::FsCheckResult ir = m_fs->FileSystemCheck(device, false);
+		boost::property_tree::wptree option;
+		IFileSystem::FSCK_RESULT ir = m_fs->FileSystemCheck(device, false, option);
 #if 0
 		FILE* pipe = popen(command.c_str(), "r");
 		wchar_t tmp[128];
@@ -895,11 +896,11 @@ vector<milliseconds> Tester::test_fsck_and_user_test(IVirtualDisk * device,
 		FileSystemTestResult::ErrorType err;
 		switch (ir)
 		{
-		case IFileSystem::CheckNoError: err = FileSystemTestResult::kClean; break;
-		case IFileSystem::CheckFixed:	err = FileSystemTestResult::kFixed; break;
+		case IFileSystem::FSCK_SUCCESS: err = FileSystemTestResult::kClean; break;
+		case IFileSystem::FSCK_CHECK_FIZED:	err = FileSystemTestResult::kFixed; break;
 //		case IFileSystem::CheckError:	err = FileSystemTestResult::kCheck;	break;
-		case IFileSystem::CheckFailed:	err = FileSystemTestResult::kCheck; break;
-		case IFileSystem::CheckUnfixed:	err = FileSystemTestResult::kCheckUnfixed; break;
+		case IFileSystem::FSCK_CKECK_FAILED:	err = FileSystemTestResult::kCheck; break;
+		case IFileSystem::FSCK_CKECK_UNFIXED:	err = FileSystemTestResult::kCheckUnfixed; break;
 		default: err = FileSystemTestResult::kOther; break;
 		}
 		test_info.fs_test.SetError(err);

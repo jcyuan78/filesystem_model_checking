@@ -173,7 +173,7 @@ ERROR_CODE CExStatisticTester::SingleThreadTest(void)
 		CFsState* ss = states.get();
 		IFsSimulator* fs = nullptr;
 		init_state.m_real_fs->Clone(fs);
-		ss->Initialize("\\", fs);
+		ss->Initialize(fs);
 
 		ERROR_CODE ir = OneTest(ss, test, tid + test, ops, &states);
 		states.put(ss);
@@ -265,7 +265,7 @@ DWORD CExStatisticTester::RunTestQueue(WORK_CONTEXT* work)
 
 		CFsState* init_state = states.get();
 		fs->CopyFrom(src_state->m_real_fs);
-		init_state->Initialize("\\", fs);
+		init_state->Initialize(fs);
 		fs->add_ref();
 		int seed = tid + rand();
 		work->result = OneTest(init_state, work->test_id, seed, ops, &states);
@@ -299,8 +299,9 @@ size_t CExStatisticTester::GenerateOps(CFsState* cur_state, TRACE_ENTRY* ops, si
 		const CReferenceFs::CRefFile& file = ref_fs.GetFile(it);
 		bool isdir = ref_fs.IsDir(file);
 
-		std::string path;
-		ref_fs.GetFilePath(file, path);
+		//std::string path;
+		//ref_fs.GetFilePath(file, path);
+		const char* path = file.get_path();
 
 		DWORD checksum;
 		FSIZE file_len;

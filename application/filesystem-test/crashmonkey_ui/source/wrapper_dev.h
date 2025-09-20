@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <ifilesystem.h>
 #include <crashmonkey_comm.h>
@@ -45,6 +45,16 @@ public:
 	CWrapperDisk(void) { m_hwm_dev.current_write = NULL; m_hwm_dev.writes = NULL; m_hwm_dev.current_log_write = NULL; };
 	~CWrapperDisk(void);
 public:
+	virtual bool InitializeDevice(const boost::property_tree::wptree& config) { return false; }
+	virtual bool LoadFromFile(const std::wstring& fn) { return false; }
+	virtual bool SaveToFile(const std::wstring& fn) { return false; }
+	virtual UINT GetSectorSize(void) const { return 512; }
+	// offset在overlap中定义
+	virtual bool AsyncWriteSectors(void* buf, size_t secs, OVERLAPPED* overlap) { return false; }
+	virtual bool AsyncReadSectors(void* buf, size_t secs, OVERLAPPED* overlap) { return false; }
+	virtual size_t GetIoLogs(IO_ENTRY* entries, size_t io_nr) { return 0; }
+
+
 	virtual size_t GetCapacity(void) { return m_target_dev->GetCapacity(); }		// in sector
 	virtual bool ReadSectors(void* buf, size_t lba, size_t secs);
 	virtual bool WriteSectors(void* buf, size_t lba, size_t secs);
@@ -52,12 +62,13 @@ public:
 	virtual bool FlushData(UINT lba, size_t secs);
 	virtual void SetSectorSize(UINT size) { return; }
 	virtual void CopyFrom(IVirtualDisk* dev) { return; }
-	// ����ǰ��image���浽�ļ���.
+	// 将当前的image保存到文件中. => TODO: 这些特定驱动其用到的函数可以通过IoCtrol实现。
 	virtual bool SaveSnapshot(const std::wstring& fn) { return false; }
 
 	virtual bool GetHealthInfo(HEALTH_INFO& info) { return false; }
 
 	virtual size_t GetLogNumber(void) const { return 0; }
+
 	virtual bool BackLog(size_t num) { return false; }
 	virtual void ResetLog(void) { return; }
 	virtual int  IoCtrl(int mode, UINT cmd, void* arg);
