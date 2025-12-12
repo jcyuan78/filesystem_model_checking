@@ -95,6 +95,9 @@ ERROR_CODE CExTraceTester::RunTest(void)
 
 //	CFsState& state = *m_cur_state;
 
+	DWORD state_option = TRACE_REF_FS | TRACE_FILES | TRACE_ENCODE | TRACE_DUMP_FS;
+	state_option |= ((m_closed.m_opcode_len) << 24);
+
 	ERROR_CODE ir = ERR_OK;
 	int step = 0;
 	for (auto it = ops.begin(); it != ops.end(); ++it, ++step)
@@ -152,6 +155,7 @@ ERROR_CODE CExTraceTester::RunTest(void)
 			case OP_CODE::OP_MOVE:			
 				printf_s("[MoveFile] %s to %s\n", op.file_path, op.dst);
 				ir = TestMoveFile(next_state, op.file_path, op.dst);
+				next_state->m_real_fs->DumpLog(stdout, "");
 				break;
 			case OP_CODE::OP_FILE_WRITE: {
 				CReferenceFs::CRefFile* ref_file = next_state->m_ref_fs.FindFile(op.file_path);
@@ -187,6 +191,7 @@ ERROR_CODE CExTraceTester::RunTest(void)
 				break;
 			default:						break;
 			}
+			next_state->OutputState(stdout, state_option);
 		}
 		catch (jcvos::CJCException& err)
 		{

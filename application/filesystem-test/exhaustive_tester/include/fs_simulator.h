@@ -194,6 +194,8 @@ public:
 	virtual void LogOption(FILE * out, DWORD flag) = 0;
 	// 通过dump相应的log到指定输出
 	virtual void DumpLog(FILE* out, const char* log_name) = 0;
+	virtual void DumpFs(FILE* out) =0;
+
 
 	//virtual void DumpSegments(const std::wstring& fn, bool sanity_check) = 0;
 	//virtual void DumpSegmentBlocks(const std::wstring& fn) = 0;
@@ -216,8 +218,9 @@ public:
 
 
 
-#define THROW_FS_ERROR(code, ...)   {		\
+#define THROW_FS_ERROR(code, msg, ...)   {		\
 		FS_BREAK	\
-		CFsException err(code, __STR2WSTR__(__FUNCTION__), __LINE__, __VA_ARGS__); \
+		LOG_ERROR(L"[err %d] " msg, code, __VA_ARGS__); \
+		CFsException err(code, __STR2WSTR__(__FUNCTION__), __LINE__, msg, __VA_ARGS__); \
         /*LogException(__STR2WSTR__(__FUNCTION__), __LINE__, err);*/	\
         throw err; }

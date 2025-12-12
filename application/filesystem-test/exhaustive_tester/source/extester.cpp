@@ -63,6 +63,7 @@ int CExTester::PrepareTest(const boost::property_tree::wptree& config, IFsSimula
 	m_check_power_loss = config.get<bool>(L"check_power_loss", false);
 	m_stop_on_error = config.get<bool>(L"stop_on_error", false);
 	m_skip_check_file_data = config.get<bool>(L"skip_check_file_data", false);
+	m_closed.m_opcode_len = config.get<int>(L"opcode_len", 3);
 
 	// 文件系统支持的最大文件大小。
 	FSIZE max_file_secs = m_fs_factory->MaxFileSize() * BLOCK_SIZE;
@@ -555,6 +556,9 @@ void CExTester::GetTestSummary(boost::property_tree::wptree& pt_sum)
 	sum.add(L"state_closed", state);
 	sum.add(L"max_depth", m_max_depth);
 	sum.add(L"max_file_num", m_file_num);
+	sum.add(L"max_dir_num", m_dir_num);
+	sum.add(L"max_item_num", m_total_item_num);
+
 	sum.add(L"max_logical_blks", m_logical_blks);
 	sum.add(L"max_physical_blks", m_physical_blks);
 	sum.add(L"min_free_blks", m_free_blks);
@@ -585,13 +589,12 @@ ERROR_CODE CExTester::EnumerateOpV2(TRACE_ENTRY* ops, size_t op_size, CFsState* 
 		ERROR_CODE ir = DoFsOperator(cur_state, ops[ii], insert);
 		if (ir != ERR_OK) return ir;
 	}
-	UpdateFsParam(cur_state->m_real_fs);
+	UpdateFsParam(cur_state);
 	return ERR_OK;
 }
 
 void AppendRandomPath(char* file_path)
 {
-	//		std::string path = (op.file_path.size() > 1) ? (op.file_path + "\\" + fn) : (op.file_path + fn);
 	size_t path_len = strlen(file_path);
 	char* ptr = nullptr;
 	if (path_len > 1)
@@ -607,6 +610,38 @@ void AppendRandomPath(char* file_path)
 	GenerateFn(ptr, (int)(MAX_PATH_SIZE - path_len));
 }
 
+void MakePathName(CFsState* state, char*file_path)
+{
+//	char new_path[MAX_PATH_SIZE + 1];
+//	size_t src_len = strlen(op.file_path);
+//	strcpy_s(new_path, op.file_path);
+	size_t path_len = strlen(file_path);
+	char* ptr = nullptr;
+	if (path_len > 1)
+	{
+		ptr = file_path + path_len;
+		*ptr = '\\';
+		ptr++;
+		path_len++;
+	}
+	else {	// 根目录
+		ptr = file_path + 1;
+	}
+
+	int retry = 20;
+	while (retry > 0) {
+		GenerateFn(ptr, (int)(MAX_PATH_SIZE - path_len));
+		bool exist = state->m_ref_fs.IsExist(file_path);
+		if (!exist) break;
+		retry--;
+	}
+	if (retry <= 0)
+	{
+		LOG_ERROR(L"[err] cannot find unused file name");
+		JCASSERT(0);
+	}
+}
+
 // for both single thread and multi thread
 ERROR_CODE CExTester::FsOperatorCore(CFsState* state, TRACE_ENTRY& op)
 {
@@ -616,13 +651,15 @@ ERROR_CODE CExTester::FsOperatorCore(CFsState* state, TRACE_ENTRY& op)
 	switch (op.op_code)
 	{
 	case OP_FILE_CREATE: {
-		AppendRandomPath(op.file_path);
+//		AppendRandomPath(op.file_path);
+		MakePathName(state, op.file_path);
 		op.offset = 0;
 		op.length = 0;
 		ir = TestCreateFile(state, op.file_path);
 		break; }
 	case OP_DIR_CREATE: {
-		AppendRandomPath(op.file_path);
+//		AppendRandomPath(op.file_path);
+		MakePathName(state, op.file_path);
 		op.offset = 0;
 		op.length = 0;
 		ir = TestCreateDir(state, op.file_path);
@@ -634,8 +671,13 @@ ERROR_CODE CExTester::FsOperatorCore(CFsState* state, TRACE_ENTRY& op)
 		if ( ptr == nullptr || *ptr == 0) {
 			THROW_ERROR(ERR_APP, L"[err] wrong source file name for move: %S", op.file_path);
 		}
-		ptr++;
-		GenerateFn(ptr, (int)(MAX_PATH_SIZE - (ptr - op.dst)) );
+		LOG_DEBUG(L"ptr=%lld", (ptr - op.dst));
+		if (ptr - op.dst == 0)  ptr[1] = 0;
+		else ptr[0] = 0;
+//		ptr++;
+//		*ptr = 0;
+		MakePathName(state, op.dst);
+		//GenerateFn(ptr, (int)(MAX_PATH_SIZE - (ptr - op.dst)) );
 		ir = TestMoveFile(state, op.file_path, op.dst);
 		break;
 	}
@@ -688,12 +730,15 @@ ERROR_CODE CExTester::FsOperatorCore(CFsState* state, TRACE_ENTRY& op)
 		is_power_test = true;
 		break;
 	}
+	// 给fs encoding添加一个op code
+	state->m_ref_fs.EncodingAppendOp(op);
 	if (state->m_result==ERR_OK) state->m_result = ir;
 	// (3) 检查测试结果
 	if (ir != ERR_OK && ir != ERR_NO_OPERATION)
 	{
 		//THROW_FS_ERROR(ir, L"error op=%d, msg=%S", op.op_code, state->m_err_msg ? state->m_err_msg->c_str() : "");
 		FS_BREAK;
+		// Format 长度20， 
 		size_t buf_size = 32;
 		if (state->m_err_msg) buf_size += state->m_err_msg->size()*2;
 		CFsException err(ir, __STR2WSTR__(__FUNCTION__), __LINE__, buf_size, L"error op=%d, msg=%S", op.op_code, state->m_err_msg ? state->m_err_msg->c_str() : "");
@@ -716,11 +761,15 @@ ERROR_CODE CExTester::DoFsOperator(CFsState* cur_state, TRACE_ENTRY& op, std::li
 
 	try {
 		ir = FsOperatorCore(new_state, new_state->m_op);
-		if (m_closed.Check(new_state))
-		{
+		if (m_closed.CheckAndInsert(new_state)) {
 			m_states.put(new_state);
 			return ERR_OK;
 		}
+		//if (m_closed.Check(new_state))
+		//{
+		//	m_states.put(new_state);
+		//	return ERR_OK;
+		//}
 		if (new_state && ir== ERR_OK)
 		{
 			m_open_list.insert(insert, new_state);
@@ -762,10 +811,21 @@ void min_update(T& v, T a)
 	if (a < v) v = a;
 }
 
-void CExTester::UpdateFsParam(IFsSimulator* fs)
+//void CExTester::UpdateFsParam(IFsSimulator* fs)
+void CExTester::UpdateFsParam(CFsState * state)
 {
+	IFsSimulator* fs = state->m_real_fs;
+	CReferenceFs& ref_fs = state->m_ref_fs;
+
 	FS_INFO src_info;
 	fs->GetFsInfo(src_info);
+
+	UINT file_nr = ref_fs.m_file_num, dir_nr = ref_fs.m_dir_num;
+	UINT item_nr = file_nr + dir_nr;
+
+	max_update(m_file_num, file_nr);
+	max_update(m_dir_num, dir_nr);
+	max_update(m_total_item_num, item_nr);
 
 	max_update(m_logical_blks, src_info.used_blk);
 	m_total_blks = src_info.main_blk_nr;
@@ -848,7 +908,7 @@ ERROR_CODE CExTester::VerifyState(CReferenceFs & ref_fs, IFsSimulator * real_fs,
 		FSIZE total_file_blks = 0;
 
 		char str_encode[MAX_ENCODE_SIZE];
-		ref_fs.Encode(str_encode, MAX_ENCODE_SIZE);
+		ref_fs.Encode(str_encode, MAX_ENCODE_SIZE, m_closed.m_opcode_len);
 
 		auto endit = ref_fs.End();
 		for (auto it = ref_fs.Begin(); it != endit; ++it)
@@ -859,7 +919,7 @@ ERROR_CODE CExTester::VerifyState(CReferenceFs & ref_fs, IFsSimulator * real_fs,
 
 			checked_total++;
 			bool dir = ref_fs.IsDir(ref_file);
-			ref_fs.Encode(str_encode, MAX_ENCODE_SIZE);
+			ref_fs.Encode(str_encode, MAX_ENCODE_SIZE, m_closed.m_opcode_len);
 			DWORD access = 0;
 			DWORD flag = 0;
 			if (dir) { flag |= FILE_FLAG_BACKUP_SEMANTICS; }

@@ -440,7 +440,7 @@ ERROR_CODE CExStatisticTester::OneTest(CFsState* src_state, DWORD test_id, int s
 		}
 
 		if (ir > ERR_NO_SPACE) { break; }
-		UpdateFsParam(cur_state->m_real_fs);
+		UpdateFsParam(cur_state);
 		OutputTestParameter(param_out, depth, cur_state);
 		depth++;
 	}

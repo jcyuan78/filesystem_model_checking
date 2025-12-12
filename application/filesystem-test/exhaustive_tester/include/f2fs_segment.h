@@ -6,6 +6,8 @@
 class CF2fsSimulator;
 class CPageInfo;
 
+#define FIFO_SEG	//free segment管理为FIFO，不定义的话为FILO
+
 //#define ENABLE_FS_TRACE
 
 // [change] 2024.05.03: 将free segment的管理改为连表示。不在保留free seg数组，通过一个free的指针指向第一个free的segment, segment的valid_blk作为指向下一个free segment的指针。
@@ -351,7 +353,12 @@ protected:
 
 protected:
 	// free
-	SEG_T /*m_free_tail,*/ m_free_head, m_free_nr; // head指向链表最后，用于en-queue; tail指向链表头，用于de-queue
+#ifdef FIFO_SEG
+	SEG_T m_free_tail, m_free_head, m_free_nr; // head指向链表最后，用于en-queue; tail指向链表头，用于de-queue
+
+#else
+	SEG_T m_free_head, m_free_nr; // head指向链表最后，用于en-queue; tail指向链表头，用于de-queue
+#endif
 	PHY_BLK	m_used_blk_nr;
 
 protected:

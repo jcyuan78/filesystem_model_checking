@@ -18,7 +18,7 @@ _NID CNodeAddressTable::Init(PHY_BLK root)
 	memset(node_cache, 0xFF, sizeof(PAGE_INDEX) * NODE_NR);
 	memset(dirty, 0xFF, sizeof(DWORD) * NAT_BLK_NR);
 	if (!build_free()) {
-		THROW_FS_ERROR(ERR_NO_SPACE, L"no valid node during initializing");
+		THROW_FS_ERROR(ERR_NO_SPACE, L"no valid node during initializing", L"");
 	}
 	Sync();			// 将NAT写入磁盘
 	return 0;

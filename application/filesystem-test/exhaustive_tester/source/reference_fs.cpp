@@ -167,14 +167,13 @@ void CReferenceFs::UpdateFile(const char* path, DWORD checksum, size_t len)
 
 void CReferenceFs::UpdateFile(CRefFile & file, DWORD checksum, size_t len)
 {
-//	file.checksum = checksum;
 	file.size = boost::numeric_cast<int>(len);
-	file.m_write_count++;
+//	file.m_write_count++;
+//	if (file.m_ver < MAX_FILE_VERSION) file.m_ver++;
+	file.m_ver++;
 	// 更新encode
 	file.UpdateEncode(m_files);
 }
-
-
 
 void CReferenceFs::OpenFile(CRefFile& file)
 {
@@ -182,7 +181,6 @@ void CReferenceFs::OpenFile(CRefFile& file)
 	if (file.isdir())	THROW_ERROR(ERR_APP, L"[err] cannot open dir", file.fid);
 	file.m_is_open = true;
 	file.UpdateEncode(m_files);
-
 	m_opened++;
 }
 
@@ -191,7 +189,6 @@ void CReferenceFs::CloseFile(CRefFile& file)
 	if (!file.m_is_open) THROW_ERROR(ERR_APP, L"[err] file is not open");
 	file.m_is_open = false;
 	file.UpdateEncode(m_files);
-
 	m_opened--;
 }
 
@@ -204,7 +201,7 @@ void CReferenceFs::Demount(void)
 			m_files[ii].m_is_open = false;
 		}
 	}
-	m_reset_count++;
+	if (m_reset_count < MAX_FILE_VERSION) 	m_reset_count++;
 	m_opened = 0;
 }
 
@@ -215,7 +212,6 @@ UINT CReferenceFs::FindFileIndex(const char* path)
 	{
 		CRefFile& file = m_files[ii];
 		if (strcmp(path, file.m_fn) == 0){ return ii; }
-//		if (path == file.m_fn) { return ii; }
 		ii = file.next;
 	}
 	return ii;
@@ -257,8 +253,6 @@ void CReferenceFs::RemoveFile(const char* path)
 void CReferenceFs::MoveFile(const char* src, const char* dst)
 {
 	UINT ii = m_used_list;
-	//const char* _src = src.c_str();
-	//const char* _dst = dst.c_str();
 	size_t src_len = strlen(src);
 	size_t dst_len = strlen(dst);
 	char temp[MAX_PATH_SIZE + 1];
@@ -290,24 +284,57 @@ void CReferenceFs::MoveFile(const char* src, const char* dst)
 		THROW_ERROR(ERR_APP, L"[err] move source file %S does not find in ref fs", src);
 	}
 	CRefFile* parent = &m_files[tar_file->m_parent];
-	parent->m_write_count++;
+//	parent->m_write_count++;
+	if (parent->m_ver < MAX_FILE_VERSION) parent->m_ver++;
 	parent->UpdateEncode(m_files);
 }
 
-size_t CReferenceFs::Encode(char* code, size_t buf_len) const
+void CReferenceFs::EncodingAppendOp(TRACE_ENTRY& op)
+{
+	char code = 0;
+	switch (op.op_code)
+	{
+//		case OP_NOP:				code='';	break;
+//		case OP_NO_EFFECT:			code='';break;
+//		case OP_THREAD_CREATE: 		code='';break;
+//		case OP_THREAD_EXIT:		code='';break;
+		case OP_FILE_CREATE: 		code='F';break;
+//		case OP_FILE_CLOSE: 		code='';break;
+//		case OP_FILE_READ: 			code='';break;
+		case OP_FILE_WRITE: 		code='W';break;
+		case OP_FILE_FLUSH:			code='S';break;
+//		case OP_FILE_OPEN: 			code='';break;
+		case OP_FILE_DELETE: 		code='R';break;
+		case OP_FILE_OVERWRITE:		code='W';break;
+		case OP_DIR_CREATE: 		code='D';break;
+		case OP_DIR_DELETE: 		code='E';break;
+		case OP_MOVE:				code='M';break;
+//		case OP_DEMOUNT_MOUNT: 		code='';break;
+//		case OP_POWER_OFF_RECOVER:	code='';break;
+//		case OP_FILE_VERIFY:		code='';break;
+//		case OP_MARK_TRACE_BEGIN:	code = ''; break;
+		default: 					code =0; break;
+	}
+	if (code != 0) m_op_code[m_op_code_len++] = code;
+}
+
+size_t CReferenceFs::Encode(char* code, size_t buf_len, int op_len) const
 {
 	const char* encode = m_files[0].m_encode;
 	int len = m_files[0].m_encode_size;
 //	memset(code, 0, sizeof(code));
 	char* ptr = code;
-	if (m_reset_count < 10) {
-		*ptr = m_reset_count + '0';
-	}
-	else *ptr = '9';
-	ptr++;
-
 	memcpy_s(ptr, buf_len-1, encode, len);
 	ptr += len;
+
+	// fs version code
+	*ptr = m_reset_count + '0';		ptr++;
+	// last op code
+//	*ptr = m_op_code;			ptr++;
+	int copy_len = (op_len < m_op_code_len) ? op_len : m_op_code_len;
+	const char* start = m_op_code + m_op_code_len - copy_len;
+	memcpy_s(ptr, buf_len - (ptr - code) - 1, start, copy_len);
+	ptr += copy_len;
 	*ptr = 0;
 	return ptr -code;
 }
@@ -326,27 +353,24 @@ void CReferenceFs::CRefFile::InitFile(UINT parent_id, CRefFile * parent, const c
 	size = 0;
 	m_is_open = false;
 	m_is_dir = isdir;
+	m_ver = 0;
 	if (isdir)
-	{
-#if ENCODE_TYPE==1
-		strcpy_s(m_encode, "0011");
-		m_encode_size = 4;
+	{	// 目录
+#ifdef ENCODING_DYNAMIC
+		m_encode_size = sprintf_s(m_encode, MAX_ENCODE_SIZE, "[%d]", m_ver);
 #else
-		strcpy_s(m_encode, "[]");
-		m_encode_size = 2;
+		m_encode_size = sprintf_s(m_encode, MAX_ENCODE_SIZE, "[]");
 #endif
 	}
 	else
 	{
-#if ENCODE_TYPE==1
-		strcpy_s(m_encode, "01");
-		m_encode_size = 2;
+#ifdef ENCODING_DYNAMIC
+		m_encode_size = sprintf_s(m_encode, MAX_ENCODE_SIZE, "(%d)", m_ver);
 #else
-		strcpy_s(m_encode, "0");
-		m_encode_size = 1;
+		m_encode_size = sprintf_s(m_encode, MAX_ENCODE_SIZE, "(0)");
 #endif
 	}
-	m_write_count = 0;
+//	m_write_count = 0;
 	if (parent_id == (UINT)(-1)) m_depth = 0;
 	else {
 		JCASSERT(parent);
@@ -358,33 +382,14 @@ void CReferenceFs::CRefFile::InitFile(UINT parent_id, CRefFile * parent, const c
 void CReferenceFs::CRefFile::UpdateEncode(CRefFile* files)
 {
 	//检查是否是目录
-//	if (!isdir() ) THROW_ERROR(ERR_APP, L"[err] file cannot run encode");
 	char* ptr = m_encode;
-	if (!isdir())
-	{	// 构建文件的Encode
-		m_encode_size = 0;
-		if (m_is_open)
-		{
-			*ptr = '*';
-			ptr++;
-			m_encode_size++;
-		}
-		if (m_write_count <= 2) *ptr = '0' + m_write_count;
-		else					*ptr = '2';
-		ptr++;
-		m_encode_size++;
-	}
-	else
+
+	if (isdir())
 	{	// 构建目录的Encode
 
 		//对子节点排序
 		qsort_s(m_children, size, sizeof(_NID), CRefFile::CompareEncode, files);
-//		char* ptr = m_encode;
-#if ENCODE_TYPE==1
-	* ptr = '0';
-#else
 		* ptr = '[';
-#endif
 		ptr++;
 		m_encode_size = 1;
 		for (UINT ii = 0; ii < size; ++ii)
@@ -398,21 +403,29 @@ void CReferenceFs::CRefFile::UpdateEncode(CRefFile* files)
 			ptr += len;
 		}
 		// 最后添加 .
-#if ENCODE_TYPE==1
-	memcpy_s(ptr, MAX_ENCODE_SIZE - m_encode_size, "011", 4);
-	m_encode_size += 3;
-#else
-//		memcpy_s(ptr, MAX_ENCODE_SIZE - m_encode_size, "]", 2);
-		* ptr = ']';
-		m_encode_size += 1;
-		ptr++;
+#ifdef ENCODING_DYNAMIC
+		*ptr = '0' + m_ver;	ptr++;
+		m_encode_size ++;
 #endif
-		if (m_write_count <= 2) *ptr = '0' + m_write_count;
-		else					*ptr = '2';
-		ptr++;
-		m_encode_size++;
+		*ptr = ']'; 		ptr++;
+		m_encode_size ++;
 	}
-
+	else
+	{	// 构建文件的Encode
+#ifdef ENCODING_DYNAMIC
+		int ver = m_ver > MAX_FILE_VERSION ? MAX_FILE_VERSION : m_ver;
+#else
+#define SCALE (MAIN_BLK_NR / 10)
+		int blk_num = (size + BLOCK_SIZE - 1) / BLOCK_SIZE;
+		int ver = blk_num / SCALE;
+#endif
+		if (m_is_open) {
+			m_encode_size = sprintf_s(m_encode, MAX_ENCODE_SIZE, "(%d#)", ver);
+		}
+		else {
+			m_encode_size = sprintf_s(m_encode, MAX_ENCODE_SIZE, "(%d)", ver);
+		}
+	}
 	// 更新父节点的 Encode
 	if (m_parent > MAX_FILE_NUM) return;
 	CRefFile& parent = files[m_parent];

@@ -162,9 +162,10 @@ void CStorage::BlockWrite(LBLK_T lba, CPageInfo* page)
 	data->pre_write = m_cache_tail;
 	m_cache_tail = data;
 	m_cache_nr++;
-	LOG_DEBUG_(1, L"[storage] new storage data, lba=%d, ptr=%p, ref=%d", data->lba, data, data->m_ref);
-	LOG_DEBUG_(0, L"write block, storage=%p, lba=%d, type=%d, ptr=%p, ref=%d, pre_ver=%p, pre_write=%p", 
-		this, lba, block->m_type, data, data->m_ref, data->pre_ver, data->pre_write);
+//	LOG_DEBUG_(1, L"[storage] new storage data, lba=%d, ptr=%p, ref=%d", data->lba, data, data->m_ref);
+//	LOG_DEBUG_(0, L"write block, storage=%p, lba=%d, type=%d, ptr=%p, ref=%d, pre_ver=%p, pre_write=%p", 
+//		this, lba, block->m_type, data, data->m_ref, data->pre_ver, data->pre_write);
+	LOG_DEBUG_(0, L"write block, lba=%d, type=%S", lba, BLK_TYPE2STR(block->m_type));
 }
 
 void CStorage::BlockRead(LBLK_T lba, CPageInfo *page)
@@ -173,7 +174,7 @@ void CStorage::BlockRead(LBLK_T lba, CPageInfo *page)
 	// 检查数据是否在cache中
 	if (m_data[lba] == nullptr)
 	{
-		THROW_FS_ERROR(ERR_READ_NO_MAPPING_DATA, L"lba=%d is no mapping");
+		THROW_FS_ERROR(ERR_READ_NO_MAPPING_DATA, L"lba=%d is no mapping", "");
 	}
 	if (m_data[lba]->lba != lba)
 	{
@@ -428,6 +429,9 @@ CFsException::CFsException(ERROR_CODE code, const wchar_t* func, int line, const
 CFsException::CFsException(ERROR_CODE code, const wchar_t* func, int line, size_t buf_size, const wchar_t* msg, ...)
 	: jcvos::CJCException(L"", jcvos::CJCException::ERR_APP, (UINT)code)
 {
+	// ErrCodeToString: 长度约 30
+	// Format 长度约32
+	buf_size += (wcslen(func) + 100);
 	wchar_t* str = new wchar_t[buf_size];
 
 	int ptr = swprintf_s(str, buf_size, L"[Exception] <%s:%d> err=%d (%s)", func, line, code, ErrCodeToString(code));

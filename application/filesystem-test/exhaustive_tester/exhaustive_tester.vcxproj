@@ -161,6 +161,7 @@
     <ClInclude Include="include\f2fs_simulator.h" />
     <ClInclude Include="include\fs_simulator.h" />
     <ClInclude Include="include\blocks.h" />
+    <ClInclude Include="include\MurmurHash3.h" />
     <ClInclude Include="include\pages.h" />
     <ClInclude Include="include\reference_fs.h" />
     <ClInclude Include="include\storage.h" />
@@ -177,6 +178,7 @@
     <ClCompile Include="source\f2fs_segment.cpp" />
     <ClCompile Include="source\f2fs_simulator.cpp" />
     <ClCompile Include="source\fsck.cpp" />
+    <ClCompile Include="source\MurmurHash3.cpp" />
     <ClCompile Include="source\pages.cpp" />
     <ClCompile Include="source\pch.cpp" />
     <ClCompile Include="source\reference_fs.cpp" />

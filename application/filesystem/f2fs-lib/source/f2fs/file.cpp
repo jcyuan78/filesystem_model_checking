@@ -202,28 +202,19 @@ static inline enum cp_reason_type need_do_checkpoint(f2fs_inode_info *inode)
 	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
 	enum cp_reason_type cp_reason = CP_NO_NEEDED;
 
-	if (!S_ISREG(inode->i_mode))
-		cp_reason = CP_NON_REGULAR;
-	else if (f2fs_compressed_file(inode))
-		cp_reason = CP_COMPRESSED;
-	else if (inode->i_nlink != 1)
-		cp_reason = CP_HARDLINK;
-	else if (sbi->is_sbi_flag_set( SBI_NEED_CP))
-		cp_reason = CP_SB_NEED_CP;
-	else if (file_wrong_pino(inode))
-		cp_reason = CP_WRONG_PINO;
-	else if (!f2fs_space_for_roll_forward(sbi))
-		cp_reason = CP_NO_SPC_ROLL;
+	if (!S_ISREG(inode->i_mode))					cp_reason = CP_NON_REGULAR;
+	else if (f2fs_compressed_file(inode))			cp_reason = CP_COMPRESSED;
+	else if (inode->i_nlink != 1)					cp_reason = CP_HARDLINK;
+	else if (sbi->is_sbi_flag_set( SBI_NEED_CP))	cp_reason = CP_SB_NEED_CP;
+	else if (file_wrong_pino(inode))				cp_reason = CP_WRONG_PINO;
+	else if (!f2fs_space_for_roll_forward(sbi))		cp_reason = CP_NO_SPC_ROLL;
 	else if (!f2fs_is_checkpointed_node(sbi, F2FS_I(inode)->i_pino))
 		cp_reason = CP_NODE_NEED_CP;
-	else if (test_opt(sbi, FASTBOOT))
-		cp_reason = CP_FASTBOOT_MODE;
-	else if (F2FS_OPTION(sbi).active_logs == 2)
-		cp_reason = CP_SPEC_LOG_NUM;
+	else if (test_opt(sbi, FASTBOOT))				cp_reason = CP_FASTBOOT_MODE;
+	else if (F2FS_OPTION(sbi).active_logs == 2)		cp_reason = CP_SPEC_LOG_NUM;
 	else if (F2FS_OPTION(sbi).fsync_mode == FSYNC_MODE_STRICT &&
 		f2fs_need_dentry_mark(sbi, inode->i_ino) &&
-		f2fs_exist_written_data(sbi, F2FS_I(inode)->i_pino,
-							TRANS_DIR_INO))
+		f2fs_exist_written_data(sbi, F2FS_I(inode)->i_pino,	TRANS_DIR_INO))
 		cp_reason = CP_RECOVER_DIR;
 
 	return cp_reason;

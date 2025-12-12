@@ -165,14 +165,17 @@ ERROR_CODE CExTester::EnumerateOp_Thread(TRACE_ENTRY* ops, size_t op_size, CFsSt
 			continue;
 		}
 		CFsState* state = m_works[ii].state;
-		if (m_closed.Check(state))
-		{
+		//if (m_closed.Check(state))
+		//{
+		//	m_states.put(state);
+		//}
+		//else m_open_list.insert(insert, state);
+		if (m_closed.CheckAndInsert(state)) {
 			m_states.put(state);
 		}
-		else m_open_list.insert(insert, state);
 		m_works[ii].result = ERR_UNKNOWN;
 		// 更新file system参数
-		UpdateFsParam(m_works[ii].state->m_real_fs);
+		UpdateFsParam(m_works[ii].state);
 	}
 
 	//	double runtime = RUNNING_TIME;
@@ -254,7 +257,7 @@ ERROR_CODE CExTester::EnumerateOp_Thread_V2(TRACE_ENTRY* ops, size_t op_size, CF
 			}
 			else {
 				m_open_list.insert(insert, state);
-				UpdateFsParam(state->m_real_fs);
+				UpdateFsParam(state);
 				inserted++;
 			}
 		}
@@ -430,15 +433,12 @@ VOID CExTester::FsOperator_Callback(WORK_CONTEXT* context)
 		else ir = ERR_UNKNOWN;
 		err_msg = err.what();
 		printf_s("Test failed with code=%d, (%S) exception: %s\n", ir, CFsException::ErrCodeToString(ir), err.what());
-//		ir = ERR_GENERAL;
 	}
 	if (ir != ERR_OK && ir != ERR_NO_OPERATION)
 	{
 		if (context->state->m_depth < tester->m_error_list[ir])
 		{
 			InterlockedExchange(&tester->m_error_list[ir], context->state->m_depth);
-//			char str[512];
-//			sprintf_s(str, "[depth=%d], %s", context->state->m_depth, err_msg.c_str());
 			char str[32];
 			sprintf_s(str, "[depth=%d],", context->state->m_depth);
 			std::string ss = str;
@@ -448,7 +448,6 @@ VOID CExTester::FsOperator_Callback(WORK_CONTEXT* context)
 		}
 	}
 	context->result = ir;
-//	LOG_DEBUG(L"complete work: context=%p, op=%d, code=%d", context, op.op_sn, op.op_code);
 }
 
 bool CExTester::OutputTrace_Thread(CFsState* state, ERROR_CODE ir, const std::string& err, DWORD tid, DWORD _option)
@@ -464,7 +463,7 @@ bool CExTester::OutputTrace_Thread(CFsState* state, ERROR_CODE ir, const std::st
 	if (option == 0) {
 		option = TRACE_REF_FS | TRACE_SUMMARY;
 		if (ir != ERR_OK) {
-			option |= (TRACE_FILES | /*TRACE_ENCODE |*/ TRACE_JSON);
+			option |= (TRACE_FILES | TRACE_ENCODE | TRACE_JSON);
 		}
 	}
 	OutputTrace(fp, str_fn, state, option);
@@ -513,8 +512,11 @@ bool CExTester::OutputTrace(FILE* fp, const std::string& json_fn, CFsState* stat
 		fprintf_s(fp, "summary:\n");
 		RealFsState(fp, real_fs, true);
 	}
+	option |= ((m_closed.m_opcode_len) << 24);	// 将opcode长度传递下去
 	while (state)
 	{
+		state->OutputState(fp, option);
+/*
 		FSIZE logic_blk = 0;
 		fprintf_s(fp, "state=%p, parent=%p, depth=%d\n", state, state->m_parent, state->m_depth);
 		IFsSimulator* fs = state->m_real_fs;
@@ -532,8 +534,6 @@ bool CExTester::OutputTrace(FILE* fp, const std::string& json_fn, CFsState* stat
 				CFsException* _err = dynamic_cast<CFsException*>(&err);
 				ERROR_CODE ir = ERR_UNKNOWN;
 				if (_err) ir = _err->get_error_code();
-//				else ir = ERR_UNKNOWN;
-//				err_msg = err.what();
 				printf_s("Test failed with code=%d, (%S) exception: %s\n", ir, CFsException::ErrCodeToString(ir), err.what());
 			}
 
@@ -543,8 +543,9 @@ bool CExTester::OutputTrace(FILE* fp, const std::string& json_fn, CFsState* stat
 		}
 		if (option & TRACE_REF_FS) {
 			UINT ref_dir_nr = ref_fs.m_dir_num, ref_file_nr = ref_fs.m_file_num;
-			if (option & TRACE_ENCODE)	ref_fs.Encode(str_encode, MAX_ENCODE_SIZE);
-			else str_encode[0] = 0;
+//			if (option & TRACE_ENCODE)	ref_fs.Encode(str_encode, MAX_ENCODE_SIZE);
+//			else str_encode[0] = 0;
+			ref_fs.Encode(str_encode, MAX_ENCODE_SIZE);
 			fprintf_s(fp, "\tref_fs: dir=%d, file=%d, encode=%s\n ", ref_dir_nr, ref_file_nr, str_encode);
 		}
 
@@ -588,6 +589,7 @@ bool CExTester::OutputTrace(FILE* fp, const std::string& json_fn, CFsState* stat
 		Op2String(str, state->m_op);
 		fprintf_s(fp, "\t%s, result=%d (%S) %s\n", str, state->m_result, CFsException::ErrCodeToString(state->m_result),
 			state->m_err_msg ? state->m_err_msg->c_str():"");
+*/
 		if (option & TRACE_JSON)	stack.push_front(state);
 		state = state->m_parent;
 	}

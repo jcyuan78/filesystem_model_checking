@@ -180,7 +180,7 @@ int CF2fsSimulator::fsck_verify(F2FS_FSCK* fsck)
 			if (f2fs_test_node_bitmap(fsck, nn) == 0)
 			{	// 有未处理的node，
 				if (fsck->need_to_fix) {	// <TODO> 要作为orphan inode处理
-					LOG_ERROR(L"nid [%d] allocated but not used, blk=%d.", nn, blk);
+					LOG_ERROR(L"[err] nid [%d] allocated but not used, blk=%d.", nn, blk);
 					m_nat.put_node(nn);
 //					m_segments.InvalidBlock(blk);
 					fsck->fixed = true;
@@ -232,7 +232,7 @@ int CF2fsSimulator::fsck_chk_data_blk(F2FS_FSCK* fsck, _NID nid, WORD offset, PH
 	m_segments.GetBlockInfo(ssa_nid, ssa_offset, blk);
 	if ((ssa_nid != nid) || (ssa_offset != offset)) {
 		if (fsck->need_to_fix) {
-			LOG_ERROR(L"data [%d, %d], phy=%d in ssa does not match, ssa.nid=%d, ssa.offset=%d",
+			LOG_ERROR(L"[err] data [%d, %d], phy=%d in ssa does not match, ssa.nid=%d, ssa.offset=%d",
 				nid, offset, blk, ssa_nid, ssa_offset);
 			m_segments.SetBlockInfo(nid, offset, blk);
 			fsck->fixed = true;
@@ -301,7 +301,7 @@ int CF2fsSimulator::fsck_chk_node_blk(F2FS_FSCK* fsck, _NID nid, F2FS_FILE_TYPE 
 	m_segments.GetBlockInfo(ssa_nid, ssa_offset, blk);
 	if ((ssa_nid != nid) || (is_valid(ssa_offset)) ) {
 		if (fsck->need_to_fix) {
-			LOG_ERROR(L"nid [%d], block=%d in ssa does not match, ssa.nid=%d, ssa.offset=%d",
+			LOG_ERROR(L"[err] nid [%d], block=%d in ssa does not match, ssa.nid=%d, ssa.offset=%d",
 				nid, blk, ssa_nid, ssa_offset);
 			m_segments.SetBlockInfo(nid, INVALID_BLK, blk);
 			fsck->fixed = true;
@@ -405,4 +405,7 @@ int CF2fsSimulator::fsck_chk_index_blk(F2FS_FSCK* fsck, _NID nid, PHY_BLK blk, F
 	}
 	return 0;
 }
+
+
+
 

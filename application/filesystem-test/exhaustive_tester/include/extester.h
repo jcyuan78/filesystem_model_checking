@@ -7,8 +7,16 @@
 #include <boost/unordered_set.hpp>
 #include <boost/unordered_map.hpp>
 #include <boost/date_time/posix_time/posix_time.hpp>
+#include "../include/MurmurHash3.h"
+
+
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#define USE_BOOST_HASH
+//#define USE_HASH_ARRAY
+#define HASH_MURMUR
+
 
 #define MAX_WORK_NR		512
 //#define MAX_THREAD_NR	8
@@ -23,6 +31,9 @@
 //#define STATE_MANAGER_THREAD_SAFE
 
 #define USE_HEAP
+
+
+
 
 
 class CFsState
@@ -53,7 +64,7 @@ public:
 		m_ref_fs.Initialize();
 		m_real_fs = fs;
 	}
-	void OutputState(FILE* log_file);
+	void OutputState(FILE* log_file, DWORD option) const;
 	// 复制ref fs和real fs
 	void DuplicateFrom(CFsState* src_state);
 	// 仅复制ref fs, real fs共用一个实体。
@@ -112,27 +123,57 @@ struct ENCODE
 };
 #endif
 
+#ifdef HASH_MURMUR
+inline size_t hash_value(const ENCODE& e)
+{
+	static const uint32_t seed = 42;
+	UINT64 hash[2];
+	MurmurHash3_x64_128(e.code, CODE_SIZE, seed, hash);
+	return hash[0];
+}
+
+#else
 inline size_t hash_value(const ENCODE& e)
 {
 	size_t seed = 0;
 	for (int ii = 0; ii < CODE_SIZE; ++ii)	boost::hash_combine(seed, e.code[ii]);
 	return seed;
 }
+#endif
 
 class CStateHeap
 {
 public:
+	CStateHeap();
+	~CStateHeap();
+public:
 	//比较state是否已经被检查过，如果是，则返回true，否者添加并返回false；
-	bool Check(const CFsState* state);
-	void Insert(const CFsState* state);
+//	bool Check(const CFsState* state);
+//	void Insert(const CFsState* state);
 	bool CheckAndInsert(const CFsState* state);
-	size_t StateNr(void) const {
-		return m_fs_state.size();
-	}
+#if defined USE_BOOST_HASH
+	//size_t StateNr(void) const {
+	//	return m_fs_state.size();
+	//}
 	size_t size(void) { return m_fs_state.size(); }
+	int m_opcode_len = 3;
+
 protected:
-//	boost::unordered_set<ENCODE> m_fs_state;
-	boost::unordered_map<ENCODE, int> m_fs_state;
+	boost::unordered_map<ENCODE,int> m_fs_state;
+
+#elif defined USE_HASH_ARRAY
+
+	size_t size(void) { return m_hashed; }
+protected:
+//	boost::unordered_map<ENCODE, int> m_fs_state;
+//	int m_states[0x10000000];
+
+	WORD* m_states;
+	size_t m_hashed = 0;
+#endif
+
+	// 操作码的编码长度取几位？有config file配置
+
 };
 
 class CExTester;
@@ -167,12 +208,20 @@ public:
 	CExTester(void);
 	virtual ~CExTester(void);
 
+	enum TRACE_OPTION {
+		TRACE_FILES = 0x00000001, TRACE_REAL_FS = 0x00000002, TRACE_GC = 0x00000004,
+		TRACE_ENCODE = 0x00000008, TRACE_REF_FS = 0x00000010, TRACE_JSON = 0x00000020,
+		TRACE_SUMMARY = 0x00000040, TRACE_DUMP_FS = 0x00000080,
+	};
+
 public:
 	virtual int StartTest(void);
 	virtual int PrepareTest(const boost::property_tree::wptree & config, IFsSimulator * fs, const std::wstring& log_path);
 	// 上层程序调用StopTest来强制终止目前测测试。
 	virtual void StopTest(void);
 	virtual void GetTestSummary(boost::property_tree::wptree& sum);
+
+
 
 	// 多态化
 protected:
@@ -231,18 +280,15 @@ protected:
 		std::list<CFsState*>::iterator& insert);
 
 
-	enum TRACE_OPTION {
-		TRACE_FILES	= 0x00000001,	TRACE_REAL_FS	= 0x00000002,	TRACE_GC	= 0x00000004,
-		TRACE_ENCODE= 0x00000008,	TRACE_REF_FS	= 0x00000010,	TRACE_JSON	= 0x00000020,
-		TRACE_SUMMARY=0x00000040,
-	};
+
 	// for monitor thread
 	static DWORD WINAPI _RunTest(PVOID p);
 	virtual bool PrintProgress(INT64 ts);
 	bool OutputTrace(CFsState* state);
 	bool OutputTrace_Thread(CFsState* state, ERROR_CODE ir, const std::string & err, DWORD trace_id=0, DWORD option=0);
 	bool OutputTrace(FILE* out_file, const std::string & json_fn, CFsState* state, DWORD option);
-	void UpdateFsParam(IFsSimulator* fs);
+//	void UpdateFsParam(IFsSimulator* fs);
+	void UpdateFsParam(CFsState* state);
 	void RealFsState(FILE* out_file, IFsSimulator* real_fs, bool file_nr );
 
 protected:
@@ -300,7 +346,7 @@ protected:
 
 	// 文件系统性能（所有状态节点中最大的）
 	FS_INFO m_max_fs_info;
-	UINT m_total_item_num = 0, m_file_num=0;			// 总文件,目录数量 , 
+	UINT m_total_item_num = 0, m_file_num=0, m_dir_num=0;			// 总文件,目录数量 , 
 	UINT m_logical_blks = 0, m_physical_blks = 0, m_total_blks, m_free_blks = -1;	// 逻辑饱和度，物理饱和度，空闲块
 	LONG64 m_host_write=0, m_media_write=0;
 	// 文件系统参数，用于限制测试范围
@@ -416,7 +462,7 @@ protected:
 	fflush(m_log_file); }}
 
 
-template <size_t N> void Op2String(char(&str)[N], TRACE_ENTRY& op)
+template <size_t N> void Op2String(char(&str)[N], const TRACE_ENTRY& op)
 {
 	const char* op_name = NULL;
 	char str_param[128] = "";

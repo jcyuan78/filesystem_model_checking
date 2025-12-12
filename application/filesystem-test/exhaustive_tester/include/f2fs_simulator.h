@@ -160,6 +160,8 @@ public:
 	// 通过dump相应的log到指定输出
 	virtual void DumpLog(FILE* out, const char* log_name);
 
+	virtual void DumpFs(FILE* out);
+
 #ifdef ENABLE_FS_TRACE
 	void fs_trace(const char* op, _NID fid, DWORD start_blk, DWORD blk_nr);
 #else
@@ -170,6 +172,13 @@ protected:
 	void DumpCheckpoint(FILE * out, const CKPT_BLOCK& checkpoint);
 	void DumpNatPage(FILE* out);
 	void DumpFile(_NID fid);
+
+//	int dump_node_blk(FILE* out, std::string path, _NID nid, F2FS_FILE_TYPE file_type, BLOCK_DATA::BLOCK_TYPE block_type);
+	int dump_inode_blk(FILE* out, std::string path, _NID ino); // , PHY_BLK blk, /*F2FS_FILE_TYPE file_type,*/ NODE_INFO& node_data);
+	int dump_index_blk(FILE* out, std::string path, _NID nid, /*PHY_BLK blk,*/ F2FS_FILE_TYPE file_type/*, NODE_INFO& node_data*/);
+	int dump_data_blk(FILE* out, std::string path, _NID nid, WORD offset, PHY_BLK blk, F2FS_FILE_TYPE file_type);
+
+
 
 // functions for fsck
 protected:

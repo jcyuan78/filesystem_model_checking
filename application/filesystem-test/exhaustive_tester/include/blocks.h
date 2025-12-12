@@ -72,6 +72,8 @@ struct NAT_BLOCK
 
 #define NODE_NEXT_FREE node.m_nid
 
+
+
 struct BLOCK_DATA
 {
 	enum BLOCK_TYPE { 
@@ -90,6 +92,23 @@ struct BLOCK_DATA
 		CKPT_SIT_JOURNAL	ckpt_sit_nournal;
 	};
 };
+
+inline const char* BLK_TYPE2STR(BLOCK_DATA::BLOCK_TYPE type)
+{
+	switch (type) {
+	case BLOCK_DATA::BLOCK_FREE:			return "FREE";
+	case BLOCK_DATA::BLOCK_INODE:			return "INODE";
+	case BLOCK_DATA::BLOCK_INDEX:			return "INDEX";
+	case BLOCK_DATA::BLOCK_DENTRY:			return "DENTRY";
+	case BLOCK_DATA::BLOCK_SIT:				return "SIT";
+	case BLOCK_DATA::BLOCK_NAT:				return "NAT";
+	case BLOCK_DATA::BLOCK_FILE_DATA:		return "FILE";
+	case BLOCK_DATA::BLOCK_CKPT_HEADER:		return "CKPT";
+	case BLOCK_DATA::BLOCK_CKPT_NAT_JOURNAL:	return "CKPT_NAT_JOURNAL";
+	case BLOCK_DATA::BLOCK_CKPT_SIT_JOURNAL:	return "CKPT_SIT_JOURNAL";
+	default:								return "UNKNOWN_BLOCK_TYPE";
+	}
+}
 
 
 // 管理Buffer，模拟文件系统的页缓存。

@@ -7,7 +7,6 @@ LOCAL_LOGGER_ENABLE(L"simulator.segment", LOGGER_LEVEL_DEBUGINFO);
 
 #define SORTING HEAP
 
-
 CF2fsSegmentManager::CF2fsSegmentManager(CF2fsSimulator* fs)
 {
 	m_fs = fs;
@@ -40,7 +39,9 @@ void CF2fsSegmentManager::CopyFrom(const CF2fsSegmentManager& src/*, CF2fsSimula
 	memcpy_s(m_cur_segs, sizeof(m_cur_segs), src.m_cur_segs, sizeof(m_cur_segs) );
 	memcpy_s(m_dirty_map, sizeof(m_dirty_map), src.m_dirty_map, sizeof(m_dirty_map));
 	m_free_nr = src.m_free_nr;
-	//m_free_tail = src.m_free_tail;
+#ifdef FIFO_SEG
+	m_free_tail = src.m_free_tail;
+#endif
 	m_free_head = src.m_free_head;
 	m_used_blk_nr = src.m_used_blk_nr;
 	memset(&m_data_cache, 0xFF, sizeof(m_data_cache));
@@ -52,8 +53,12 @@ void CF2fsSegmentManager::Reset(void)
 	memset(m_dirty_map, 0, sizeof(m_dirty_map));
 	memset(m_cur_segs, 0xFF, sizeof(m_cur_segs) );
 	m_free_nr = 0;
+#ifdef FIFO_SEG
 	m_free_head = INVALID_BLK;
-//	m_free_tail = INVALID_BLK;
+	m_free_tail = INVALID_BLK;
+#else
+	m_free_head = INVALID_BLK;
+#endif
 	memset(&m_data_cache, 0xFF, sizeof(m_data_cache));
 }
 
@@ -98,8 +103,6 @@ void CF2fsSegmentManager::f2fs_flush_sit_entries(CKPT_BLOCK& checkpoint)
 			if (checkpoint.header.sit_journal_nr >= JOURNAL_NR)
 			{
 				f2fs_out_sit_journal(sit_pages, checkpoint);
-//				m_fs->m_health_info.sit_journal_overflow++;
-//				LOG_ERROR(L"[err] too many sit journal.");
 			}
 			int index = checkpoint.header.sit_journal_nr;
 			checkpoint.sit_journals[index].seg_no = seg;
@@ -257,11 +260,19 @@ bool CF2fsSegmentManager::Load(CKPT_BLOCK& checkpoint)
 // 查找一个空的segment
 SEG_T CF2fsSegmentManager::AllocSegment(BLK_TEMP temp, bool by_gc, bool force)
 {
-	if (m_free_nr == 0 || is_invalid(m_free_head) /*|| is_invalid(m_free_tail)*/ )
+#ifdef FIFO_SEG
+	if (m_free_nr == 0 || is_invalid(m_free_head) || is_invalid(m_free_tail) )
 	{
 		THROW_ERROR(ERR_USER, L"no engouh empty segment");
 		return INVALID_BLK;
 	}
+#else
+	if (m_free_nr == 0 || is_invalid(m_free_head))
+	{
+		THROW_ERROR(ERR_USER, L"no engouh empty segment");
+		return INVALID_BLK;
+	}
+#endif
 
 	if (m_free_nr <= RESERVED_SEG && !by_gc)
 	{	// segment不够，尝试回收空间
@@ -277,6 +288,7 @@ SEG_T CF2fsSegmentManager::AllocSegment(BLK_TEMP temp, bool by_gc, bool force)
 	}
 	// de-queue
 	SEG_T new_seg = free_de_queue();
+	LOG_DEBUG(L"[seg] allocate segment: seg=%d, free_nr=%d, head=%d", new_seg, m_free_nr, m_free_head);
 //	LOG_DEBUG_(1, L"[free_seg]:allocate, seg=%d, free_nr=%d, tail=%d, head=%d", new_seg, m_free_nr, m_free_tail, m_free_head);
 
 	// Initial Segment
@@ -299,56 +311,65 @@ void CF2fsSegmentManager::FreeSegment(SEG_T seg_id)
 	// en-queue
 	free_en_queue(seg_id);
 //	LOG_DEBUG_(1, L"[free_seg]:free, seg=%d, free_nr=%d, tail=%d, head=%d", seg_id, m_free_nr, m_free_tail, m_free_head);
+	LOG_DEBUG(L"[seg] free, seg=%d, free_nr=%d, head=%d", seg_id, m_free_nr, m_free_head);
 	// 将seg放入free list中；
 	set_dirty(seg_id);
 }
 
 void CF2fsSegmentManager::free_en_queue(SEG_T ii)
 {
-	//if (is_valid(m_free_head)) {
-	//	// 原来队列不空
-	//	m_segments[ii].free_next = m_segments[m_free_head].free_next;
-	//	m_segments[m_free_head].free_next = ii;
-	//	m_free_head = ii;
-	//}
-	//else {	// 原来队列为空
-	//	JCASSERT(is_invalid(m_free_tail));
-	//	m_segments[ii].free_next = ii;
-	//	m_free_head = ii;
-	//	m_free_tail = ii;
-	//}
+#ifdef FIFO_SEG
+	if (is_valid(m_free_head)) {
+		// 原来队列不空
+		m_segments[ii].free_next = m_segments[m_free_head].free_next;
+		m_segments[m_free_head].free_next = ii;
+		m_free_head = ii;
+	}
+	else {	// 原来队列为空
+		JCASSERT(is_invalid(m_free_tail));
+		m_segments[ii].free_next = ii;
+		m_free_head = ii;
+		m_free_tail = ii;
+	}
+#else
 	m_segments[ii].free_next = m_free_head;
 	m_free_head = ii;
+#endif
 	m_free_nr++;
 }
 
 SEG_T CF2fsSegmentManager::free_de_queue(void)
 {
-	//if (is_invalid(m_free_head) || is_invalid(m_free_tail)) {
-	//	THROW_ERROR(ERR_APP, L"free que is empty, free_nr=%d, tail=%d, head=%d", m_free_nr, m_free_tail, m_free_head);
-	//}
-	//SEG_T new_seg = m_free_tail;
-	//if (m_free_tail == m_free_head) {
-	//	m_free_tail = INVALID_BLK;
-	//	m_free_head = INVALID_BLK;
-	//}
-	//else {
-	//	m_free_tail = m_segments[new_seg].free_next;
-	//	m_segments[m_free_head].free_next = m_free_tail;
-	//}
+#ifdef FIFO_SEG
+	if (is_invalid(m_free_head) || is_invalid(m_free_tail)) {
+		THROW_FS_ERROR(ERR_GENERAL, L"free que is empty, free_nr=%d, tail=%d, head=%d", m_free_nr, m_free_tail, m_free_head);
+	}
+	SEG_T new_seg = m_free_tail;
+	if (m_free_tail == m_free_head) {
+		m_free_tail = INVALID_BLK;
+		m_free_head = INVALID_BLK;
+	}
+	else {
+		m_free_tail = m_segments[new_seg].free_next;
+		m_segments[m_free_head].free_next = m_free_tail;
+	}
+#else
 	if (is_invalid(m_free_head)) {
 		THROW_ERROR(ERR_APP, L"free que is empty, free_nr=%d, head=%d", m_free_nr, m_free_head);
 	}
 	SEG_T new_seg = m_free_head;
 	m_free_head = m_segments[new_seg].free_next;
 	m_segments[new_seg].free_next = INVALID_BLK;
+#endif
 	m_free_nr--;
 	return new_seg;
 }
 
 void CF2fsSegmentManager::build_free_link(void)
 {
-//	m_free_tail = INVALID_BLK;
+#ifdef FIFO_SEG
+	m_free_tail = INVALID_BLK;
+#endif
 	m_free_head = INVALID_BLK;
 	m_free_nr = 0;
 	m_used_blk_nr = 0;

@@ -167,7 +167,7 @@ bool CF2fsSimulator::Initialzie(const boost::property_tree::wptree& config, cons
 	CPageInfo* root_page = m_pages.allocate(true);
 	BLOCK_DATA* root_node = m_pages.get_data(root_page);
 	if (!InitInode(root_node, root_page, F2FS_FILE_DIR))	{
-		THROW_FS_ERROR(ERR_GENERAL, L"node full during make fs");
+		THROW_FS_ERROR(ERR_GENERAL, L"node full during make fs", L"");
 	}
 	root_node->node.m_ino = ROOT_FID;
 	root_node->node.m_nid = ROOT_FID;
@@ -177,7 +177,7 @@ bool CF2fsSimulator::Initialzie(const boost::property_tree::wptree& config, cons
 	m_nat.node_cache[ROOT_FID] = m_pages.page_id(root_page);
 	PHY_BLK root_phy = UpdateInode(root_page, "CREATE");	// 写入磁盘
 	if (is_invalid(root_phy)) {
-		THROW_FS_ERROR(ERR_GENERAL, L"no enough segment during make fs");
+		THROW_FS_ERROR(ERR_GENERAL, L"no enough segment during make fs", L"");
 	}
 	m_nat.set_phy_blk(ROOT_FID, root_phy);
 
@@ -261,7 +261,7 @@ NODE_INFO& CF2fsSimulator::ReadNode(_NID nid, CPageInfo * & page)
 		m_nat.node_cache[nid] = m_pages.page_id(page);
 		block = m_pages.get_data(page);
 		if (block->m_type != BLOCK_DATA::BLOCK_INDEX && block->m_type != BLOCK_DATA::BLOCK_INODE) {
-			THROW_ERROR(ERR_APP, L"block phy-%d is not a node block, nid=%d", blk, nid);
+			THROW_FS_ERROR(ERR_WRONG_BLOCK_TYPE, L"block phy-%d is not a node block, nid=%d", blk, nid);
 		}		
 		if (block->m_type == BLOCK_DATA::BLOCK_INODE) block->node.inode.ref_count = 0;
 		
@@ -338,11 +338,11 @@ bool CF2fsSimulator::CloseInode(CPageInfo* &ipage)
 	bool dirty = false;
 
 	BLOCK_DATA* data = m_pages.get_data(ipage);
-	if (data->m_type != BLOCK_DATA::BLOCK_INODE) THROW_ERROR(ERR_USER, L"data in the page is not an inode");
+	if (data->m_type != BLOCK_DATA::BLOCK_INODE) THROW_FS_ERROR(ERR_WRONG_BLOCK_TYPE, L"data in the page is not an inode", L"");
 	_NID ino = data->node.m_nid;
 	if (ipage->nid != ino)
 	{
-		THROW_ERROR(ERR_USER, L"nid does not match in data (%d) and page (%d)", ino, ipage->nid);
+		THROW_FS_ERROR(ERR_INVALID_NID, L"nid does not match in data (%d) and page (%d)", ino, ipage->nid);
 	}
 	INODE & inode = data->node.inode;
 
@@ -372,7 +372,7 @@ bool CF2fsSimulator::CloseInode(CPageInfo* &ipage)
 				CPageInfo* page = m_pages.page(page_id);
 				if (page->dirty)
 				{	// <TODO> page的nid和offset应该在page申请时设置
-					if (page->nid != nid) THROW_ERROR(ERR_USER, L"nid does not match in data (%d) and page (%d)", nid, page->nid);
+					if (page->nid != nid) THROW_FS_ERROR(ERR_INVALID_NID, L"nid does not match in data (%d) and page (%d)", nid, page->nid);
 					PHY_BLK phy = m_segments.WriteBlockToSeg(page, true);
 					if (is_invalid(phy))		{
 						m_pages.free(page);
@@ -423,7 +423,7 @@ void CF2fsSimulator::UpdateIndex(_NID nid, UINT offset, PHY_BLK phy_blk)
 	// 更新index
 	if (is_invalid(node->index.index[offset]))
 	{
-		THROW_ERROR(ERR_USER, L"data block in index is invalid, index nid=%d, offset=%d", nid, offset);
+		THROW_FS_ERROR(ERR_INVALID_BLK, L"data block in index is invalid, index nid=%d, offset=%d", nid, offset);
 	}
 	node->index.index[offset] = phy_blk;
 	// 回写nid，这个函数旨在GC中被调用，不需要再次触发GC。
@@ -522,7 +522,7 @@ ERROR_CODE CF2fsSimulator::add_link(NODE_INFO* parent, const char* fn, _NID fid)
 
 	// 向dentry写入文件
 	if (index_start >= DENTRY_PER_BLOCK || dentry_page == nullptr) {
-		THROW_ERROR(ERR_APP, L"failed on alloacting dentry block");
+		THROW_FS_ERROR(ERR_NO_SPACE, L"failed on alloacting dentry block", L"");
 	}
 	BLOCK_DATA* dentry_block = m_pages.get_data(dentry_page);
 	DENTRY_BLOCK& entries = dentry_block->dentry;
@@ -606,7 +606,7 @@ void CF2fsSimulator::unlink(_NID fid, const char * fn, CPageInfo * parent_page)
 				if (entries.bitmap == 0) FileTruncateInternal(parent_page, blk, blk+1);
 				else if (page->dirty) {
 					UINT written = FileWriteInternal(parent, blk, blk+1, &page, true);
-					if (written == 0) THROW_FS_ERROR(ERR_DELETE_DIR, L"no resource when delete link");
+					if (written == 0) THROW_FS_ERROR(ERR_DELETE_DIR, L"no resource when delete link", L"");
 				}
 				m_pages.free(page);
 				break;
@@ -1048,7 +1048,7 @@ ERROR_CODE CF2fsSimulator::sync_fs(void)
 		if (dirty_nr == 0) break;
 		// 保存index, 可能是因为gc打开的index page
 		ERROR_CODE ir = f2fs_sync_node_page();
-		if (ir != ERR_OK) THROW_FS_ERROR(ERR_SYNC, L"[err] segment is not enough when sync_node()");
+		if (ir != ERR_OK) THROW_FS_ERROR(ERR_SYNC, L"[err] segment is not enough when sync_node()", "");
 		retry--;
 	}
 	if (retry <= 0) {
@@ -1118,7 +1118,7 @@ int CF2fsSimulator::load_checkpoint()
 	else if (ckpt_ver[0])	{ cur_ckpt = 0; }
 	else if (ckpt_ver[1]) { cur_ckpt = 1; }
 	else {
-		THROW_FS_ERROR(ERR_CKPT_FAIL, L"neigher checkpoing is validate");
+		THROW_FS_ERROR(ERR_CKPT_FAIL, L"neigher checkpoing is validate", L"");
 		return -1;
 	}
 	LOG_DEBUG(L"get valid checkpoint, id=%d, version=%d", cur_ckpt, ckpt_ver[cur_ckpt]);

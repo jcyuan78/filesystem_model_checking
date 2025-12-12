@@ -14,10 +14,13 @@ typedef WORD _NID;
 #define MAX_CHILD_NUM	(64)
 
 #define MAX_ENCODE_SIZE (MAX_FILE_NUM *2)
+#define MAX_FILE_VERSION (2)
 
 //#define INVALID_BLK		(0xFFFFFFFF)
 
 //#undef _NID
+
+//#define ENCODING_DYNAMIC
 
 enum OP_CODE
 {
@@ -83,7 +86,7 @@ public:
 		_NID m_children[MAX_CHILD_NUM];
 		UINT m_parent;		// 父节点id;
 		UINT m_depth;		// 目录深度
-		int m_write_count;	// 对于文件，写入次数，版本号
+		int m_ver =0 ;			// 版本号	
 		_NID fid;
 		bool m_is_open;		// 这个文件是否被打开
 		bool m_is_dir;
@@ -101,7 +104,7 @@ public:
 		}
 		inline bool isdir(void) const { return m_is_dir; }
 		inline int depth(void) const { return m_depth; }
-		inline int write_count(void) const { return m_write_count; }
+		inline int write_count(void) const { return m_ver; }
 		inline UINT child_num(void) const { return size; }
 		inline _NID get_fid(void) const { return fid; }
 		inline bool is_open(void) const { return m_is_open; }
@@ -132,21 +135,11 @@ public:
 	inline bool IsDir(const CRefFile& file) const { return file.isdir(); }
 	void RemoveFile(const char* path);
 	void MoveFile(const char* src, const char* dst);
+	void EncodingAppendOp(TRACE_ENTRY& op);
 
 	// 对树进行同构编码，用于判断树的同构性
-#if 0
-	template <size_t S>
-	int Encode(DWORD(&code)[S]) const
-	{
-		const char* encode = m_files[0].m_encode;
-		int len = m_files[0].m_encode_size;
-		memset(code, 0, sizeof(code));
-		memcpy_s(code, sizeof(DWORD) * S, encode, len);
-		return len;
-	}
-#else
-	size_t Encode(char* code, size_t buf_len) const;
-#endif
+	// 参数：输出缓存，缓存长度，操作码编码长度
+	size_t Encode(char* code, size_t buf_len, int op_len) const;
 	void GetFilePath(const CRefFile& file, std::string & path) const;
 
 protected:
@@ -183,4 +176,6 @@ protected:
 	UINT m_used_list;
 	UINT m_free_num;
 	UINT m_opened =0;		// 打开的文件数量
+	char m_op_code[20];
+	BYTE m_op_code_len = 0;
 };
